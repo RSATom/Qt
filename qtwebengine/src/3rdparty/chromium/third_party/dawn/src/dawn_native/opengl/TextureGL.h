@@ -40,15 +40,14 @@ namespace dawn_native { namespace opengl {
         void EnsureSubresourceContentInitialized(uint32_t baseMipLevel,
                                                  uint32_t levelCount,
                                                  uint32_t baseArrayLayer,
-                                                 uint32_t layerCount,
-                                                 bool isLazyClear = true);
+                                                 uint32_t layerCount);
 
       private:
         void DestroyImpl() override;
         MaybeError ClearTexture(GLint baseMipLevel,
                                 GLint levelCount,
                                 GLint baseArrayLayer,
-                                uint32_t layerCount,
+                                GLint layerCount,
                                 TextureBase::ClearValue clearValue);
 
         GLuint mHandle;

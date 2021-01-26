@@ -19,12 +19,13 @@
 
 #if SK_SUPPORT_GPU
 
-#include "include/gpu/GrSurface.h"
+#include "src/gpu/GrSurface.h"
 #include "src/gpu/mtl/GrMtlTextureRenderTarget.h"
 
 #ifdef SK_METAL
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <MetalKit/MetalKit.h>
 
 sk_sp<SkSurface> SkSurface::MakeFromCAMetalLayer(GrContext* context,
                                                  GrMTLHandle layer,
@@ -42,39 +43,28 @@ sk_sp<SkSurface> SkSurface::MakeFromCAMetalLayer(GrContext* context,
 
     GrColorType grColorType = SkColorTypeToGrColorType(colorType);
 
-    GrPixelConfig config = caps->getConfigFromBackendFormat(backendFormat, grColorType);
-    if (config == kUnknown_GrPixelConfig) {
-        return nullptr;
-    }
-
-    GrSurfaceDesc desc;
-    desc.fWidth = metalLayer.drawableSize.width;
-    desc.fHeight = metalLayer.drawableSize.height;
-    desc.fConfig = config;
+    SkISize dims = {(int)metalLayer.drawableSize.width, (int)metalLayer.drawableSize.height};
 
     GrProxyProvider::TextureInfo texInfo;
     texInfo.fMipMapped = GrMipMapped::kNo;
     texInfo.fTextureType = GrTextureType::k2D;
 
     sk_sp<GrRenderTargetProxy> proxy = proxyProvider->createLazyRenderTargetProxy(
-            [layer, drawable, sampleCnt, config](GrResourceProvider* resourceProvider) {
+            [layer, drawable, sampleCnt](GrResourceProvider* resourceProvider) {
                 CAMetalLayer* metalLayer = (__bridge CAMetalLayer*)layer;
                 id<CAMetalDrawable> currentDrawable = [metalLayer nextDrawable];
 
-                GrSurfaceDesc desc;
-                desc.fWidth = metalLayer.drawableSize.width;
-                desc.fHeight = metalLayer.drawableSize.height;
-                desc.fConfig = config;
+                SkISize dims = {(int)metalLayer.drawableSize.width,
+                                (int)metalLayer.drawableSize.height};
 
                 GrMtlGpu* mtlGpu = (GrMtlGpu*) resourceProvider->priv().gpu();
                 sk_sp<GrRenderTarget> surface;
                 if (metalLayer.framebufferOnly) {
-                    surface = GrMtlRenderTarget::MakeWrappedRenderTarget(
-                                      mtlGpu, desc, sampleCnt, currentDrawable.texture);
+                    surface = GrMtlRenderTarget::MakeWrappedRenderTarget(mtlGpu, dims, sampleCnt,
+                                                                         currentDrawable.texture);
                 } else {
                     surface = GrMtlTextureRenderTarget::MakeWrappedTextureRenderTarget(
-                                      mtlGpu, desc, sampleCnt, currentDrawable.texture,
-                                      GrWrapCacheable::kNo);
+                            mtlGpu, dims, sampleCnt, currentDrawable.texture, GrWrapCacheable::kNo);
                 }
                 if (surface && sampleCnt > 1) {
                     surface->setRequiresManualMSAAResolve();
@@ -84,9 +74,8 @@ sk_sp<SkSurface> SkSurface::MakeFromCAMetalLayer(GrContext* context,
                 return GrSurfaceProxy::LazyCallbackResult(std::move(surface));
             },
             backendFormat,
-            desc,
+            dims,
             sampleCnt,
-            origin,
             sampleCnt > 1 ? GrInternalSurfaceFlags::kRequiresManualMSAAResolve
                           : GrInternalSurfaceFlags::kNone,
             metalLayer.framebufferOnly ? nullptr : &texInfo,
@@ -97,17 +86,90 @@ sk_sp<SkSurface> SkSurface::MakeFromCAMetalLayer(GrContext* context,
             false,
             GrSurfaceProxy::UseAllocator::kYes);
 
-    auto c = context->priv().makeWrappedSurfaceContext(std::move(proxy),
-                                                       grColorType,
-                                                       kPremul_SkAlphaType,
-                                                       colorSpace,
-                                                       surfaceProps);
-    SkASSERT(c->asRenderTargetContext());
-    std::unique_ptr<GrRenderTargetContext> rtc(c.release()->asRenderTargetContext());
+    GrSwizzle readSwizzle = caps->getReadSwizzle(backendFormat, grColorType);
+    GrSwizzle writeSwizzle = caps->getWriteSwizzle(backendFormat, grColorType);
+
+    GrSurfaceProxyView readView(proxy, origin, readSwizzle);
+    GrSurfaceProxyView writeView(std::move(proxy), origin, writeSwizzle);
+
+    auto rtc = std::make_unique<GrRenderTargetContext>(context, std::move(readView),
+                                                       std::move(writeView), grColorType,
+                                                       colorSpace, surfaceProps);
 
     sk_sp<SkSurface> surface = SkSurface_Gpu::MakeWrappedRenderTarget(context, std::move(rtc));
     return surface;
 }
+
+sk_sp<SkSurface> SkSurface::MakeFromMTKView(GrContext* context,
+                                            GrMTLHandle view,
+                                            GrSurfaceOrigin origin,
+                                            int sampleCnt,
+                                            SkColorType colorType,
+                                            sk_sp<SkColorSpace> colorSpace,
+                                            const SkSurfaceProps* surfaceProps) {
+    GrProxyProvider* proxyProvider = context->priv().proxyProvider();
+    const GrCaps* caps = context->priv().caps();
+
+    MTKView* mtkView = (__bridge MTKView*)view;
+    GrBackendFormat backendFormat = GrBackendFormat::MakeMtl(mtkView.colorPixelFormat);
+
+    GrColorType grColorType = SkColorTypeToGrColorType(colorType);
+
+    SkISize dims = {(int)mtkView.drawableSize.width, (int)mtkView.drawableSize.height};
+
+    GrProxyProvider::TextureInfo texInfo;
+    texInfo.fMipMapped = GrMipMapped::kNo;
+    texInfo.fTextureType = GrTextureType::k2D;
+
+    sk_sp<GrRenderTargetProxy> proxy = proxyProvider->createLazyRenderTargetProxy(
+            [view, sampleCnt](GrResourceProvider* resourceProvider) {
+                MTKView* mtkView = (__bridge MTKView*)view;
+                id<CAMetalDrawable> currentDrawable = [mtkView currentDrawable];
+
+                SkISize dims = {(int)mtkView.drawableSize.width, (int)mtkView.drawableSize.height};
+
+                GrMtlGpu* mtlGpu = (GrMtlGpu*) resourceProvider->priv().gpu();
+                sk_sp<GrRenderTarget> surface;
+                if (mtkView.framebufferOnly) {
+                    surface = GrMtlRenderTarget::MakeWrappedRenderTarget(mtlGpu, dims, sampleCnt,
+                                                                         currentDrawable.texture);
+                } else {
+                    surface = GrMtlTextureRenderTarget::MakeWrappedTextureRenderTarget(
+                            mtlGpu, dims, sampleCnt, currentDrawable.texture, GrWrapCacheable::kNo);
+                }
+                if (surface && sampleCnt > 1) {
+                    surface->setRequiresManualMSAAResolve();
+                }
+
+                return GrSurfaceProxy::LazyCallbackResult(std::move(surface));
+            },
+            backendFormat,
+            dims,
+            sampleCnt,
+            sampleCnt > 1 ? GrInternalSurfaceFlags::kRequiresManualMSAAResolve
+                          : GrInternalSurfaceFlags::kNone,
+            mtkView.framebufferOnly ? nullptr : &texInfo,
+            GrMipMapsStatus::kNotAllocated,
+            SkBackingFit::kExact,
+            SkBudgeted::kYes,
+            GrProtected::kNo,
+            false,
+            GrSurfaceProxy::UseAllocator::kYes);
+
+    GrSwizzle readSwizzle = caps->getReadSwizzle(backendFormat, grColorType);
+    GrSwizzle writeSwizzle = caps->getWriteSwizzle(backendFormat, grColorType);
+
+    GrSurfaceProxyView readView(proxy, origin, readSwizzle);
+    GrSurfaceProxyView writeView(std::move(proxy), origin, writeSwizzle);
+
+    auto rtc = std::make_unique<GrRenderTargetContext>(context, std::move(readView),
+                                                       std::move(writeView), grColorType,
+                                                       colorSpace, surfaceProps);
+
+    sk_sp<SkSurface> surface = SkSurface_Gpu::MakeWrappedRenderTarget(context, std::move(rtc));
+    return surface;
+}
+
 #endif
 
 #endif

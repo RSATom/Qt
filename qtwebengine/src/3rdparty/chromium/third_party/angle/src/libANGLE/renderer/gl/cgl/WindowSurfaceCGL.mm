@@ -8,7 +8,7 @@
 
 #include "common/platform.h"
 
-#ifdef ANGLE_PLATFORM_MACOS
+#if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
 
 #    include "libANGLE/renderer/gl/cgl/WindowSurfaceCGL.h"
 
@@ -153,7 +153,7 @@ WindowSurfaceCGL::WindowSurfaceCGL(const egl::SurfaceState &state,
     : SurfaceGL(state),
       mSwapLayer(nil),
       mCurrentSwapId(0),
-      mLayer(reinterpret_cast<CALayer *>(layer)),
+      mLayer((__bridge CALayer *)layer),
       mContext(context),
       mFunctions(renderer->getFunctions()),
       mStateManager(renderer->getStateManager()),
@@ -339,4 +339,4 @@ FramebufferImpl *WindowSurfaceCGL::createDefaultFramebuffer(const gl::Context *c
 
 }  // namespace rx
 
-#endif  // ANGLE_PLATFORM_MACOS
+#endif  // defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)

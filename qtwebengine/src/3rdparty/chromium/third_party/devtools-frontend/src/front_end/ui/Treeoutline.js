@@ -26,10 +26,20 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+
+import * as ARIAUtils from './ARIAUtils.js';
+import {Icon} from './Icon.js';                            // eslint-disable-line no-unused-vars
+import {Config, InplaceEditor} from './InplaceEditor.js';  // eslint-disable-line no-unused-vars
+import {Keys} from './KeyboardShortcut.js';
+import {isEditing} from './UIUtils.js';
+import {appendStyle} from './utils/append-style.js';
+import {createShadowRootWithCoreStyles} from './utils/create-shadow-root-with-core-styles.js';
+
 /**
  * @unrestricted
  */
-export class TreeOutline extends Common.Object {
+export class TreeOutline extends Common.ObjectWrapper.ObjectWrapper {
   constructor() {
     super();
     this._createRootElement();
@@ -47,7 +57,7 @@ export class TreeOutline extends Common.Object {
     this._showSelectionOnKeyboardFocus = false;
     this.setFocusable(true);
     this.element = this.contentElement;
-    UI.ARIAUtils.markAsTree(this.element);
+    ARIAUtils.markAsTree(this.element);
   }
 
   /**
@@ -291,7 +301,7 @@ export class TreeOutline extends Common.Object {
    * @param {!Event} event
    */
   _treeKeyDown(event) {
-    if (event.shiftKey || event.metaKey || event.ctrlKey || UI.isEditing()) {
+    if (event.shiftKey || event.metaKey || event.ctrlKey || isEditing()) {
       return;
     }
 
@@ -319,7 +329,7 @@ export class TreeOutline extends Common.Object {
       handled = this.selectedTreeElement.ondelete();
     } else if (isEnterKey(event)) {
       handled = this.selectedTreeElement.onenter();
-    } else if (event.keyCode === UI.KeyboardShortcut.Keys.Space.code) {
+    } else if (event.keyCode === Keys.Space.code) {
       handled = this.selectedTreeElement.onspace();
     } else if (event.key === 'Home') {
       handled = this._selectFirst();
@@ -354,7 +364,7 @@ export class TreeOutline extends Common.Object {
 }
 
 /** @enum {symbol} */
-const Events = {
+export const Events = {
   ElementAttached: Symbol('ElementAttached'),
   ElementsDetached: Symbol('ElementsDetached'),
   ElementExpanded: Symbol('ElementExpanded'),
@@ -372,7 +382,7 @@ export class TreeOutlineInShadow extends TreeOutline {
 
     // Redefine element to the external one.
     this.element = createElement('div');
-    this._shadowRoot = UI.createShadowRootWithCoreStyles(this.element, 'ui/treeoutline.css');
+    this._shadowRoot = createShadowRootWithCoreStyles(this.element, 'ui/treeoutline.css');
     this._disclosureElement = this._shadowRoot.createChild('div', 'tree-outline-disclosure');
     this._disclosureElement.appendChild(this.contentElement);
     this._renderSelection = true;
@@ -382,7 +392,7 @@ export class TreeOutlineInShadow extends TreeOutline {
    * @param {string} cssFile
    */
   registerRequiredCSS(cssFile) {
-    UI.appendStyle(this._shadowRoot, cssFile);
+    appendStyle(this._shadowRoot, cssFile);
   }
 
   hideOverflow() {
@@ -421,12 +431,12 @@ export class TreeElement {
     this._listItemNode.addEventListener('mousedown', this._handleMouseDown.bind(this), false);
     this._listItemNode.addEventListener('click', this._treeElementToggled.bind(this), false);
     this._listItemNode.addEventListener('dblclick', this._handleDoubleClick.bind(this), false);
-    UI.ARIAUtils.markAsTreeitem(this._listItemNode);
+    ARIAUtils.markAsTreeitem(this._listItemNode);
 
     this._childrenListNode = createElement('ol');
     this._childrenListNode.parentTreeElement = this;
     this._childrenListNode.classList.add('children');
-    UI.ARIAUtils.markAsGroup(this._childrenListNode);
+    ARIAUtils.markAsGroup(this._childrenListNode);
 
     this._hidden = false;
     this._selectable = true;
@@ -763,15 +773,15 @@ export class TreeElement {
   }
 
   /**
-   * @param {!UI.InplaceEditor.Config} editingConfig
+   * @param {!Config} editingConfig
    */
   startEditingTitle(editingConfig) {
-    UI.InplaceEditor.startEditing(/** @type {!Element} */ (this.titleElement), editingConfig);
+    InplaceEditor.startEditing(/** @type {!Element} */ (this.titleElement), editingConfig);
     this.treeOutline._shadowRoot.getSelection().selectAllChildren(this.titleElement);
   }
 
   /**
-   * @param {!Array<!UI.Icon>} icons
+   * @param {!Array<!Icon>} icons
    */
   setLeadingIcons(icons) {
     if (!this._leadingIconsElement && !icons.length) {
@@ -790,7 +800,7 @@ export class TreeElement {
   }
 
   /**
-   * @param {!Array<!UI.Icon>} icons
+   * @param {!Array<!Icon>} icons
    */
   setTrailingIcons(icons) {
     if (!this._trailingIconsElement && !icons.length) {
@@ -847,9 +857,9 @@ export class TreeElement {
     this._listItemNode.classList.toggle('parent', expandable);
     if (!expandable) {
       this.collapse();
-      UI.ARIAUtils.unsetExpandable(this._listItemNode);
+      ARIAUtils.unsetExpandable(this._listItemNode);
     } else {
-      UI.ARIAUtils.setExpanded(this._listItemNode, false);
+      ARIAUtils.setExpanded(this._listItemNode, false);
     }
   }
 
@@ -992,7 +1002,7 @@ export class TreeElement {
     }
     this._listItemNode.classList.remove('expanded');
     this._childrenListNode.classList.remove('expanded');
-    UI.ARIAUtils.setExpanded(this._listItemNode, false);
+    ARIAUtils.setExpanded(this._listItemNode, false);
     this.expanded = false;
     this.oncollapse();
     if (this.treeOutline) {
@@ -1038,7 +1048,7 @@ export class TreeElement {
     this._populateIfNeeded();
     this._listItemNode.classList.add('expanded');
     this._childrenListNode.classList.add('expanded');
-    UI.ARIAUtils.setExpanded(this._listItemNode, true);
+    ARIAUtils.setExpanded(this._listItemNode, true);
 
     if (this.treeOutline) {
       this.onexpand();
@@ -1218,6 +1228,7 @@ export class TreeElement {
     }
 
     this._listItemNode.classList.add('selected');
+    ARIAUtils.setSelected(this._listItemNode, true);
     this.treeOutline.dispatchEventToListeners(Events.ElementSelected, this);
     if (lastSelected) {
       lastSelected.deselect();
@@ -1270,6 +1281,7 @@ export class TreeElement {
     const hadFocus = this._listItemNode.hasFocus();
     this.selected = false;
     this._listItemNode.classList.remove('selected');
+    ARIAUtils.clearSelected(this._listItemNode);
     this._setFocusable(false);
 
     if (this.treeOutline && this.treeOutline.selectedTreeElement === this) {
@@ -1454,20 +1466,3 @@ const img = new Image();
 img.src = 'Images/treeoutlineTriangles.svg';
 TreeElement._imagePreload = img;
 })();
-
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.TreeOutline = TreeOutline;
-
-UI.TreeOutline.Events = Events;
-
-/** @constructor */
-UI.TreeElement = TreeElement;
-
-/** @constructor */
-UI.TreeOutlineInShadow = TreeOutlineInShadow;

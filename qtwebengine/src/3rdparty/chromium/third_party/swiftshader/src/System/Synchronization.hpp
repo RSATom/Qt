@@ -28,8 +28,7 @@
 #include <mutex>
 #include <queue>
 
-namespace sw
-{
+namespace sw {
 
 // TaskEvents is an interface for notifying when tasks begin and end.
 // Tasks can be nested and/or overlapping.
@@ -43,7 +42,11 @@ public:
 	// a corresponding call to start().
 	virtual void finish() = 0;
 	// complete() is a helper for calling start() followed by finish().
-	inline void complete() { start(); finish(); }
+	inline void complete()
+	{
+		start();
+		finish();
+	}
 
 protected:
 	virtual ~TaskEvents() = default;
@@ -90,8 +93,8 @@ public:
 	// wait() blocks until all the tasks have been finished or the timeout
 	// has been reached, returning true if all tasks have been completed, or
 	// false if the timeout has been reached.
-	template <class CLOCK, class DURATION>
-	bool wait(const std::chrono::time_point<CLOCK, DURATION>& timeout)
+	template<class CLOCK, class DURATION>
+	bool wait(const std::chrono::time_point<CLOCK, DURATION> &timeout)
 	{
 		std::unique_lock<std::mutex> lock(mutex);
 		return condition.wait_until(lock, timeout, [this] { return count_ == 0; });
@@ -112,14 +115,14 @@ public:
 	void finish() override { done(); }
 
 private:
-	int32_t count_ = 0; // guarded by mutex
+	int32_t count_ = 0;  // guarded by mutex
 	std::mutex mutex;
 	std::condition_variable condition;
 };
 
 // Chan is a thread-safe FIFO queue of type T.
 // Chan takes its name after Golang's chan.
-template <typename T>
+template<typename T>
 class Chan
 {
 public:
@@ -149,10 +152,11 @@ private:
 	std::condition_variable added;
 };
 
-template <typename T>
-Chan<T>::Chan() {}
+template<typename T>
+Chan<T>::Chan()
+{}
 
-template <typename T>
+template<typename T>
 T Chan<T>::take()
 {
 	std::unique_lock<std::mutex> lock(mutex);
@@ -163,11 +167,11 @@ T Chan<T>::take()
 	return out;
 }
 
-template <typename T>
+template<typename T>
 std::pair<T, bool> Chan<T>::tryTake()
 {
 	std::unique_lock<std::mutex> lock(mutex);
-	if (queue.size() == 0)
+	if(queue.size() == 0)
 	{
 		return std::make_pair(T{}, false);
 	}
@@ -176,7 +180,7 @@ std::pair<T, bool> Chan<T>::tryTake()
 	return std::make_pair(out, true);
 }
 
-template <typename T>
+template<typename T>
 void Chan<T>::put(const T &item)
 {
 	std::unique_lock<std::mutex> lock(mutex);
@@ -184,13 +188,13 @@ void Chan<T>::put(const T &item)
 	added.notify_one();
 }
 
-template <typename T>
+template<typename T>
 size_t Chan<T>::count()
 {
 	std::unique_lock<std::mutex> lock(mutex);
 	return queue.size();
 }
 
-} // namespace sw
+}  // namespace sw
 
-#endif // sw_Synchronization_hpp
+#endif  // sw_Synchronization_hpp

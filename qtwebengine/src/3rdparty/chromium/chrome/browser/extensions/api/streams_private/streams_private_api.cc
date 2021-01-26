@@ -10,6 +10,7 @@
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/prerender/prerender_contents.h"
 #endif // !defined(TOOLKIT_QT)
+#include "components/sessions/core/session_id.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -70,11 +71,23 @@ void StreamsPrivateAPI::SendExecuteMimeTypeHandlerEvent(
   // will take ownership of the stream.
   GURL handler_url(Extension::GetBaseURLFromExtensionId(extension_id).spec() +
                    handler->handler_url());
+
+  // If this is an inner contents, then (a) it's a guest view and doesn't have a
+  // tab id anyway, or (b) it's a portal. In the portal case, providing a
+  // distinct tab id breaks the pdf viewer / extension APIs. For now we just
+  // indicate that a portal contents has no tab id. Unfortunately, this will
+  // still be broken in subtle ways once the portal is activated (e.g. some
+  // forms of zooming won't work).
+  // TODO(1042323): Present a coherent representation of a tab id for portal
+  // contents.
+  int tab_id = web_contents->GetOuterWebContents()
+                   ? SessionID::InvalidValue().id()
 #if !defined(TOOLKIT_QT)
-  int tab_id = ExtensionTabUtil::GetTabId(web_contents);
+                   : ExtensionTabUtil::GetTabId(web_contents);
 #else
-  int tab_id = -1;
+                   : -1;
 #endif // !defined(TOOLKIT_QT)
+
   std::unique_ptr<StreamContainer> stream_container(
       new StreamContainer(tab_id, embedded, handler_url, extension_id,
                           std::move(transferrable_loader), original_url));

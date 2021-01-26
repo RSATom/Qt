@@ -21,6 +21,7 @@
 #include "src/trace_processor/args_tracker.h"
 #include "src/trace_processor/clock_tracker.h"
 #include "src/trace_processor/event_tracker.h"
+#include "src/trace_processor/metadata_tracker.h"
 #include "src/trace_processor/process_tracker.h"
 #include "src/trace_processor/syscall_tracker.h"
 #include "src/trace_processor/trace_processor_context.h"
@@ -94,20 +95,28 @@ void AndroidProbesParser::ParsePowerRails(int64_t ts, ConstBytes blob) {
   }
 
   if (evt.has_energy_data()) {
-    for (auto it = evt.energy_data(); it; ++it) {
-      protos::pbzero::PowerRails::EnergyData::Decoder desc(*it);
-      if (desc.index() < power_rails_strs_id_.size()) {
-        int64_t actual_ts =
-            desc.has_timestamp_ms()
-                ? static_cast<int64_t>(desc.timestamp_ms()) * 1000000
-                : ts;
-        TrackId track = context_->track_tracker->InternGlobalCounterTrack(
-            power_rails_strs_id_[desc.index()]);
-        context_->event_tracker->PushCounter(actual_ts, desc.energy(), track);
-      } else {
-        context_->storage->IncrementStats(stats::power_rail_unknown_index);
-      }
+    // Because we have some special code in the tokenization phase, we
+    // will only every get one EnergyData message per packet. Therefore,
+    // we can just read the data directly.
+    auto it = evt.energy_data();
+    protos::pbzero::PowerRails::EnergyData::Decoder desc(*it);
+    if (desc.index() < power_rails_strs_id_.size()) {
+      // The tokenization makes sure that this field is always present and
+      // is equal to the packet's timestamp (as the packet was forged in
+      // the tokenizer).
+      PERFETTO_DCHECK(desc.has_timestamp_ms());
+      PERFETTO_DCHECK(ts / 1000000 ==
+                      static_cast<int64_t>(desc.timestamp_ms()));
+
+      TrackId track = context_->track_tracker->InternGlobalCounterTrack(
+          power_rails_strs_id_[desc.index()]);
+      context_->event_tracker->PushCounter(ts, desc.energy(), track);
+    } else {
+      context_->storage->IncrementStats(stats::power_rail_unknown_index);
     }
+
+    // DCHECK that we only got one message.
+    PERFETTO_DCHECK(!++it);
   }
 }
 
@@ -173,8 +182,8 @@ void AndroidProbesParser::ParseAndroidLogEvent(ConstBytes blob) {
 
   // Log events are NOT required to be sorted by trace_time. The virtual table
   // will take care of sorting on-demand.
-  context_->storage->mutable_android_log()->AddLogEvent(
-      opt_trace_time.value(), utid, prio, tag_id, msg_id);
+  context_->storage->mutable_android_log_table()->Insert(
+      {opt_trace_time.value(), utid, prio, tag_id, msg_id});
 }
 
 void AndroidProbesParser::ParseAndroidLogStats(ConstBytes blob) {
@@ -199,7 +208,7 @@ void AndroidProbesParser::ParseStatsdMetadata(ConstBytes blob) {
   protos::pbzero::TraceConfig::StatsdMetadata::Decoder metadata(blob.data,
                                                                 blob.size);
   if (metadata.has_triggering_subscription_id()) {
-    context_->storage->SetMetadata(
+    context_->metadata_tracker->SetMetadata(
         metadata::statsd_triggering_subscription_id,
         Variadic::Integer(metadata.triggering_subscription_id()));
   }
@@ -218,12 +227,11 @@ void AndroidProbesParser::ParseAndroidPackagesList(ConstBytes blob) {
   for (auto it = pkg_list.packages(); it; ++it) {
     // Insert a placeholder metadata entry, which will be overwritten by the
     // arg_set_id when the arg tracker is flushed.
-    RowId row_id = context_->storage->AppendMetadata(
+    auto id = context_->metadata_tracker->AppendMetadata(
         metadata::android_packages_list, Variadic::Integer(0));
-
-    auto add_arg = [this, row_id](base::StringView name, Variadic value) {
+    auto add_arg = [this, id](base::StringView name, Variadic value) {
       StringId key_id = context_->storage->InternString(name);
-      context_->args_tracker->AddArg(row_id, key_id, key_id, value);
+      context_->args_tracker->AddArgsTo(id).AddArg(key_id, value);
     };
     protos::pbzero::PackagesList_PackageInfo::Decoder pkg(*it);
     add_arg("name",

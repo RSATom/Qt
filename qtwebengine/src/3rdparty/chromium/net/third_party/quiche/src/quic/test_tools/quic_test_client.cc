@@ -20,7 +20,6 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_stack_trace.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_client_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
@@ -28,6 +27,8 @@
 #include "net/third_party/quiche/src/quic/test_tools/quic_spdy_stream_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
 #include "net/third_party/quiche/src/quic/tools/quic_url.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 namespace test {
@@ -48,7 +49,7 @@ class RecordingProofVerifier : public ProofVerifier {
       const uint16_t port,
       const std::string& server_config,
       QuicTransportVersion transport_version,
-      QuicStringPiece chlo_hash,
+      quiche::QuicheStringPiece chlo_hash,
       const std::vector<std::string>& certs,
       const std::string& cert_sct,
       const std::string& signature,
@@ -56,6 +57,44 @@ class RecordingProofVerifier : public ProofVerifier {
       std::string* error_details,
       std::unique_ptr<ProofVerifyDetails>* details,
       std::unique_ptr<ProofVerifierCallback> callback) override {
+    QuicAsyncStatus process_certs_result = ProcessCerts(certs, cert_sct);
+    if (process_certs_result != QUIC_SUCCESS) {
+      return process_certs_result;
+    }
+
+    if (!verifier_) {
+      return QUIC_SUCCESS;
+    }
+
+    return verifier_->VerifyProof(hostname, port, server_config,
+                                  transport_version, chlo_hash, certs, cert_sct,
+                                  signature, context, error_details, details,
+                                  std::move(callback));
+  }
+
+  QuicAsyncStatus VerifyCertChain(
+      const std::string& /*hostname*/,
+      const std::vector<std::string>& certs,
+      const std::string& /*ocsp_response*/,
+      const std::string& cert_sct,
+      const ProofVerifyContext* /*context*/,
+      std::string* /*error_details*/,
+      std::unique_ptr<ProofVerifyDetails>* /*details*/,
+      std::unique_ptr<ProofVerifierCallback> /*callback*/) override {
+    return ProcessCerts(certs, cert_sct);
+  }
+
+  std::unique_ptr<ProofVerifyContext> CreateDefaultContext() override {
+    return verifier_ != nullptr ? verifier_->CreateDefaultContext() : nullptr;
+  }
+
+  const std::string& common_name() const { return common_name_; }
+
+  const std::string& cert_sct() const { return cert_sct_; }
+
+ private:
+  QuicAsyncStatus ProcessCerts(const std::vector<std::string>& certs,
+                               const std::string& cert_sct) {
     common_name_.clear();
     if (certs.empty()) {
       return QUIC_FAILURE;
@@ -78,38 +117,9 @@ class RecordingProofVerifier : public ProofVerifier {
 
     common_name_ = buf;
     cert_sct_ = cert_sct;
-
-    if (!verifier_) {
-      return QUIC_SUCCESS;
-    }
-
-    return verifier_->VerifyProof(hostname, port, server_config,
-                                  transport_version, chlo_hash, certs, cert_sct,
-                                  signature, context, error_details, details,
-                                  std::move(callback));
-  }
-
-  QuicAsyncStatus VerifyCertChain(
-      const std::string& /*hostname*/,
-      const std::vector<std::string>& /*certs*/,
-      const std::string& /*ocsp_response*/,
-      const std::string& /*cert_sct*/,
-      const ProofVerifyContext* /*context*/,
-      std::string* /*error_details*/,
-      std::unique_ptr<ProofVerifyDetails>* /*details*/,
-      std::unique_ptr<ProofVerifierCallback> /*callback*/) override {
     return QUIC_SUCCESS;
   }
 
-  std::unique_ptr<ProofVerifyContext> CreateDefaultContext() override {
-    return verifier_ != nullptr ? verifier_->CreateDefaultContext() : nullptr;
-  }
-
-  const std::string& common_name() const { return common_name_; }
-
-  const std::string& cert_sct() const { return cert_sct_; }
-
- private:
   std::unique_ptr<ProofVerifier> verifier_;
   std::string common_name_;
   std::string cert_sct_;
@@ -399,7 +409,7 @@ void QuicTestClient::SendRequestsAndWaitForResponses(
 
 ssize_t QuicTestClient::GetOrCreateStreamAndSendRequest(
     const spdy::SpdyHeaderBlock* headers,
-    QuicStringPiece body,
+    quiche::QuicheStringPiece body,
     bool fin,
     QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
   if (headers) {
@@ -443,18 +453,18 @@ ssize_t QuicTestClient::GetOrCreateStreamAndSendRequest(
 }
 
 ssize_t QuicTestClient::SendMessage(const spdy::SpdyHeaderBlock& headers,
-                                    QuicStringPiece body) {
+                                    quiche::QuicheStringPiece body) {
   return SendMessage(headers, body, /*fin=*/true);
 }
 
 ssize_t QuicTestClient::SendMessage(const spdy::SpdyHeaderBlock& headers,
-                                    QuicStringPiece body,
+                                    quiche::QuicheStringPiece body,
                                     bool fin) {
   return SendMessage(headers, body, fin, /*flush=*/true);
 }
 
 ssize_t QuicTestClient::SendMessage(const spdy::SpdyHeaderBlock& headers,
-                                    QuicStringPiece body,
+                                    quiche::QuicheStringPiece body,
                                     bool fin,
                                     bool flush) {
   // Always force creation of a stream for SendMessage.
@@ -476,7 +486,8 @@ ssize_t QuicTestClient::SendData(
     const std::string& data,
     bool last_data,
     QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
-  return GetOrCreateStreamAndSendRequest(nullptr, QuicStringPiece(data),
+  return GetOrCreateStreamAndSendRequest(nullptr,
+                                         quiche::QuicheStringPiece(data),
                                          last_data, std::move(ack_listener));
 }
 
@@ -670,8 +681,8 @@ bool QuicTestClient::WaitUntil(int timeout_ms, std::function<bool()> trigger) {
   return true;
 }
 
-ssize_t QuicTestClient::Send(const void* buffer, size_t size) {
-  return SendData(std::string(static_cast<const char*>(buffer), size), false);
+ssize_t QuicTestClient::Send(quiche::QuicheStringPiece data) {
+  return SendData(std::string(data), false);
 }
 
 bool QuicTestClient::response_headers_complete() const {
@@ -845,7 +856,7 @@ void QuicTestClient::WaitForWriteToFlush() {
 
 QuicTestClient::TestClientDataToResend::TestClientDataToResend(
     std::unique_ptr<spdy::SpdyHeaderBlock> headers,
-    QuicStringPiece body,
+    quiche::QuicheStringPiece body,
     bool fin,
     QuicTestClient* test_client,
     QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener)
@@ -901,8 +912,8 @@ bool QuicTestClient::PopulateHeaderBlockFromUrl(
     const std::string& uri,
     spdy::SpdyHeaderBlock* headers) {
   std::string url;
-  if (QuicTextUtils::StartsWith(uri, "https://") ||
-      QuicTextUtils::StartsWith(uri, "http://")) {
+  if (quiche::QuicheTextUtils::StartsWith(uri, "https://") ||
+      quiche::QuicheTextUtils::StartsWith(uri, "http://")) {
     url = uri;
   } else if (uri[0] == '/') {
     url = "https://" + client_->server_id().host() + uri;

@@ -217,7 +217,7 @@ bool IsUrlWithinScope(const GURL& url, const GURL& scope) {
 //
 // The manifest parser accumulates metrics data in an instance of this class by
 // calling the Record*() methods. When the manifest is successfully parsed, the
-// accumuated metrics are logged by calling RecordParseSuccess() or
+// accumulated metrics are logged by calling RecordParseSuccess() or
 // RecordParseWithInvalidManifestUrl(). Metrics for manifests that don't parse
 // in the success case are discarded.  Failure metrics are used to log
 // early-exit conditions like invalid manifest URLs.
@@ -236,30 +236,6 @@ class ParseMetricsRecorder {
 
   // Manifest served with the MIME type that enables dangerous features.
   void RecordDangerousMode() { used_dangerous_mode_ = true; }
-
-  // Chrome-specific isPattern used in a valid NETWORK: entry.
-  void RecordNetworkPattern() {
-#if DCHECK_IS_ON()
-    DCHECK(!finalized_) << "Metrics already recorded";
-#endif  // DCHECK_IS_ON()
-    has_network_pattern_ = true;
-  }
-
-  // Chrome-specific isPattern used in a valid CHROMIUM-INTERCEPT: entry.
-  void RecordInterceptPattern() {
-#if DCHECK_IS_ON()
-    DCHECK(!finalized_) << "Metrics already recorded";
-#endif  // DCHECK_IS_ON()
-    has_intercept_pattern_ = true;
-  }
-
-  // Chrome-specific isPattern used in a valid FALLBACK: entry.
-  void RecordFallbackPattern() {
-#if DCHECK_IS_ON()
-    DCHECK(!finalized_) << "Metrics already recorded";
-#endif  // DCHECK_IS_ON()
-    has_fallback_pattern_ = true;
-  }
 
   // Manifest contains a valid Chrome-specific CHROMIUM-INTERCEPT: entry.
   void RecordInterceptEntry() {
@@ -299,15 +275,9 @@ class ParseMetricsRecorder {
                               has_chrome_header_);
     base::UmaHistogramBoolean("appcache.Manifest.DangerousMode",
                               used_dangerous_mode_);
-    base::UmaHistogramBoolean("appcache.Manifest.NetworkPattern",
-                              has_network_pattern_);
-    base::UmaHistogramBoolean("appcache.Manifest.FallbackPattern",
-                              has_fallback_pattern_);
-    base::UmaHistogramEnumeration("appcache.Manifest.InterceptUsage",
-                                  GetInterceptUsage());
-    base::UmaHistogramBoolean("appcache.Manifest.Pattern",
-                              has_network_pattern_ || has_intercept_pattern_ ||
-                                  has_fallback_pattern_);
+    base::UmaHistogramEnumeration(
+        "appcache.Manifest.InterceptUsage",
+        has_intercept_entry_ ? InterceptUsage::kExact : InterceptUsage::kNone);
     base::UmaHistogramBoolean("appcache.Manifest.ValidManifestURL",
                               has_valid_manifest_url_);
   }
@@ -342,20 +312,8 @@ class ParseMetricsRecorder {
     kMaxValue = kPattern,
   };
 
-  InterceptUsage GetInterceptUsage() {
-    if (!has_intercept_entry_) {
-      DCHECK(!has_intercept_pattern_);
-      return InterceptUsage::kNone;
-    }
-    return has_intercept_pattern_ ? InterceptUsage::kPattern
-                                  : InterceptUsage::kExact;
-  }
-
   bool has_chrome_header_ = false;
   bool used_dangerous_mode_ = false;
-  bool has_network_pattern_ = false;
-  bool has_intercept_pattern_ = false;
-  bool has_fallback_pattern_ = false;
   bool has_intercept_entry_ = false;
   bool has_valid_manifest_url_ = false;
 
@@ -374,7 +332,6 @@ AppCacheManifest::~AppCacheManifest() = default;
 
 bool ParseManifest(const GURL& manifest_url,
                    const std::string& manifest_scope,
-                   const bool manifest_scope_checks_enabled,
                    const char* manifest_bytes,
                    int manifest_size,
                    ParseMode parse_mode,
@@ -387,7 +344,6 @@ bool ParseManifest(const GURL& manifest_url,
   DCHECK(manifest.online_whitelist_namespaces.empty());
   DCHECK_EQ(manifest.parser_version, -1);
   DCHECK_EQ(manifest.scope, "");
-  DCHECK_EQ(manifest.scope_checks_enabled, true);
   DCHECK(!manifest.online_whitelist_all);
   DCHECK(!manifest.did_ignore_intercept_namespaces);
   DCHECK(!manifest.did_ignore_fallback_namespaces);
@@ -459,14 +415,8 @@ bool ParseManifest(const GURL& manifest_url,
   // Changing the manifest, the scope, or the version of the manifest will
   // trigger a refetch of the manifest.
   //
-  // If scope checking is enabled, this code generates manifests with parser
-  // version 1.
-  manifest.scope_checks_enabled = manifest_scope_checks_enabled;
-  if (manifest.scope_checks_enabled) {
-    manifest.parser_version = 1;
-  } else {
-    manifest.parser_version = 0;
-  }
+  // This code generates manifests with parser version 1.
+  manifest.parser_version = 1;
   manifest.scope = manifest_scope;
 
   const GURL manifest_scope_url = manifest_url.Resolve(manifest_scope);
@@ -539,8 +489,7 @@ bool ParseManifest(const GURL& manifest_url,
       }
 
       manifest.online_whitelist_namespaces.emplace_back(
-          AppCacheNamespace(APPCACHE_NETWORK_NAMESPACE, namespace_url, GURL(),
-                            /*is_pattern=*/false));
+          AppCacheNamespace(APPCACHE_NETWORK_NAMESPACE, namespace_url, GURL()));
       continue;
     }
 
@@ -558,8 +507,7 @@ bool ParseManifest(const GURL& manifest_url,
       if (namespace_url.GetOrigin() != manifest_url.GetOrigin())
         continue;
 
-      if (manifest.scope_checks_enabled &&
-          !IsUrlWithinScope(namespace_url, manifest_scope_url))
+      if (!IsUrlWithinScope(namespace_url, manifest_scope_url))
         continue;
 
       // The only supported verb is "return".
@@ -581,8 +529,7 @@ bool ParseManifest(const GURL& manifest_url,
         continue;
 
       manifest.intercept_namespaces.emplace_back(APPCACHE_INTERCEPT_NAMESPACE,
-                                                 namespace_url, target_url,
-                                                 /*is_pattern=*/false);
+                                                 namespace_url, target_url);
       parse_metrics.RecordInterceptEntry();
       continue;
     }
@@ -599,8 +546,7 @@ bool ParseManifest(const GURL& manifest_url,
         }
       }
 
-      if (manifest.scope_checks_enabled &&
-          !IsUrlWithinScope(namespace_url, manifest_scope_url))
+      if (!IsUrlWithinScope(namespace_url, manifest_scope_url))
         continue;
 
       base::StringPiece fallback_url_token;
@@ -617,8 +563,7 @@ bool ParseManifest(const GURL& manifest_url,
       // Store regardless of duplicate namespace URL. Only the first match will
       // ever be used.
       manifest.fallback_namespaces.emplace_back(APPCACHE_FALLBACK_NAMESPACE,
-                                                namespace_url, fallback_url,
-                                                /*is_pattern=*/false);
+                                                namespace_url, fallback_url);
       continue;
     }
 

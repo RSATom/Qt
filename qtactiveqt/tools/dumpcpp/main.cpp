@@ -1577,7 +1577,13 @@ int main(int argc, char **argv)
         typeLib.clear();
         QStringList codes = settings.childGroups();
         for (int c = 0; c < codes.count(); ++c) {
-            typeLib = settings.value(QLatin1Char('/') + codes.at(c) + QLatin1String("/0/win32/.")).toString();
+            const QString keyPrefix = QLatin1Char('/') + codes.at(c) + QLatin1String("/0/");
+            if (QT_POINTER_SIZE == 8) {
+                typeLib = settings.value(keyPrefix + QLatin1String("win64/.")).toString();
+                if (QFile::exists(typeLib))
+                    break;
+            }
+            typeLib = settings.value(keyPrefix + QLatin1String("win32/.")).toString();
             if (QFile::exists(typeLib))
                 break;
         }
@@ -1635,8 +1641,13 @@ int main(int argc, char **argv)
         settings.endGroup();
 
         for (int c = 0; c < codes.count(); ++c) {
-            typeLib = settings.value(key + QLatin1Char('/') + codes.at(c)
-                                     + QLatin1String("/win32/.")).toString();
+            const QString keyPrefix = key + QLatin1Char('/') + codes.at(c) + QLatin1Char('/');
+            if (QT_POINTER_SIZE == 8) {
+                typeLib = settings.value(keyPrefix + QLatin1String("win64/.")).toString();
+                if (QFile::exists(typeLib))
+                    break;
+            }
+            typeLib = settings.value(keyPrefix + QLatin1String("win32/.")).toString();
             if (QFile::exists(typeLib))
                 break;
         }

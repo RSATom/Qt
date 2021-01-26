@@ -30,9 +30,6 @@
   <message name="IDS_DEVTOOLS_103e6e056329361a5d169154f52771d0" desc="Text in UIUtils">
     <ph name="DESCRIPTION">$1s<ex>Promise</ex></ph> (async)
   </message>
-  <message name="IDS_DEVTOOLS_1299e7f10b9d0110e7fa5368d1307500" desc="Text of attribute value when text is too long">
-    long text was truncated (<ph name="TOTALBYTES">$1s<ex>30 MB</ex></ph>)
-  </message>
   <message name="IDS_DEVTOOLS_142329f312b9f9a97f9726342813dec2" desc="Text in the Shortcuts page in settings to explain a keyboard shortcut in the Console Section">
     Next/previous line
   </message>
@@ -63,9 +60,6 @@
   <message name="IDS_DEVTOOLS_2ea54663ae9e3a586132a34a98d85ccf" desc="Text for the title of asynchronous function calls group in Call Stack">
     Async Call
   </message>
-  <message name="IDS_DEVTOOLS_3793ea52a7be2d7deafd858fda50775c" desc="Accessibility label for checked items in the SoftContextMenu">
-    checked
-  </message>
   <message name="IDS_DEVTOOLS_3a39eb38e879f66d1c57dedd478272da" desc="label to open link externally">
     Open in new tab
   </message>
@@ -78,20 +72,23 @@
   <message name="IDS_DEVTOOLS_3b9dc6454ee96394b3d853e8d597ebc6" desc="Text in the Shortcuts page to explain a keyboard shortcut (increment value in Styles pane)">
     Increment value
   </message>
+  <message name="IDS_DEVTOOLS_3dc4bfdcf1b17a60979e2872cdd0922a" desc="Text on a button to close the infobar and never show the infobar in the future">
+    Don&apos;t show again
+  </message>
   <message name="IDS_DEVTOOLS_3f0b6654f9648ab6331823837c2b9f73" desc="Text in the Shortcuts page to explain a keyboard shortcut (step over to the next statement in debugger)">
     Step over
   </message>
   <message name="IDS_DEVTOOLS_3f9eccbca028a6949c39933d13f82e56" desc="Text in the Shortcuts page to explain a keyboard shortcut (step out of a function in debugger)">
     Step out
   </message>
+  <message name="IDS_DEVTOOLS_4348f6b35ee6cfc6eb04cb351e4213c9" desc="Text to show how many kilobytes the data size is. The number has 0 digit decimal point">
+    <ph name="KILOBYTES">$1.0f<ex>8</ex></ph> kB
+  </message>
   <message name="IDS_DEVTOOLS_44ac014b674d7d86a04702e6fd1fa858" desc="Text in a dialog box showing how to reconnect to DevTools when remote debugging has been terminated">
     Reconnect when ready by reopening <ph name="LOCKED_1">DevTools</ph>.
   </message>
   <message name="IDS_DEVTOOLS_45b471827af8ba9628e1914afbb13980" desc="Minutes format in UIUtils">
     <ph name="PH1">$1.1f<ex>2.2</ex></ph> min
-  </message>
-  <message name="IDS_DEVTOOLS_471566447bf928c469d32014791036cc" desc="Text in Remote Debugging Terminated Screen">
-    Debugging connection was closed. Reason: <ph name="REASONELEMENT">$1s<ex>connection lost</ex></ph>
   </message>
   <message name="IDS_DEVTOOLS_47df0ee8f6dc4f553c907c49e686216c" desc="Title of a shortcuts category for Memory panel in Shortcut page ">
     Memory Panel
@@ -105,9 +102,6 @@
   <message name="IDS_DEVTOOLS_48f12760504bf8e958a4bdde56d4fa46" desc="Text to indicate search result for the ctrl+F search bar">
     1 match
   </message>
-  <message name="IDS_DEVTOOLS_4b50fa6fd1a6a30c9b16f71dd2600574" desc="Text in the Shortcuts page to explain a keyboard shortcut (jump to next editing location in text editor)">
-    Jump to next editing location
-  </message>
   <message name="IDS_DEVTOOLS_4c4306efb0e40e97e5f8693613b1fcfd" desc="Text in the Shortcuts page to explain a keyboard shortcut (go to matching bracket in text editor)">
     Go to matching bracket
   </message>
@@ -119,9 +113,6 @@
   </message>
   <message name="IDS_DEVTOOLS_50071e5690f1fa19ea303c55302ce167" desc="Text in the Shortcuts page in settings to explain a keyboard shortcut in the Debugger Section">
     Open breakpoint editor
-  </message>
-  <message name="IDS_DEVTOOLS_52ebc26c2921d5b84fc670dff9891821" desc="Text in the Shortcuts page to explain a keyboard shortcut (zoom out in Layers Panel)">
-    Zoom out
   </message>
   <message name="IDS_DEVTOOLS_5372591390f99dcf8e0467c671abbc23" desc="Text in the Shortcuts page to explain a keyboard shortcut (switch to rotate mode in Layers Panel)">
     Switch to rotate mode
@@ -168,14 +159,8 @@
   <message name="IDS_DEVTOOLS_75cfe68daf4ccd62d15e9e0fb5ec1097" desc="Text in the Shortcuts page to explain a keyboard shortcut (increment CSS unit by 1 in Styles pane)">
     Increment CSS unit by 1
   </message>
-  <message name="IDS_DEVTOOLS_76f8c7ad696be0b330b46afe79ac279d" desc="Text in the Shortcuts page to explain a keyboard shortcut (start/stop recording performance)">
-    Start/stop recording
-  </message>
   <message name="IDS_DEVTOOLS_79fb17b82d0adb283dc78efc0d7f73e8" desc="Text in the Shortcuts page to explain a keyboard shortcut (Temporarily toggle pan/rotate mode while held in Layers Panel)">
     Temporarily toggle pan/rotate mode while held
-  </message>
-  <message name="IDS_DEVTOOLS_7b91156d64b76a5dda815937fce9119d" desc="Text in the Shortcuts page to explain a keyboard shortcut (zoom in in Layers Panel)">
-    Zoom in
   </message>
   <message name="IDS_DEVTOOLS_7cf206a681131cf4d86fc190f2d9ad27" desc="Text on a button to reconnect Devtools when remote debugging terminated">
     Reconnect <ph name="LOCKED_1">DevTools</ph>
@@ -228,9 +213,6 @@
   <message name="IDS_DEVTOOLS_9f52d2760e4266c7904c59fd9d3e7321" desc="Text in the Shortcuts page to explain a keyboard shortcut (pick a performance recording from history)">
     Pick a recording from history
   </message>
-  <message name="IDS_DEVTOOLS_9f98ff6e7e9fd0475daeb2005234ab5d" desc="Text to show how many kilobytes the data size is. The number has 0 digit decimal point">
-    <ph name="KILOBYTES">$1.0f<ex>2</ex></ph> KB
-  </message>
   <message name="IDS_DEVTOOLS_a169aab715858133b50d2e72ece74f14" desc="Accessibility label for checkable SoftContextMenuItems with shortcuts">
     <ph name="ITEM_LABEL">$1s<ex>Open File</ex></ph>, <ph name="ITEM_SHORTCUT">$2s<ex>Ctrl + P</ex></ph>, <ph name="CHECKEDSTATE">$3s<ex>checked</ex></ph>
   </message>
@@ -239,15 +221,6 @@
   </message>
   <message name="IDS_DEVTOOLS_a950da8e902568f9a6879abe4313efe7" desc="Text content of content element">
     Once page is reloaded, <ph name="LOCKED_1">DevTools</ph> will automatically reconnect.
-  </message>
-  <message name="IDS_DEVTOOLS_ad91a1da588ce256d30b1af38f78f84e" desc="Accessibility label for unchecked items in the SoftContextMenu">
-    unchecked
-  </message>
-  <message name="IDS_DEVTOOLS_addec426932e71323700afa1911f8f1c" desc="Text on a button to show more info in the infobar">
-    more
-  </message>
-  <message name="IDS_DEVTOOLS_ae240dc70adad29732bb1fdf0c746b84" desc="Text to show how many kilobytes the data size is. The number has 1 digit decimal point">
-    <ph name="KILOBYTES">$1.1f<ex>2.2</ex></ph> KB
   </message>
   <message name="IDS_DEVTOOLS_b014fff4db17dba07ddb6ea5efafd32e" desc="Text in the Shortcuts page to explain a keyboard shortcut (jump to previous/next in performance profile)">
     Jump to previous/next frame
@@ -266,9 +239,6 @@
   </message>
   <message name="IDS_DEVTOOLS_b79f0c59be8253d3acb4515071312bda" desc="Text on a button to hide sidebar">
     Hide <ph name="THIS__SHOWHIDESIDEBARBUTTONTITLE">$1s<ex>Setting</ex></ph>
-  </message>
-  <message name="IDS_DEVTOOLS_b7ad6a024765bbfbff22dedf9afe0d17" desc="Text in the Shortcuts page to explain a keyboard shortcut (jump to previous editing location in text editor)">
-    Jump to previous editing location
   </message>
   <message name="IDS_DEVTOOLS_b94d1b250ba62f06dadf0edc4a947f5c" desc="Text in UIUtils">
     Promise resolved (async)
@@ -291,17 +261,14 @@
   <message name="IDS_DEVTOOLS_d06337cfbcc777e0a7caa50ef1a9986a" desc="The aria label for the button to open more tabs at the right tabbed pane in Elements tools">
     More tabs
   </message>
+  <message name="IDS_DEVTOOLS_d4c2a940947d6e71ed20e1bb31f0c8a2" desc="Text to show how many kilobytes the data size is. The number has 1 digit decimal point">
+    <ph name="KILOBYTES">$1.1f<ex>8.1</ex></ph> kB
+  </message>
   <message name="IDS_DEVTOOLS_d916eea6390ddc39ee5fbc5c984e940c" desc="Seconds format in UIUtils">
     <ph name="PH1">$1.2f<ex>2.14</ex></ph> s
   </message>
   <message name="IDS_DEVTOOLS_d9f57fb1f634a4e047fd69b574434c7f" desc="Text in the Shortcuts page to explain a keyboard shortcut (evaluate the selected expression in console)">
     Evaluate selection in console
-  </message>
-  <message name="IDS_DEVTOOLS_dd73c24f4702950125e2fcb7d26ca5fe" desc="Text of attribute value when text is too long">
-    Show more (<ph name="TOTALBYTES">$1s<ex>30 MB</ex></ph>)
-  </message>
-  <message name="IDS_DEVTOOLS_dd92c3884d43902407a4c2f0d8cc0eb1" desc="Text in the Shortcuts page to explain a keyboard shortcut (toggle breakpoint in debugger)">
-    Toggle breakpoint
   </message>
   <message name="IDS_DEVTOOLS_e0aa021e21dddbd6d8cecec71e9cf564" desc="Text on a button for message dialog">
     OK
@@ -323,9 +290,6 @@
   </message>
   <message name="IDS_DEVTOOLS_e9947a82726be2fb77368eb27c082402" desc="Placeholder text in Soft Drop Down">
     (no item selected)
-  </message>
-  <message name="IDS_DEVTOOLS_f68d3333dcde01f3ef29184f1bcdf1c5" desc="Text on a button to close the infobar or never show the info">
-    never show
   </message>
   <message name="IDS_DEVTOOLS_f6c46678b34ad4b4c0241c9487a26b59" desc="Text in the Shortcuts page to explain a keyboard shortcut (increment value by a number in Styles pane) ">
     Increment by <ph name="__">$1f<ex>2.4</ex></ph>

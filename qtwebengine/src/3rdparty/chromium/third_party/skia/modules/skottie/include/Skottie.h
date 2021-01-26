@@ -16,6 +16,7 @@
 #include "modules/skresources/include/SkResources.h"
 
 #include <memory>
+#include <vector>
 
 class SkCanvas;
 struct SkRect;
@@ -31,6 +32,8 @@ class Scene;
 } // namespace sksg
 
 namespace skottie {
+
+namespace internal { class Animator; }
 
 using ImageAsset = skresources::ImageAsset;
 using ResourceProvider = skresources::ResourceProvider;
@@ -61,10 +64,15 @@ public:
 
 class SK_API Animation : public SkNVRefCnt<Animation> {
 public:
-
     class Builder final {
     public:
-        Builder();
+        enum Flags : uint32_t {
+            kDeferImageLoading = 0x01, // Normally, all static image frames are resolved at
+                                       // load time via ImageAsset::getFrame(0).  With this flag,
+                                       // frames are only resolved when needed, at seek() time.
+        };
+
+        explicit Builder(uint32_t flags = 0);
         ~Builder();
 
         struct Stats {
@@ -118,6 +126,8 @@ public:
         sk_sp<Animation> makeFromFile(const char path[]);
 
     private:
+        const uint32_t          fFlags;
+
         sk_sp<ResourceProvider> fResourceProvider;
         sk_sp<SkFontMgr>        fFontMgr;
         sk_sp<PropertyObserver> fPropertyObserver;
@@ -206,17 +216,20 @@ private:
         kRequiresTopLevelIsolation = 1 << 0, // Needs to draw into a layer due to layer blending.
     };
 
-    Animation(std::unique_ptr<sksg::Scene>, SkString ver, const SkSize& size,
+    Animation(std::unique_ptr<sksg::Scene>,
+              std::vector<sk_sp<internal::Animator>>&&,
+              SkString ver, const SkSize& size,
               double inPoint, double outPoint, double duration, double fps, uint32_t flags);
 
-    std::unique_ptr<sksg::Scene> fScene;
-    const SkString               fVersion;
-    const SkSize                 fSize;
-    const double                 fInPoint,
-                                 fOutPoint,
-                                 fDuration,
-                                 fFPS;
-    const uint32_t               fFlags;
+    const std::unique_ptr<sksg::Scene>           fScene;
+    const std::vector<sk_sp<internal::Animator>> fAnimators;
+    const SkString                               fVersion;
+    const SkSize                                 fSize;
+    const double                                 fInPoint,
+                                                 fOutPoint,
+                                                 fDuration,
+                                                 fFPS;
+    const uint32_t                               fFlags;
 
     typedef SkNVRefCnt<Animation> INHERITED;
 };

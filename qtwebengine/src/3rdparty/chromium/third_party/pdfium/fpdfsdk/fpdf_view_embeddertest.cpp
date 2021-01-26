@@ -96,10 +96,46 @@ class FPDFViewEmbedderTest : public EmbedderTest {
                                       int bitmap_height,
                                       const FS_MATRIX& matrix,
                                       const FS_RECTF& rect,
-                                      const char* expected_md5);
+                                      const char* expected_md5) {
+    ScopedFPDFBitmap bitmap(FPDFBitmap_Create(bitmap_width, bitmap_height, 0));
+    FPDFBitmap_FillRect(bitmap.get(), 0, 0, bitmap_width, bitmap_height,
+                        0xFFFFFFFF);
+    FPDF_RenderPageBitmapWithMatrix(bitmap.get(), page, &matrix, &rect, 0);
+    CompareBitmap(bitmap.get(), bitmap_width, bitmap_height, expected_md5);
+  }
+
   void TestRenderPageBitmapWithFlags(FPDF_PAGE page,
                                      int flags,
-                                     const char* expected_md5);
+                                     const char* expected_md5) {
+    int bitmap_width = static_cast<int>(FPDF_GetPageWidth(page));
+    int bitmap_height = static_cast<int>(FPDF_GetPageHeight(page));
+    ScopedFPDFBitmap bitmap(FPDFBitmap_Create(bitmap_width, bitmap_height, 0));
+    FPDFBitmap_FillRect(bitmap.get(), 0, 0, bitmap_width, bitmap_height,
+                        0xFFFFFFFF);
+    FPDF_RenderPageBitmap(bitmap.get(), page, 0, 0, bitmap_width, bitmap_height,
+                          0, flags);
+    CompareBitmap(bitmap.get(), bitmap_width, bitmap_height, expected_md5);
+  }
+
+  void TestRenderPageBitmapWithExternalMemory(FPDF_PAGE page,
+                                              int format,
+                                              const char* expected_md5) {
+    int bitmap_width = static_cast<int>(FPDF_GetPageWidth(page));
+    int bitmap_height = static_cast<int>(FPDF_GetPageHeight(page));
+    int bytes_per_pixel = BytesPerPixelForFormat(format);
+    ASSERT_NE(0, bytes_per_pixel);
+
+    int bitmap_stride = bytes_per_pixel * bitmap_width;
+    std::vector<uint8_t> external_memory(bitmap_stride * bitmap_height);
+    ScopedFPDFBitmap bitmap(FPDFBitmap_CreateEx(bitmap_width, bitmap_height,
+                                                format, external_memory.data(),
+                                                bitmap_stride));
+    FPDFBitmap_FillRect(bitmap.get(), 0, 0, bitmap_width, bitmap_height,
+                        0xFFFFFFFF);
+    FPDF_RenderPageBitmap(bitmap.get(), page, 0, 0, bitmap_width, bitmap_height,
+                          0, 0);
+    CompareBitmap(bitmap.get(), bitmap_width, bitmap_height, expected_md5);
+  }
 };
 
 // Test for conversion of a point in device coordinates to page coordinates
@@ -397,8 +433,8 @@ TEST_F(FPDFViewEmbedderTest, LoadCustomDocumentWithShortLivedFileAccess) {
   // Now try to access |doc| and make sure it still works.
   ScopedFPDFPage page(FPDF_LoadPage(doc.get(), 0));
   ASSERT_TRUE(page);
-  EXPECT_DOUBLE_EQ(200, FPDF_GetPageWidth(page.get()));
-  EXPECT_DOUBLE_EQ(300, FPDF_GetPageHeight(page.get()));
+  EXPECT_FLOAT_EQ(200.0f, FPDF_GetPageWidthF(page.get()));
+  EXPECT_FLOAT_EQ(300.0f, FPDF_GetPageHeightF(page.get()));
 }
 
 TEST_F(FPDFViewEmbedderTest, Page) {
@@ -406,8 +442,8 @@ TEST_F(FPDFViewEmbedderTest, Page) {
   FPDF_PAGE page = LoadPage(0);
   EXPECT_TRUE(page);
 
-  EXPECT_EQ(612.0, FPDF_GetPageWidth(page));
-  EXPECT_EQ(792.0, FPDF_GetPageHeight(page));
+  EXPECT_FLOAT_EQ(612.0f, FPDF_GetPageWidthF(page));
+  EXPECT_FLOAT_EQ(792.0f, FPDF_GetPageHeightF(page));
 
   FS_RECTF rect;
   EXPECT_TRUE(FPDF_GetPageBoundingBox(page, &rect));
@@ -717,34 +753,6 @@ TEST_F(FPDFViewEmbedderTest, Hang_1055) {
   EXPECT_EQ(16, version);
 }
 
-void FPDFViewEmbedderTest::TestRenderPageBitmapWithMatrix(
-    FPDF_PAGE page,
-    int bitmap_width,
-    int bitmap_height,
-    const FS_MATRIX& matrix,
-    const FS_RECTF& rect,
-    const char* expected_md5) {
-  ScopedFPDFBitmap bitmap(FPDFBitmap_Create(bitmap_width, bitmap_height, 0));
-  FPDFBitmap_FillRect(bitmap.get(), 0, 0, bitmap_width, bitmap_height,
-                      0xFFFFFFFF);
-  FPDF_RenderPageBitmapWithMatrix(bitmap.get(), page, &matrix, &rect, 0);
-  CompareBitmap(bitmap.get(), bitmap_width, bitmap_height, expected_md5);
-}
-
-void FPDFViewEmbedderTest::TestRenderPageBitmapWithFlags(
-    FPDF_PAGE page,
-    int flags,
-    const char* expected_md5) {
-  int bitmap_width = static_cast<int>(FPDF_GetPageWidth(page));
-  int bitmap_height = static_cast<int>(FPDF_GetPageHeight(page));
-  ScopedFPDFBitmap bitmap(FPDFBitmap_Create(bitmap_width, bitmap_height, 0));
-  FPDFBitmap_FillRect(bitmap.get(), 0, 0, bitmap_width, bitmap_height,
-                      0xFFFFFFFF);
-  FPDF_RenderPageBitmap(bitmap.get(), page, 0, 0, bitmap_width, bitmap_height,
-                        0, flags);
-  CompareBitmap(bitmap.get(), bitmap_width, bitmap_height, expected_md5);
-}
-
 // TODO(crbug.com/pdfium/11): Fix this test and enable.
 #if defined(_SKIA_SUPPORT_) || defined(_SKIA_SUPPORT_PATHS_)
 #define MAYBE_FPDF_RenderPageBitmapWithMatrix \
@@ -773,8 +781,8 @@ TEST_F(FPDFViewEmbedderTest, MAYBE_FPDF_RenderPageBitmapWithMatrix) {
   EXPECT_TRUE(OpenDocument("rectangles.pdf"));
   FPDF_PAGE page = LoadPage(0);
   ASSERT_TRUE(page);
-  const int page_width = static_cast<int>(FPDF_GetPageWidth(page));
-  const int page_height = static_cast<int>(FPDF_GetPageHeight(page));
+  const int page_width = static_cast<int>(FPDF_GetPageWidthF(page));
+  const int page_height = static_cast<int>(FPDF_GetPageHeightF(page));
   EXPECT_EQ(200, page_width);
   EXPECT_EQ(300, page_height);
 
@@ -909,6 +917,41 @@ TEST_F(FPDFViewEmbedderTest, MAYBE_FPDF_RenderPageBitmapWithMatrix) {
   TestRenderPageBitmapWithMatrix(page, tile_bitmap_size, tile_bitmap_size,
                                  tile_2_1_matrix, tile_bitmap_rect, kTileMD5);
 
+  UnloadPage(page);
+}
+
+TEST_F(FPDFViewEmbedderTest, FPDF_GetPageSizeByIndexF) {
+  EXPECT_TRUE(OpenDocument("rectangles.pdf"));
+
+  FS_SIZEF size;
+  EXPECT_FALSE(FPDF_GetPageSizeByIndexF(nullptr, 0, &size));
+  EXPECT_FALSE(FPDF_GetPageSizeByIndexF(document(), 0, nullptr));
+
+  // Page -1 doesn't exist.
+  EXPECT_FALSE(FPDF_GetPageSizeByIndexF(document(), -1, &size));
+
+  // Page 1 doesn't exist.
+  EXPECT_FALSE(FPDF_GetPageSizeByIndexF(document(), 1, &size));
+
+  // Page 0 exists.
+  EXPECT_TRUE(FPDF_GetPageSizeByIndexF(document(), 0, &size));
+  EXPECT_FLOAT_EQ(200.0f, size.width);
+  EXPECT_FLOAT_EQ(300.0f, size.height);
+
+  CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document());
+#ifdef PDF_ENABLE_XFA
+  // TODO(tsepez): XFA must obtain this size without parsing.
+  EXPECT_EQ(1u, pDoc->GetParsedPageCountForTesting());
+#else   // PDF_ENABLE_XFA
+  EXPECT_EQ(0u, pDoc->GetParsedPageCountForTesting());
+#endif  // PDF_ENABLE_XFA
+
+  // Double-check against values from when page is actually parsed.
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+  EXPECT_FLOAT_EQ(size.width, FPDF_GetPageWidthF(page));
+  EXPECT_FLOAT_EQ(size.height, FPDF_GetPageHeightF(page));
+  EXPECT_EQ(1u, pDoc->GetParsedPageCountForTesting());
   UnloadPage(page);
 }
 
@@ -1048,6 +1091,31 @@ TEST_F(FPDFViewEmbedderTest, RenderManyRectanglesWithFlags) {
   TestRenderPageBitmapWithFlags(page, FPDF_RENDER_NO_SMOOTHIMAGE, kNormalMD5);
   TestRenderPageBitmapWithFlags(page, FPDF_RENDER_NO_SMOOTHPATH,
                                 kNoSmoothpathMD5);
+
+  UnloadPage(page);
+}
+
+TEST_F(FPDFViewEmbedderTest, RenderManyRectanglesWithExternalMemory) {
+  ASSERT_TRUE(OpenDocument("many_rectangles.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+#if defined(_SKIA_SUPPORT_) || defined(_SKIA_SUPPORT_PATHS_)
+  static const char kGrayMD5[] = "3dfe1fc3889123d68e1748fefac65e72";
+  static const char kNormalMD5[] = "4e7e280c1597222afcb0ee3bb90ec119";
+
+  // TODO(crbug.com/pdfium/1489): Add a test for FPDFBitmap_BGR in
+  // Skia/SkiaPaths modes once Skia provides support for BGR24 format.
+#else
+  static const char kGrayMD5[] = "b561c11edc44dc3972125a9b8744fa2f";
+  static const char kBgrMD5[] = "ab6312e04c0d3f4e46fb302a45173d05";
+  static const char kNormalMD5[] = "b0170c575b65ecb93ebafada0ff0f038";
+
+  TestRenderPageBitmapWithExternalMemory(page, FPDFBitmap_BGR, kBgrMD5);
+#endif
+  TestRenderPageBitmapWithExternalMemory(page, FPDFBitmap_Gray, kGrayMD5);
+  TestRenderPageBitmapWithExternalMemory(page, FPDFBitmap_BGRx, kNormalMD5);
+  TestRenderPageBitmapWithExternalMemory(page, FPDFBitmap_BGRA, kNormalMD5);
 
   UnloadPage(page);
 }

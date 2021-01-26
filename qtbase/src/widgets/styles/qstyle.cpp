@@ -372,7 +372,7 @@ static int unpackControlTypes(QSizePolicy::ControlTypes controls, QSizePolicy::C
     We include a small example where we customize the drawing of item
     backgrounds.
 
-    \snippet customviewstyle.cpp 0
+    \snippet customviewstyle/customviewstyle.cpp 0
 
     The primitive element PE_PanelItemViewItem is responsible for
     painting the background of items, and is called from
@@ -627,7 +627,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     QRect aligned = alignedRect(QGuiApplication::layoutDirection(), QFlag(alignment), pixmap.size() / scale, rect);
     QRect inter = aligned.intersected(rect);
 
-    painter->drawPixmap(inter.x(), inter.y(), pixmap, inter.x() - aligned.x(), inter.y() - aligned.y(), inter.width() * scale, inter.height() *scale);
+    painter->drawPixmap(inter.x(), inter.y(), pixmap, inter.x() - aligned.x(), inter.y() - aligned.y(), qRound(inter.width() * scale), qRound(inter.height() *scale));
 }
 
 /*!

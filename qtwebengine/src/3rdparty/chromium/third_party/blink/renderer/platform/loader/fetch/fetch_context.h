@@ -47,7 +47,7 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/network/content_security_policy_parsers.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/weborigin/security_violation_reporting_policy.h"
+#include "third_party/blink/renderer/platform/weborigin/reporting_disposition.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace blink {
@@ -75,7 +75,7 @@ class PLATFORM_EXPORT FetchContext : public GarbageCollected<FetchContext> {
 
   virtual ~FetchContext() = default;
 
-  virtual void Trace(blink::Visitor*) {}
+  virtual void Trace(Visitor*) {}
 
   virtual void AddAdditionalRequestHeaders(ResourceRequest&);
 
@@ -112,15 +112,16 @@ class PLATFORM_EXPORT FetchContext : public GarbageCollected<FetchContext> {
       const ResourceRequest&,
       const KURL&,
       const ResourceLoaderOptions&,
-      SecurityViolationReportingPolicy,
-      ResourceRequest::RedirectStatus) const {
+      ReportingDisposition,
+      const Vector<KURL>& redirect_chain) const {
     return ResourceRequestBlockedReason::kOther;
   }
   virtual base::Optional<ResourceRequestBlockedReason> CheckCSPForRequest(
       mojom::RequestContextType,
       const KURL&,
       const ResourceLoaderOptions&,
-      SecurityViolationReportingPolicy,
+      ReportingDisposition,
+      const KURL& url_before_redirects,
       ResourceRequest::RedirectStatus) const {
     return ResourceRequestBlockedReason::kOther;
   }

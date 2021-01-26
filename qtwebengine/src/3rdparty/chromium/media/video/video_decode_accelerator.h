@@ -19,6 +19,7 @@
 #include "media/base/decoder_buffer.h"
 #include "media/base/encryption_scheme.h"
 #include "media/base/overlay_info.h"
+#include "media/base/status.h"
 #include "media/base/video_decoder_config.h"
 #include "media/video/picture.h"
 #include "ui/gfx/color_space.h"
@@ -200,7 +201,7 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
     // call to VDA::Initialize returns true.
     // The default implementation is a NOTREACHED, since deferred initialization
     // is not supported by default.
-    virtual void NotifyInitializationComplete(bool success);
+    virtual void NotifyInitializationComplete(Status status);
 
     // Callback to tell client how many and what size of buffers to provide.
     // Note that the actual count provided through AssignPictureBuffers() can be
@@ -215,8 +216,10 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
                                        uint32_t texture_target) = 0;
 
     // This is the same as ProvidePictureBuffers() except that |visible_rect| is
-    // also included. The default implementation of VDA would call
-    // ProvidePictureBuffers().
+    // also included. The default implementation calls ProvidePictureBuffers()
+    // setting |dimensions| = GetRectSizeFromOrigin(|visible_rect|) when
+    // |texture_target| is GL_TEXTURE_EXTERNAL_OES; otherwise, it passes along
+    // all parameters to ProvidePictureBuffers() as they are.
     virtual void ProvidePictureBuffersWithVisibleRect(
         uint32_t requested_num_of_buffers,
         VideoPixelFormat format,

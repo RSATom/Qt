@@ -40,8 +40,7 @@ TestMojoMediaClient::~TestMojoMediaClient() {
   }
 }
 
-void TestMojoMediaClient::Initialize(
-    service_manager::Connector* /* connector */) {
+void TestMojoMediaClient::Initialize() {
   InitializeMediaLibrary();
   // TODO(dalecurtis): We should find a single owner per process for the audio
   // manager or make it a lazy instance.  It's not safe to call Get()/Create()
@@ -68,7 +67,7 @@ std::unique_ptr<Renderer> TestMojoMediaClient::CreateRenderer(
   if (!renderer_factory_) {
     renderer_factory_ = std::make_unique<DefaultRendererFactory>(
         media_log, decoder_factory_.get(),
-        DefaultRendererFactory::GetGpuFactoriesCB());
+        DefaultRendererFactory::GetGpuFactoriesCB(), nullptr);
   }
 
   // We cannot share AudioOutputStreamSink or NullVideoSink among different
@@ -87,7 +86,7 @@ std::unique_ptr<Renderer> TestMojoMediaClient::CreateRenderer(
 
   return renderer_factory_->CreateRenderer(
       task_runner, task_runner, audio_sink.get(), video_sink_ptr,
-      RequestOverlayInfoCB(), gfx::ColorSpace());
+      base::NullCallback(), gfx::ColorSpace());
 }
 
 #if BUILDFLAG(ENABLE_CAST_RENDERER)

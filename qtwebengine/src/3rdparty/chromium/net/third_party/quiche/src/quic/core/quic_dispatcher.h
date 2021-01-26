@@ -17,7 +17,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_blocked_writer_interface.h"
 #include "net/third_party/quiche/src/quic/core/quic_buffered_packet_store.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_process_packet_interface.h"
 #include "net/third_party/quiche/src/quic/core/quic_session.h"
@@ -25,6 +25,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_version_manager.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -42,13 +43,14 @@ class QUIC_NO_EXPORT QuicDispatcher
   // Ideally we'd have a linked_hash_set: the  boolean is unused.
   typedef QuicLinkedHashMap<QuicBlockedWriterInterface*, bool> WriteBlockedList;
 
-  QuicDispatcher(const QuicConfig* config,
-                 const QuicCryptoServerConfig* crypto_config,
-                 QuicVersionManager* version_manager,
-                 std::unique_ptr<QuicConnectionHelperInterface> helper,
-                 std::unique_ptr<QuicCryptoServerStream::Helper> session_helper,
-                 std::unique_ptr<QuicAlarmFactory> alarm_factory,
-                 uint8_t expected_server_connection_id_length);
+  QuicDispatcher(
+      const QuicConfig* config,
+      const QuicCryptoServerConfig* crypto_config,
+      QuicVersionManager* version_manager,
+      std::unique_ptr<QuicConnectionHelperInterface> helper,
+      std::unique_ptr<QuicCryptoServerStreamBase::Helper> session_helper,
+      std::unique_ptr<QuicAlarmFactory> alarm_factory,
+      uint8_t expected_server_connection_id_length);
   QuicDispatcher(const QuicDispatcher&) = delete;
   QuicDispatcher& operator=(const QuicDispatcher&) = delete;
 
@@ -137,11 +139,21 @@ class QUIC_NO_EXPORT QuicDispatcher
   // Return true if there is CHLO buffered.
   virtual bool HasChlosBuffered() const;
 
+  // Start accepting new ConnectionIds.
+  void StartAcceptingNewConnections();
+
+  // Stop accepting new ConnectionIds, either as a part of the lame
+  // duck process or because explicitly configured.
+  void StopAcceptingNewConnections();
+
+  bool accept_new_connections() const { return accept_new_connections_; }
+
  protected:
-  virtual QuicSession* CreateQuicSession(QuicConnectionId server_connection_id,
-                                         const QuicSocketAddress& peer_address,
-                                         QuicStringPiece alpn,
-                                         const ParsedQuicVersion& version) = 0;
+  virtual std::unique_ptr<QuicSession> CreateQuicSession(
+      QuicConnectionId server_connection_id,
+      const QuicSocketAddress& peer_address,
+      quiche::QuicheStringPiece alpn,
+      const ParsedQuicVersion& version) = 0;
 
   // Tries to validate and dispatch packet based on available information.
   // Returns true if packet is dropped or successfully dispatched (e.g.,
@@ -208,7 +220,7 @@ class QUIC_NO_EXPORT QuicDispatcher
 
   QuicConnectionHelperInterface* helper() { return helper_.get(); }
 
-  QuicCryptoServerStream::Helper* session_helper() {
+  QuicCryptoServerStreamBase::Helper* session_helper() {
     return session_helper_.get();
   }
 
@@ -248,8 +260,6 @@ class QUIC_NO_EXPORT QuicDispatcher
                               QuicConnection* connection,
                               ConnectionCloseSource source);
 
-  void StopAcceptingNewConnections();
-
   // Called to terminate a connection statelessly. Depending on |format|, either
   // 1) send connection close with |error_code| and |error_details| and add
   // connection to time wait list or 2) directly add connection to time wait
@@ -284,6 +294,9 @@ class QUIC_NO_EXPORT QuicDispatcher
     allow_short_initial_server_connection_ids_ =
         allow_short_initial_server_connection_ids;
   }
+
+  // Called if a packet from an unseen connection is reset or rejected.
+  virtual void OnNewConnectionRejected() {}
 
  private:
   friend class test::QuicDispatcherPeer;
@@ -336,7 +349,7 @@ class QUIC_NO_EXPORT QuicDispatcher
   std::unique_ptr<QuicConnectionHelperInterface> helper_;
 
   // The helper used for all sessions.
-  std::unique_ptr<QuicCryptoServerStream::Helper> session_helper_;
+  std::unique_ptr<QuicCryptoServerStreamBase::Helper> session_helper_;
 
   // Creates alarms.
   std::unique_ptr<QuicAlarmFactory> alarm_factory_;
@@ -362,7 +375,8 @@ class QUIC_NO_EXPORT QuicDispatcher
   // event loop. When reaches 0, it means can't create sessions for now.
   int16_t new_sessions_allowed_per_event_loop_;
 
-  // True if this dispatcher is not draining.
+  // True if this dispatcher is accepting new ConnectionIds (new client
+  // connections), false otherwise.
   bool accept_new_connections_;
 
   // If false, the dispatcher follows the IETF spec and rejects packets with

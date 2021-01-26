@@ -6,6 +6,7 @@
 #define V8_BASE_TEMPLATE_UTILS_H_
 
 #include <array>
+#include <functional>
 #include <type_traits>
 #include <utility>
 
@@ -88,6 +89,15 @@ template <typename... Args>
 constexpr bool all(Args... rest) {
   return fold(logical_and, true, rest...);
 }
+
+template <class... Ts>
+struct make_void {
+  using type = void;
+};
+// Corresponds to C++17's std::void_t.
+// Used for SFINAE based on type errors.
+template <class... Ts>
+using void_t = typename make_void<Ts...>::type;
 
 }  // namespace base
 }  // namespace v8

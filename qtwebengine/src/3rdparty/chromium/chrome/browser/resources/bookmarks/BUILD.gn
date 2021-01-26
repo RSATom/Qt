@@ -29,24 +29,18 @@ if (optimize_webui) {
     pak_file = bookmarks_pak_file
     out_folder = unpak_folder
 
-    deps = [
-      ":flattened_resources",
-    ]
+    deps = [ ":flattened_resources" ]
   }
 
   grit("flattened_resources") {
     source = "bookmarks_resources.grd"
 
-    # The .grd contains references to generated files.
-    source_is_generated = true
     grit_flags = [
       "-E",
       "root_gen_dir=" + rebase_path(root_gen_dir, root_build_dir),
     ]
 
-    deps = [
-      ":polymer3_elements",
-    ]
+    deps = [ ":polymer3_elements" ]
     defines = chrome_grit_defines
     outputs = [
       "grit/bookmarks_resources.h",
@@ -59,7 +53,7 @@ if (optimize_webui) {
 }
 
 group("polymer3_elements") {
-  deps = [
+  public_deps = [
     ":app_module",
     ":command_manager_module",
     ":edit_dialog_module",
@@ -193,7 +187,7 @@ js_library("app") {
     ":store",
     ":store_client",
     "//third_party/polymer/v3_0/components-chromium/polymer:polymer_bundled",
-    "//ui/webui/resources/cr_elements/cr_splitter:cr_splitter.m",
+    "//ui/webui/resources/cr_elements/cr_splitter:cr_splitter",
     "//ui/webui/resources/js:find_shortcut_behavior.m",
     "//ui/webui/resources/js:load_time_data.m",
   ]
@@ -240,9 +234,7 @@ js_library("debouncer") {
 }
 
 js_library("dialog_focus_manager") {
-  deps = [
-    "//ui/webui/resources/js:cr.m",
-  ]
+  deps = [ "//ui/webui/resources/js:cr.m" ]
 }
 
 js_library("dnd_manager") {
@@ -381,15 +373,11 @@ js_library("toolbar") {
 }
 
 js_library("types") {
-  deps = [
-    ":constants",
-  ]
+  deps = [ ":constants" ]
   externs_list = [ "$externs_path/chrome_extensions.js" ]
 }
 
 js_library("util") {
-  deps = [
-    ":types",
-  ]
+  deps = [ ":types" ]
   externs_list = [ "$externs_path/chrome_extensions.js" ]
 }

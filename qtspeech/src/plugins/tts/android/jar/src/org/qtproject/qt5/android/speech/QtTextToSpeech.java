@@ -253,7 +253,16 @@ public class QtTextToSpeech
     public Locale getLocale()
     {
         //Log.d("QtTextToSpeech", "getLocale: " + mLocale);
-        return mTts.getLanguage();
+        final Locale language = mTts.getLanguage();
+        String languageCode = language.getLanguage();
+        String countryCode = language.getCountry();
+
+        if (languageCode.equals(language.getISO3Language()))
+            languageCode = convertLanguageCodeThreeDigitToTwoDigit(languageCode);
+        if (countryCode.equals(language.getISO3Country()))
+            countryCode = convertCountryCodeThreeDigitToTwoDigit(countryCode);
+
+        return new Locale(languageCode, countryCode);
     }
 
     public Object getVoice()

@@ -106,7 +106,7 @@ assertion* to get the function arguments printed for free:
 | Fatal assertion                   | Nonfatal assertion                | Verifies                    |
 | --------------------------------- | --------------------------------- | --------------------------- |
 | `ASSERT_PRED1(pred1, val1)`       | `EXPECT_PRED1(pred1, val1)`       | `pred1(val1)` is true       |
-| `ASSERT_PRED2(pred2, val1, val2)` | `EXPECT_PRED2(pred2, val1, val2)` | `pred1(val1, val2)` is true |
+| `ASSERT_PRED2(pred2, val1, val2)` | `EXPECT_PRED2(pred2, val1, val2)` | `pred2(val1, val2)` is true |
 | `...`                             | `...`                             | `...`                       |
 
 <!-- mdformat on-->
@@ -918,6 +918,8 @@ the `SCOPED_TRACE` macro or the `ScopedTrace` utility:
 
 ```c++
 SCOPED_TRACE(message);
+```
+```c++
 ScopedTrace trace("file_path", line_number, message);
 ```
 
@@ -953,7 +955,7 @@ path/to/foo_test.cc:11: Failure
 Value of: Bar(n)
 Expected: 1
   Actual: 2
-   Trace:
+Google Test trace:
 path/to/foo_test.cc:17: A
 
 path/to/foo_test.cc:12: Failure
@@ -1229,7 +1231,7 @@ environment, which knows how to set-up and tear-down:
 ```c++
 class Environment : public ::testing::Environment {
  public:
-  virtual ~Environment() {}
+  ~Environment() override {}
 
   // Override this to define how to set up the environment.
   void SetUp() override {}
@@ -1374,6 +1376,17 @@ function scope.
 
 NOTE: Don't forget this step! If you do your test will silently pass, but none
 of its suites will ever run!
+
+There is work in progress to make omitting `INSTANTIATE_TEST_SUITE_P` show up
+under the `GoogleTestVerification` test suite and to then make that an error.
+If you have a test suite where that omission is not an error, for example it is
+in a library that may be linked in for other reason or where the list of test
+cases is dynamic and may be empty, then this check can be suppressed by tagging
+the test suite:
+
+```c++
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(FooTest);
+```
 
 To distinguish different instances of the pattern (yes, you can instantiate it
 more than once), the first argument to `INSTANTIATE_TEST_SUITE_P` is a prefix
@@ -1803,7 +1816,7 @@ For technical reasons, there are some caveats:
 ## Registering tests programmatically
 
 The `TEST` macros handle the vast majority of all use cases, but there are few
-were runtime registration logic is required. For those cases, the framework
+where runtime registration logic is required. For those cases, the framework
 provides the `::testing::RegisterTest` that allows callers to register arbitrary
 tests dynamically.
 

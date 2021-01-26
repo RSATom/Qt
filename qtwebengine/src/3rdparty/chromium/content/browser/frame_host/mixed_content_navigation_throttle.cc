@@ -11,16 +11,19 @@
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/frame_host/render_frame_host_delegate.h"
+#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/common/frame_messages.h"
 #include "content/public/browser/content_browser_client.h"
-#include "content/public/browser/render_frame_host.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/navigation_policy.h"
 #include "content/public/common/origin_util.h"
 #include "content/public/common/web_preferences.h"
 #include "net/base/url_util.h"
+#include "third_party/blink/public/common/security_context/insecure_request_policy.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom.h"
+
 #include "url/gurl.h"
 #include "url/origin.h"
 #include "url/url_constants.h"
@@ -46,20 +49,9 @@ bool ShouldTreatURLSchemeAsCorsEnabled(const GURL& url) {
 bool IsUrlPotentiallySecure(const GURL& url) {
   // blob: and filesystem: URLs never hit the network, and access is restricted
   // to same-origin contexts, so they are not blocked.
-  bool is_secure = url.SchemeIs(url::kBlobScheme) ||
-                   url.SchemeIs(url::kFileSystemScheme) ||
-                   IsOriginSecure(url) ||
-                   IsPotentiallyTrustworthyOrigin(url::Origin::Create(url));
-
-  // TODO(mkwst): Remove this once the following draft is implemented:
-  // https://tools.ietf.org/html/draft-west-let-localhost-be-localhost-03. See:
-  // https://crbug.com/691930.
-  if (is_secure && url.SchemeIs(url::kHttpScheme) &&
-      net::IsLocalHostname(url.HostNoBracketsPiece(), nullptr)) {
-    is_secure = false;
-  }
-
-  return is_secure;
+  return url.SchemeIs(url::kBlobScheme) ||
+         url.SchemeIs(url::kFileSystemScheme) || IsOriginSecure(url) ||
+         IsPotentiallyTrustworthyOrigin(url::Origin::Create(url));
 }
 
 // This method should return the same results as
@@ -83,12 +75,13 @@ void UpdateRendererOnMixedContentFound(NavigationRequest* navigation_request,
   params.main_resource_url = mixed_content_url;
   params.mixed_content_url = navigation_request->GetURL();
   params.request_context_type = navigation_request->request_context_type();
+  params.request_destination = navigation_request->request_destination();
   params.was_allowed = was_allowed;
+  DCHECK(!navigation_request->GetRedirectChain().empty());
+  params.url_before_redirects = navigation_request->GetRedirectChain()[0];
   params.had_redirect = for_redirect;
-  if (navigation_request->common_params().source_location) {
-    params.source_location =
-        navigation_request->common_params().source_location.value();
-  }
+  params.source_location =
+      *(navigation_request->common_params().source_location.get());
 
   rfh->Send(new FrameMsg_MixedContentFound(rfh->GetRoutingID(), params));
 }
@@ -157,9 +150,10 @@ bool MixedContentNavigationThrottle::ShouldBlockNavigation(bool for_redirect) {
   // If we're in strict mode, we'll automagically fail everything, and
   // intentionally skip the client/embedder checks in order to prevent degrading
   // the site's security UI.
-  bool block_all_mixed_content = !!(
-      mixed_content_node->current_replication_state().insecure_request_policy &
-      blink::kBlockAllMixedContent);
+  bool block_all_mixed_content =
+      (mixed_content_node->current_replication_state().insecure_request_policy &
+       blink::mojom::InsecureRequestPolicy::kBlockAllMixedContent) !=
+      blink::mojom::InsecureRequestPolicy::kLeaveInsecureRequestsAlone;
   const WebPreferences& prefs = mixed_content_node->current_frame_host()
                                     ->render_view_host()
                                     ->GetWebkitPreferences();
@@ -220,8 +214,6 @@ bool MixedContentNavigationThrottle::ShouldBlockNavigation(bool for_redirect) {
         const GURL& origin_url = mixed_content_node->current_origin().GetURL();
         frame_host_delegate->DidRunInsecureContent(origin_url,
                                                    request->GetURL());
-        GetContentClient()->browser()->RecordURLMetric(
-            "ContentSettings.MixedScript.RanMixedScript", origin_url);
         mixed_content_features_.insert(
             blink::mojom::WebFeature::kMixedContentBlockableAllowed);
       }
@@ -305,9 +297,10 @@ FrameTreeNode* MixedContentNavigationThrottle::InWhichFrameIsContentMixed(
 void MixedContentNavigationThrottle::MaybeSendBlinkFeatureUsageReport() {
   if (!mixed_content_features_.empty()) {
     NavigationRequest* request = NavigationRequest::From(navigation_handle());
-    RenderFrameHost* rfh = request->frame_tree_node()->current_frame_host();
-    rfh->Send(new FrameMsg_BlinkFeatureUsageReport(rfh->GetRoutingID(),
-                                                   mixed_content_features_));
+    RenderFrameHostImpl* rfh = request->frame_tree_node()->current_frame_host();
+    rfh->GetAssociatedLocalFrame()->ReportBlinkFeatureUsage(
+        std::vector<blink::mojom::WebFeature>(mixed_content_features_.begin(),
+                                              mixed_content_features_.end()));
     mixed_content_features_.clear();
   }
 }

@@ -13,7 +13,7 @@
 #include "base/component_export.h"
 #include "base/memory/ref_counted.h"
 #include "base/process/process_handle.h"
-#include "base/task_runner.h"
+#include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "mojo/core/embedder/configuration.h"
 
@@ -42,9 +42,10 @@ void SetDefaultProcessErrorCallback(ProcessErrorCallback callback);
 
 // Initialialization/shutdown for interprocess communication (IPC) -------------
 
-// Retrieves the TaskRunner used for IPC I/O, as set by ScopedIPCSupport.
+// Retrieves the SequencedTaskRunner used for IPC I/O, as set by
+// ScopedIPCSupport.
 COMPONENT_EXPORT(MOJO_CORE_EMBEDDER)
-scoped_refptr<base::TaskRunner> GetIOTaskRunner();
+scoped_refptr<base::SingleThreadTaskRunner> GetIOTaskRunner();
 
 }  // namespace core
 }  // namespace mojo

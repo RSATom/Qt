@@ -40,12 +40,12 @@
 #include "net/quic/quic_session_key.h"
 #include "net/socket/client_socket_pool.h"
 #include "net/ssl/ssl_config_service.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 #include "net/third_party/quiche/src/quic/core/http/quic_client_push_promise_index.h"
 #include "net/third_party/quiche/src/quic/core/quic_config.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_server_id.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 
 namespace base {
 class Value;
@@ -287,7 +287,7 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   // Delete cached state objects in |crypto_config_|. If |origin_filter| is not
   // null, only objects on matching origins will be deleted.
   void ClearCachedStatesInCryptoConfig(
-      const base::Callback<bool(const GURL&)>& origin_filter);
+      const base::RepeatingCallback<bool(const GURL&)>& origin_filter);
 
   // Helper method that configures a DatagramClientSocket. Socket is
   // bound to the default network if the |network| param is

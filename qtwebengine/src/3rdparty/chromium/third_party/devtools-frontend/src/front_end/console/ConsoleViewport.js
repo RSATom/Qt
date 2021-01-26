@@ -28,12 +28,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Components from '../components/components.js';
+import * as UI from '../ui/ui.js';
+
 /**
  * @unrestricted
  */
-export default class ConsoleViewport {
+export class ConsoleViewport {
   /**
-   * @param {!Console.ConsoleViewportProvider} provider
+   * @param {!ConsoleViewportProvider} provider
    */
   constructor(provider) {
     this.element = createElement('div');
@@ -186,7 +189,7 @@ export default class ConsoleViewport {
    * @param {!Event} event
    */
   _onKeyDown(event) {
-    if (UI.isEditing() || !this._itemCount || event.shiftKey) {
+    if (UI.UIUtils.isEditing() || !this._itemCount || event.shiftKey) {
       return;
     }
     let isArrowUp = false;
@@ -276,7 +279,7 @@ export default class ConsoleViewport {
 
   /**
    * @param {number} index
-   * @return {?Console.ConsoleViewportElement}
+   * @return {?ConsoleViewportElement}
    */
   _providerElement(index) {
     if (!this._cachedProviderElements) {
@@ -518,7 +521,7 @@ export default class ConsoleViewport {
         this._cumulativeHeights[this._cumulativeHeights.length - 1] - this._cumulativeHeights[this._lastActiveIndex];
 
     /**
-     * @this {Console.ConsoleViewport}
+     * @this {ConsoleViewport}
      */
     function prepare() {
       this._topGapElement.style.height = topGapHeight + 'px';
@@ -605,7 +608,7 @@ export default class ConsoleViewport {
     const textLines = [];
     for (let i = startSelection.item; i <= endSelection.item; ++i) {
       const element = this._providerElement(i).element();
-      const lineContent = element.childTextNodes().map(Components.Linkifier.untruncatedNodeText).join('');
+      const lineContent = element.childTextNodes().map(Components.Linkifier.Linkifier.untruncatedNodeText).join('');
       textLines.push(lineContent);
     }
 
@@ -648,10 +651,10 @@ export default class ConsoleViewport {
           node.parentElement.nodeName === 'SCRIPT') {
         continue;
       }
-      chars += Components.Linkifier.untruncatedNodeText(node).length;
+      chars += Components.Linkifier.Linkifier.untruncatedNodeText(node).length;
     }
     // If the selected node text was truncated, treat any non-zero offset as the full length.
-    const untruncatedContainerLength = Components.Linkifier.untruncatedNodeText(selectionNode).length;
+    const untruncatedContainerLength = Components.Linkifier.Linkifier.untruncatedNodeText(selectionNode).length;
     if (offset > 0 && untruncatedContainerLength !== selectionNode.textContent.length) {
       offset = untruncatedContainerLength;
     }
@@ -767,7 +770,7 @@ export default class ConsoleViewport {
 /**
  * @interface
  */
-class ConsoleViewportProvider {
+export class ConsoleViewportProvider {
   /**
    * @param {number} index
    * @return {number}
@@ -792,7 +795,7 @@ class ConsoleViewportProvider {
 
   /**
    * @param {number} index
-   * @return {?Console.ConsoleViewportElement}
+   * @return {?ConsoleViewportElement}
    */
   itemElement(index) {
     return null;
@@ -815,24 +818,3 @@ export class ConsoleViewportElement {
   element() {
   }
 }
-
-/* Legacy exported object */
-self.Console = self.Console || {};
-
-/* Legacy exported object */
-Console = Console || {};
-
-/**
- * @constructor
- */
-Console.ConsoleViewport = ConsoleViewport;
-
-/**
- * @interface
- */
-Console.ConsoleViewportProvider = ConsoleViewportProvider;
-
-/**
- * @interface
- */
-Console.ConsoleViewportElement = ConsoleViewportElement;

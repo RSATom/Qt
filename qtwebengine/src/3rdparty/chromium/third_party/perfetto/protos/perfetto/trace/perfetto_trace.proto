@@ -169,6 +169,7 @@ message GpuCounterDescriptor {
     FAHRENHEIT = 35;
     KELVIN = 36;
 
+    // Values should be out of 100.
     PERCENT = 37;
 
     INSTRUCTION = 40;
@@ -507,8 +508,14 @@ message TracingServiceState {
 
 // Begin of protos/perfetto/common/track_event_descriptor.proto
 
+message TrackEventCategory {
+  optional string name = 1;
+  optional string description = 2;
+  repeated string tags = 3;
+}
+
 message TrackEventDescriptor {
-  repeated string available_categories = 1;
+  repeated TrackEventCategory available_categories = 1;
 }
 
 // End of protos/perfetto/common/track_event_descriptor.proto
@@ -2641,6 +2648,8 @@ message MmPagePcpuDrainFtraceEvent {
 message RssStatFtraceEvent {
   optional int32 member = 1;
   optional int64 size = 2;
+  optional uint32 curr = 3;
+  optional uint32 mm_id = 4;
 }
 message IonHeapShrinkFtraceEvent {
   optional string heap_name = 1;
@@ -3033,7 +3042,13 @@ message PowerRails {
 // Begin of protos/perfetto/trace/profiling/heap_graph.proto
 
 message ObfuscatedMember {
+  // This is the obfuscated field name relative to the class containing the
+  // ObfuscatedMember.
   optional string obfuscated_name = 1;
+  // If this is fully qualified (i.e. contains a '.') this is the deobfuscated
+  // field name including its class. Otherwise, this is this the unqualified
+  // deobfuscated field name relative to the class containing this
+  // ObfuscatedMember.
   optional string deobfuscated_name = 2;
 }
 
@@ -3073,6 +3088,14 @@ message HeapGraphRoot {
   optional Type root_type = 2;
 }
 
+message HeapGraphType {
+  // TODO(fmayer): Consider removing this and using the index in the repeaed
+  // field to save space.
+  optional uint64 id = 1;
+  optional uint64 location_id = 2;
+  optional string class_name = 3;
+}
+
 message HeapGraphObject {
   optional uint64 id = 1;
 
@@ -3106,11 +3129,21 @@ message HeapGraph {
   // garbage.
   repeated HeapGraphRoot roots = 7;
 
-  // Type names used in managed heap graph.
+  // Types used in HeapGraphObjects.
+  repeated HeapGraphType types = 9;
+
+  // Legacy way to encode types. Names here are emitted by old perfetto_hprof,
+  // which do not include the class_name. Handle like a HeapGraphType with
+  // no location_id.
+  // TODO(fmayer): Remove this. This was was not used in any publicly available
+  // release.
   repeated InternedString type_names = 3;
 
   // Field names for references in managed heap graph.
   repeated InternedString field_names = 4;
+
+  // Paths of files used in managed heap graph.
+  repeated InternedString location_names = 8;
 
   optional bool continued = 5;
   optional uint64 index = 6;
@@ -3327,6 +3360,10 @@ message ProfilePacket {
     // MEMORY CORRUPTION.
     optional bool buffer_corrupted = 8;
 
+    // If disconnected, this disconnect was caused by heapprofd exceeding
+    // guardrails during this profiling session.
+    optional bool hit_guardrail = 10;
+
     // Timestamp of the state of the target process that this dump represents.
     // This can be different to the timestamp of the TracePackets for various
     // reasons:
@@ -3361,7 +3398,86 @@ message ProfilePacket {
 // points in time, rather than aggregated over an interval.
 message StreamingProfilePacket {
   repeated uint64 callstack_iid = 1;  // Index into InternedData.callstacks
+  // TODO(eseckler): ThreadDescriptor-based timestamps are deprecated. Replace
+  // this with ClockSnapshot-based delta encoding instead.
   repeated int64 timestamp_delta_us = 2;
+}
+
+// Namespace for the contained enums.
+message Profiling {
+  enum CpuMode {
+    MODE_UNKNOWN = 0;
+    MODE_KERNEL = 1;
+    MODE_USER = 2;
+    // The following values aren't expected, but included for completeness:
+    MODE_HYPERVISOR = 3;
+    MODE_GUEST_KERNEL = 4;
+    MODE_GUEST_USER = 5;
+  }
+
+  // Enumeration of libunwindstack's error codes.
+  // NB: the integral representations of the two enums are different.
+  enum StackUnwindError {
+    UNWIND_ERROR_UNKNOWN = 0;
+    UNWIND_ERROR_NONE = 1;
+    UNWIND_ERROR_MEMORY_INVALID = 2;
+    UNWIND_ERROR_UNWIND_INFO = 3;
+    UNWIND_ERROR_UNSUPPORTED = 4;
+    UNWIND_ERROR_INVALID_MAP = 5;
+    UNWIND_ERROR_MAX_FRAMES_EXCEEDED = 6;
+    UNWIND_ERROR_REPEATED_FRAME = 7;
+    UNWIND_ERROR_INVALID_ELF = 8;
+  }
+}
+
+// Individual performance sampling packet payload. Typically corresponds to a
+// stack sample on a configration-dependent counter overflow.
+// Timestamps are within the root packet (in the CLOCK_BOOTTIME domain).
+// There are three distinct views of this message:
+// * completely processed sample (callstack_iid set)
+// * indication of kernel buffer data loss (kernel_records_lost set)
+// * indication of skipped samples (sample_skipped_reason set)
+message PerfSample {
+  optional uint32 cpu = 1;
+  optional uint32 pid = 2;
+  optional uint32 tid = 3;
+
+  // Execution state that the process was sampled at.
+  optional Profiling.CpuMode cpu_mode = 5;
+
+  // Unwound callstack. Might be partial, in which case a synthetic "error"
+  // frame is appended, and |unwind_error| is set appropriately.
+  optional uint64 callstack_iid = 4;
+
+  // If set, stack unwinding was incomplete due to an error.
+  // Unset values should be treated as UNWIND_ERROR_NONE.
+  oneof optional_unwind_error { Profiling.StackUnwindError unwind_error = 16; };
+
+  // If set, indicates that this message is not a sample, but rather an
+  // indication of data loss in the ring buffer allocated for |cpu|. Such data
+  // loss occurs when the kernel has insufficient ring buffer capacity to write
+  // a record (which gets discarded). A record in this context is an individual
+  // ring buffer entry, and counts more than just sample records.
+  //
+  // The |timestamp| of the packet corresponds to the time that the producer
+  // wrote the packet for trace-sorting purposes alone, and should not be
+  // interpreted relative to the sample timestamps. This field is sufficient to
+  // detect that *some* kernel data loss happened within the trace, but not the
+  // specific time bounds of that loss (which would require tracking precedessor
+  // & successor timestamps, which is not deemed necessary at the moment).
+  optional uint64 kernel_records_lost = 17;
+
+  // If set, indicates that the profiler encountered a sample that was relevant,
+  // but was skipped.
+  enum SampleSkipReason {
+    PROFILER_SKIP_UNKNOWN = 0;
+    PROFILER_SKIP_READ_STAGE = 1;
+    PROFILER_SKIP_UNWIND_STAGE = 2;
+    PROFILER_SKIP_UNWIND_ENQUEUE = 3;
+  }
+  oneof optional_sample_skipped_reason {
+    SampleSkipReason sample_skipped_reason = 18;
+  };
 }
 
 // End of protos/perfetto/trace/profiling/profile_packet.proto
@@ -3556,7 +3672,7 @@ message Trace {
 // TracePacket(s).
 //
 // Next reserved id: 13 (up to 15).
-// Next id: 64.
+// Next id: 67.
 message TracePacket {
   // The timestamp of the TracePacket.
   // By default this timestamps refers to the trace clock (CLOCK_BOOTTIME on
@@ -3606,6 +3722,8 @@ message TracePacket {
     GraphicsFrameEvent graphics_frame_event = 57;
     // removed field with id 62
     GpuLog gpu_log = 63;
+    VulkanApiEvent vulkan_api_event = 65;
+    PerfSample perf_sample = 66;
 
     // Only used in profile packets.
     ProfiledFrameSymbols profiled_frame_symbols = 55;
@@ -3662,7 +3780,6 @@ message TracePacket {
   // it (since the last reset of interning state). It may also be emitted
   // proactively in advance of referring to them in later packets.
   optional InternedData interned_data = 12;
-
 
   enum SequenceFlags {
     SEQ_UNSPECIFIED = 0;
@@ -4068,6 +4185,128 @@ message ChromeLegacyIpc {
 
 // End of protos/perfetto/trace/track_event/chrome_legacy_ipc.proto
 
+// Begin of protos/perfetto/trace/track_event/chrome_latency_info.proto
+
+message ChromeLatencyInfo {
+  optional int64 trace_id = 1;
+
+  enum Step {
+    STEP_UNSPECIFIED = 0;
+    STEP_HANDLE_INPUT_EVENT_MAIN_COMMIT = 1;
+    STEP_MAIN_THREAD_SCROLL_UPDATE = 2;
+    STEP_SEND_INPUT_EVENT_UI = 3;
+    STEP_HANDLE_INPUT_EVENT_MAIN = 4;
+    STEP_HANDLE_INPUT_EVENT_IMPL = 5;
+    STEP_SWAP_BUFFERS = 6;
+    STEP_DRAW_AND_SWAP = 7;
+  };
+
+  optional Step step = 2;
+  optional int32 frame_tree_node_id = 3;
+
+  // This enum is a copy of LatencyComponentType enum in Chrome, located in
+  // ui/latency/latency_info.h, modulo added UNKNOWN value per protobuf
+  // practices.
+  enum LatencyComponentType {
+    COMPONENT_UNSPECIFIED = 0;
+    COMPONENT_INPUT_EVENT_LATENCY_BEGIN_RWH = 1;
+    COMPONENT_INPUT_EVENT_LATENCY_SCROLL_UPDATE_ORIGINAL = 2;
+    COMPONENT_INPUT_EVENT_LATENCY_FIRST_SCROLL_UPDATE_ORIGINAL = 3;
+    COMPONENT_INPUT_EVENT_LATENCY_ORIGINAL = 4;
+    COMPONENT_INPUT_EVENT_LATENCY_UI = 5;
+    COMPONENT_INPUT_EVENT_LATENCY_RENDERER_MAIN = 6;
+    COMPONENT_INPUT_EVENT_LATENCY_RENDERING_SCHEDULED_MAIN = 7;
+    COMPONENT_INPUT_EVENT_LATENCY_RENDERING_SCHEDULED_IMPL = 8;
+    COMPONENT_INPUT_EVENT_LATENCY_SCROLL_UPDATE_LAST_EVENT = 9;
+    COMPONENT_INPUT_EVENT_LATENCY_ACK_RWH = 10;
+    COMPONENT_INPUT_EVENT_LATENCY_RENDERER_SWAP = 11;
+    COMPONENT_DISPLAY_COMPOSITOR_RECEIVED_FRAME = 12;
+    COMPONENT_INPUT_EVENT_GPU_SWAP_BUFFER = 13;
+    COMPONENT_INPUT_EVENT_LATENCY_FRAME_SWAP = 14;
+  }
+
+  message ComponentInfo {
+    optional LatencyComponentType component_type = 1;
+
+    // Microsecond timestamp in CLOCK_MONOTONIC domain
+    optional uint64 time_us = 2;
+  };
+
+  repeated ComponentInfo component_info = 4;
+  optional bool is_coalesced = 5;
+}
+
+// End of protos/perfetto/trace/track_event/chrome_latency_info.proto
+
+// Begin of protos/perfetto/trace/track_event/chrome_process_descriptor.proto
+
+// Describes the attributes for a Chrome process. Must be paired with a
+// ProcessDescriptor in the same TrackDescriptor.
+//
+// Next id: 4.
+message ChromeProcessDescriptor {
+  // See chromium's content::ProcessType.
+  enum ProcessType {
+    PROCESS_UNSPECIFIED = 0;
+    PROCESS_BROWSER = 1;
+    PROCESS_RENDERER = 2;
+    PROCESS_UTILITY = 3;
+    PROCESS_ZYGOTE = 4;
+    PROCESS_SANDBOX_HELPER = 5;
+    PROCESS_GPU = 6;
+    PROCESS_PPAPI_PLUGIN = 7;
+    PROCESS_PPAPI_BROKER = 8;
+  }
+  optional ProcessType process_type = 1;
+  optional int32 process_priority = 2;
+
+  // To support old UI. New UI should determine default sorting by process_type.
+  optional int32 legacy_sort_index = 3;
+}
+
+// End of protos/perfetto/trace/track_event/chrome_process_descriptor.proto
+
+// Begin of protos/perfetto/trace/track_event/chrome_thread_descriptor.proto
+
+// Describes a Chrome thread's attributes. Emitted as part of a TrackDescriptor,
+// usually by the thread's trace writer. Must be paired with a ThreadDescriptor
+// in the same TrackDescriptor.
+//
+// Next id: 3.
+message ChromeThreadDescriptor {
+  enum ThreadType {
+    THREAD_UNSPECIFIED = 0;
+
+    THREAD_MAIN = 1;
+    THREAD_IO = 2;
+
+    // Scheduler:
+    THREAD_POOL_BG_WORKER = 3;
+    THREAD_POOL_FG_WORKER = 4;
+    THREAD_POOL_BG_BLOCKING = 6;
+    THREAD_POOL_FG_BLOCKING = 5;
+    THREAD_POOL_SERVICE = 7;
+
+    // Compositor:
+    THREAD_COMPOSITOR = 8;
+    THREAD_VIZ_COMPOSITOR = 9;
+    THREAD_COMPOSITOR_WORKER = 10;
+
+    // Renderer:
+    THREAD_SERVICE_WORKER = 11;
+
+    // Tracing related threads:
+    THREAD_MEMORY_INFRA = 50;
+    THREAD_SAMPLING_PROFILER = 51;
+  };
+  optional ThreadType thread_type = 1;
+
+  // To support old UI. New UI should determine default sorting by thread_type.
+  optional int32 legacy_sort_index = 2;
+}
+
+// End of protos/perfetto/trace/track_event/chrome_thread_descriptor.proto
+
 // Begin of protos/perfetto/trace/track_event/chrome_user_event.proto
 
 // Details about a UI interaction initiated by the user, such as opening or
@@ -4077,9 +4316,84 @@ message ChromeUserEvent {
   // Chrome, these are usually static strings known at compile time, or
   // concatenations of multiple such static strings).
   optional string action = 1;
+
+  // MD5 hash of the action string.
+  optional uint64 action_hash = 2;
 }
 
 // End of protos/perfetto/trace/track_event/chrome_user_event.proto
+
+// Begin of protos/perfetto/trace/track_event/counter_descriptor.proto
+
+// Defines properties of a counter track, e.g. for built-in counters (thread
+// time, instruction count, ..) or user-specified counters (e.g. memory usage of
+// a specific app component).
+//
+// Counter tracks only support TYPE_COUNTER track events, which specify new
+// values for the counter. For counters that require per-slice values, counter
+// values can instead be provided in a more efficient encoding via TrackEvent's
+// |extra_counter_track_uuids| and |extra_counter_values| fields. However,
+// slice-type events cannot be emitted onto a counter track.
+//
+// Values for counters that are only emitted on a single packet sequence can
+// optionally be delta-encoded, see |is_incremental|.
+//
+// Next id: 6.
+message CounterDescriptor {
+  // Built-in counters, usually with special meaning in the client library,
+  // trace processor, legacy JSON format, or UI. Trace processor will infer a
+  // track name from the enum value if none is provided in TrackDescriptor.
+  enum BuiltinCounterType {
+    COUNTER_UNSPECIFIED = 0;
+
+    // Thread-scoped counters. The thread's track should be specified via
+    // |parent_uuid| in the TrackDescriptor for such a counter.
+    COUNTER_THREAD_TIME_NS = 1;            // implies UNIT_TIME_NS.
+    COUNTER_THREAD_INSTRUCTION_COUNT = 2;  // implies UNIT_COUNT.
+  }
+
+  // Type of the values for the counters - to supply lower granularity units,
+  // see also |unit_multiplier|.
+  enum Unit {
+    UNIT_UNSPECIFIED = 0;
+    UNIT_TIME_NS = 1;
+    UNIT_COUNT = 2;
+    UNIT_SIZE_BYTES = 3;
+    // TODO(eseckler): Support more units as necessary.
+  }
+
+  // For built-in counters (e.g. thread time). Custom user-specified counters
+  // (e.g. those emitted by TRACE_COUNTER macros of the client library)
+  // shouldn't set this, and instead provide a counter name via TrackDescriptor.
+  optional BuiltinCounterType type = 1;
+
+  // Names of categories of the counter (usually for user-specified counters).
+  // In the client library, categories are a way to turn groups of individual
+  // counters (or events) on or off.
+  repeated string categories = 2;
+
+  // Type of the counter's values. Built-in counters imply a value for this
+  // field.
+  optional Unit unit = 3;
+
+  // Multiplication factor of this counter's values, e.g. to supply
+  // COUNTER_THREAD_TIME_NS timestamps in microseconds instead.
+  optional int64 unit_multiplier = 4;
+
+  // Whether values for this counter are provided as delta values. Only
+  // supported for counters that are emitted on a single packet-sequence (e.g.
+  // thread time). Counter values in subsequent packets on the current packet
+  // sequence will be interpreted as delta values from the sequence's most
+  // recent value for the counter. When incremental state is cleared, the
+  // counter value is considered to be reset to 0. Thus, the first value after
+  // incremental state is cleared is effectively an absolute value.
+  optional bool is_incremental = 5;
+
+  // TODO(eseckler): Support arguments describing the counter (?).
+  // repeated DebugAnnotation debug_annotations;
+}
+
+// End of protos/perfetto/trace/track_event/counter_descriptor.proto
 
 // Begin of protos/perfetto/trace/track_event/debug_annotation.proto
 
@@ -4161,10 +4475,17 @@ message LogMessageBody {
 // Describes a process's attributes. Emitted as part of a TrackDescriptor,
 // usually by the process's main thread.
 //
-// Next id: 5.
+// Next id: 7.
 message ProcessDescriptor {
   optional int32 pid = 1;
   repeated string cmdline = 2;
+  optional string process_name = 6;
+
+  optional int32 process_priority = 5;
+
+  // ---------------------------------------------------------------------------
+  // Deprecated / legacy fields, which will be removed in the future:
+  // ---------------------------------------------------------------------------
 
   // See chromium's content::ProcessType.
   enum ChromeProcessType {
@@ -4179,7 +4500,6 @@ message ProcessDescriptor {
     PROCESS_PPAPI_BROKER = 8;
   }
   optional ChromeProcessType chrome_process_type = 4;
-  optional int32 process_priority = 5;
 
   // To support old UI. New UI should determine default sorting by process_type.
   optional int32 legacy_sort_index = 3;
@@ -4225,6 +4545,10 @@ message ThreadDescriptor {
 
   optional string thread_name = 5;
 
+  // ---------------------------------------------------------------------------
+  // Deprecated / legacy fields, which will be removed in the future:
+  // ---------------------------------------------------------------------------
+
   enum ChromeThreadType {
     CHROME_THREAD_UNSPECIFIED = 0;
 
@@ -4251,10 +4575,6 @@ message ThreadDescriptor {
     CHROME_THREAD_SAMPLING_PROFILER = 51;
   };
   optional ChromeThreadType chrome_thread_type = 4;
-
-  // ---------------------------------------------------------------------------
-  // Deprecated / legacy fields, which will be removed in the future:
-  // ---------------------------------------------------------------------------
 
   // Deprecated. Use ClockSnapshot in combination with TracePacket's timestamp
   // and timestamp_clock_id fields instead.
@@ -4288,7 +4608,7 @@ message ThreadDescriptor {
 // |TrackEvent::track_uuid|. It is possible but not necessary to emit a
 // TrackDescriptor for this implicit track.
 //
-// Next id: 1.
+// Next id: 9.
 message TrackDescriptor {
   // Unique ID that identifies this track. This ID is global to the whole trace.
   // Producers should ensure that it is unlikely to clash with IDs emitted by
@@ -4298,16 +4618,43 @@ message TrackDescriptor {
   // event id + id_scope, pid, and/or tid to compute this ID.
   optional uint64 uuid = 1;
 
-  // TODO(eseckler): Support track hierarchies.
-  // uint64 parent_uuid = X;
+  // A parent track reference can be used to describe relationships between
+  // tracks. For example, to define an asynchronous track which is scoped to a
+  // specific process, specify the uuid for that process's process track here.
+  // Similarly, to associate a COUNTER_THREAD_TIME_NS counter track with a
+  // thread, specify the uuid for that thread's thread track here.
+  optional uint64 parent_uuid = 5;
 
-  // Name of the track.
+  // Name of the track. Optional - if unspecified, it may be derived from the
+  // process/thread name (process/thread tracks), the first event's name (async
+  // tracks), or counter name (counter tracks).
   optional string name = 2;
 
-  // Associate the track with a process or thread - the UI will draw this track
-  // in the context of the process/thread.
+  // Associate the track with a process, making it the process-global track.
+  // There should only be one such track per process (usually for instant
+  // events; trace processor uses this fact to detect pid reuse). If you need
+  // more (e.g. for asynchronous events), create child tracks using parent_uuid.
+  //
+  // Trace processor will merge events on a process track with slice-type events
+  // from other sources (e.g. ftrace) for the same process into a single
+  // timeline view.
   optional ProcessDescriptor process = 3;
+  optional ChromeProcessDescriptor chrome_process = 6;
+
+  // Associate the track with a thread, indicating that the track's events
+  // describe synchronous code execution on the thread. There should only be one
+  // such track per thread (trace processor uses this fact to detect tid reuse).
+  //
+  // Trace processor will merge events on a thread track with slice-type events
+  // from other sources (e.g. ftrace) for the same thread into a single timeline
+  // view.
   optional ThreadDescriptor thread = 4;
+  optional ChromeThreadDescriptor chrome_thread = 7;
+
+  // Descriptor for a counter track. If set, the track will only support
+  // TYPE_COUNTER TrackEvents (and values provided via TrackEvent's
+  // |extra_counter_values|).
+  optional CounterDescriptor counter = 8;
 }
 
 // End of protos/perfetto/trace/track_event/track_descriptor.proto
@@ -4373,7 +4720,7 @@ message TrackDescriptor {
 // their default track association) can be emitted as part of a
 // TrackEventDefaults message.
 //
-// Next reserved id: 12 (up to 15). Next id: 29.
+// Next reserved id: 13 (up to 15). Next id: 32.
 message TrackEvent {
   // Names of categories of the event. In the client library, categories are a
   // way to turn groups of individual events on or off.
@@ -4420,7 +4767,11 @@ message TrackEvent {
     // of slice events on the same track.
     TYPE_INSTANT = 3;
 
-    // TODO(eseckler): Add support for counters.
+    // Event that provides a value for a counter track. |track_uuid| should
+    // refer to a counter track and |counter_value| set to the new value. Note
+    // that most other TrackEvent fields (e.g. categories, name, ..) are not
+    // supported for TYPE_COUNTER events. See also CounterDescriptor.
+    TYPE_COUNTER = 4;
   }
   optional Type type = 9;
 
@@ -4431,31 +4782,32 @@ message TrackEvent {
   // implicit trace-global track (uuid 0). See TrackDescriptor::uuid.
   optional uint64 track_uuid = 11;
 
+  // A new value for a counter track. |track_uuid| should refer to a track with
+  // a CounterDescriptor, and |type| should be TYPE_COUNTER. For a more
+  // efficient encoding of counter values that are sampled at the beginning/end
+  // of a slice, see |extra_counter_values| and |extra_counter_track_uuids|.
+  // Counter values can optionally be encoded in as delta values (positive or
+  // negative) on each packet sequence (see CounterIncrementalBase).
+  optional int64 counter_value = 30;
+
+  // To encode counter values more efficiently, we support attaching additional
+  // counter values to a TrackEvent of any type. All values will share the same
+  // timestamp specified in the TracePacket. The value at
+  // extra_counter_values[N] is for the counter track referenced by
+  // extra_counter_track_uuids[N].
+  //
+  // |extra_counter_track_uuids| may also be set via TrackEventDefaults. There
+  // should always be equal or more uuids than values. It is valid to set more
+  // uuids (e.g. via defaults) than values. If uuids are specified in
+  // TrackEventDefaults and a TrackEvent, the TrackEvent uuids override the
+  // default uuid list.
+  //
+  // For example, this allows snapshotting the thread time clock at each
+  // thread-track BEGIN and END event to capture the cpu time delta of a slice.
+  repeated uint64 extra_counter_track_uuids = 31;
+  repeated int64 extra_counter_values = 12;
+
   // TODO(eseckler): Add flow event support.
-
-  // TODO(eseckler): Encode thread_time and thread_instruction_count using a
-  // ClockSnapshot + clock id instead of ThreadDescriptor's reference values.
-
-  // CPU time for the current thread (e.g., CLOCK_THREAD_CPUTIME_ID) in
-  // microseconds.
-  oneof thread_time {
-    // Delta timestamp value since the last TrackEvent or ThreadDescriptor. To
-    // calculate the absolute timestamp value, sum up all delta values of the
-    // preceding TrackEvents since the last ThreadDescriptor and add the sum to
-    // the |reference_timestamp| in ThreadDescriptor. This value should always
-    // be positive.
-    int64 thread_time_delta_us = 2;
-    // This is a one-off absolute value that does not affect delta timestamp
-    // computation in subsequent TrackEvents.
-    int64 thread_time_absolute_us = 17;
-  }
-
-  // Value of the instruction counter for the current thread.
-  oneof thread_instruction_count {
-    // Same encoding as |thread_time| field above.
-    int64 thread_instruction_count_delta = 8;
-    int64 thread_instruction_count_absolute = 20;
-  }
 
   // ---------------------------------------------------------------------------
   // TrackEvent arguments:
@@ -4473,6 +4825,7 @@ message TrackEvent {
   optional ChromeKeyedService chrome_keyed_service = 26;
   optional ChromeLegacyIpc chrome_legacy_ipc = 27;
   optional ChromeHistogramSample chrome_histogram_sample = 28;
+  optional ChromeLatencyInfo chrome_latency_info = 29;
   // New argument types go here :)
 
   // ---------------------------------------------------------------------------
@@ -4494,6 +4847,33 @@ message TrackEvent {
     // This is a one-off value that does not affect delta timestamp computation
     // in subsequent TrackEvents.
     int64 timestamp_absolute_us = 16;
+  }
+
+  // Deprecated. Use |extra_counter_values| and |extra_counter_track_uuids| to
+  // encode thread time instead.
+  //
+  // CPU time for the current thread (e.g., CLOCK_THREAD_CPUTIME_ID) in
+  // microseconds.
+  oneof thread_time {
+    // Delta timestamp value since the last TrackEvent or ThreadDescriptor. To
+    // calculate the absolute timestamp value, sum up all delta values of the
+    // preceding TrackEvents since the last ThreadDescriptor and add the sum to
+    // the |reference_timestamp| in ThreadDescriptor. This value should always
+    // be positive.
+    int64 thread_time_delta_us = 2;
+    // This is a one-off absolute value that does not affect delta timestamp
+    // computation in subsequent TrackEvents.
+    int64 thread_time_absolute_us = 17;
+  }
+
+  // Deprecated. Use |extra_counter_values| and |extra_counter_track_uuids| to
+  // encode thread instruction count instead.
+  //
+  // Value of the instruction counter for the current thread.
+  oneof thread_instruction_count {
+    // Same encoding as |thread_time| field above.
+    int64 thread_instruction_count_delta = 8;
+    int64 thread_instruction_count_absolute = 20;
   }
 
   // Apart from {category, time, thread time, tid, pid}, other legacy trace
@@ -4565,7 +4945,8 @@ message TrackEvent {
 // is cleared. It's defined here because field IDs should match those of the
 // corresponding fields in TrackEvent.
 message TrackEventDefaults {
-  optional uint64 track_uuid = 10;
+  optional uint64 track_uuid = 11;
+  repeated uint64 extra_counter_track_uuids = 31;
 
   // TODO(eseckler): Support default values for more TrackEvent fields.
 }
@@ -4654,8 +5035,8 @@ message GpuRenderStageEvent {
   // required. Unique ID for the event.
   optional uint64 event_id = 1;
 
-  // optional. Duration of the event.  This should be in the same clock domain as the timestamp of
-  // the packet.  If unset, this is a single time point event.
+  // optional. Duration of the event. This should be in the same clock domain as
+  // the timestamp of the packet. If unset, this is a single time point event.
   optional uint64 duration = 2;
 
   // required. ID to a hardware queue description in the specifications.
@@ -4676,10 +5057,11 @@ message GpuRenderStageEvent {
   // optional. The Vulkan command buffer handle.
   optional uint64 command_buffer_handle = 12;
 
-  // optional. Submission ID generated by the UMD.
+  // optional. Submission ID generated by the UMD. Should map 1:1 with a
+  // vkQueueSubmit.
   optional uint32 submission_id = 10;
 
-  // optional.  Additional data for the user. This may include attribs for
+  // optional. Additional data for the user. This may include attribs for
   // the event like resource ids, shaders etc
   message ExtraData {
     optional string name = 1;
@@ -4688,7 +5070,9 @@ message GpuRenderStageEvent {
   repeated ExtraData extra_data = 6;
 
   // The first trace packet of each session should include a Specifications
-  // to enumerate all IDs that will be used.
+  // to enumerate *all* IDs that will be used. The timestamp of this packet
+  // must be earlier than all other packets. Only one packet with Specifications
+  // is expected.
   message Specifications {
     message ContextSpec {
       optional uint64 context = 1;
@@ -4717,6 +5101,43 @@ message GpuRenderStageEvent {
 }
 
 // End of protos/perfetto/trace/gpu/gpu_render_stage_event.proto
+
+// Begin of protos/perfetto/trace/gpu/vulkan_api_event.proto
+
+// Message for recording the Vulkan call.
+message VulkanApiEvent {
+  oneof event {
+    VkDebugUtilsObjectName vk_debug_utils_object_name = 1;
+    VkQueueSubmit vk_queue_submit = 2;
+  }
+
+  // For recording vkSetDebugUtilsObjectNameEXT and
+  // vkDebugMarkerSetObjectNameEXT
+  message VkDebugUtilsObjectName {
+    optional uint32 pid = 1;
+    optional uint64 vk_device = 2;
+    // VkObjectType.  Value must match
+    // https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VkObjectType.html.
+    optional int32 object_type = 3;
+    optional uint64 object = 4;
+    optional string object_name = 5;
+  }
+
+  // For recording vkQueueSubmit call.
+  message VkQueueSubmit {
+    optional uint64 duration_ns = 1;
+    optional uint32 pid = 2;
+    optional uint32 tid = 3;
+    optional uint64 vk_queue = 4;
+    repeated uint64 vk_command_buffers = 5;
+    // Submission ID.  An identifier unique to each vkQueueSubmit call.  This
+    // submission_id must match GpuRenderStageEvent.submission_id if the
+    // GpuRenderStageEvent is created due to this vkQueueSubmit.
+    optional uint32 submission_id = 6;
+  }
+}
+
+// End of protos/perfetto/trace/gpu/vulkan_api_event.proto
 
 // Begin of protos/perfetto/config/android/android_log_config.proto
 
@@ -4816,6 +5237,8 @@ message DataSourceConfig {
   optional PerfEventConfig perf_event_config = 111 [lazy = true];
   // Data source name: vulkan.memory_tracker
   optional VulkanMemoryConfig vulkan_memory_config = 112 [lazy = true];
+  // Data source name: track_event
+  optional TrackEventConfig track_event_config = 113 [lazy = true];
 
   // Chrome is special as it doesn't use the perfetto IPC layer. We want to
   // avoid proto serialization and de-serialization there because that would
@@ -5088,14 +5511,16 @@ message TraceConfig {
     optional protos.DataSourceConfig config = 1;
 
     // Optional. If multiple producers (~processes) expose the same data source
-    // and |producer_name_filter| != "", the data source is enabled only for
-    // producers whose names match any of the producer_name_filter below.
-    // The |producer_name_filter| has to be an exact match. (TODO(primiano):
-    // support wildcards or regex).
+    // and either |producer_name_filter| or |producer_name_regex_filter| is set,
+    // the data source is enabled only for producers whose names match any of
+    // the filters.
+    // |producer_name_filter| has to be an exact match, while
+    // |producer_name_regex_filter| is a regular expression.
     // This allows to enable a data source only for specific processes.
-    // The "repeated" field has OR sematics: specifying a filter ["foo", "bar"]
-    // will enable data source on both "foo" and "bar" (if existent).
+    // The "repeated" fields have OR semantics: specifying a filter ["foo",
+    // "bar"] will enable data sources on both "foo" and "bar" (if they exist).
     repeated string producer_name_filter = 2;
+    repeated string producer_name_regex_filter = 3;
   }
   repeated DataSource data_sources = 2;
 
@@ -5112,6 +5537,9 @@ message TraceConfig {
   optional BuiltinDataSource builtin_data_sources = 20;
 
   // If specified, the trace will be stopped |duration_ms| after starting.
+  // This does *not* count the time the system is suspended, so we will run
+  // for duration_ms of system activity, not wall time.
+  //
   // However in case of traces with triggers, see
   // TriggerConfig.trigger_timeout_ms instead.
   optional uint32 duration_ms = 3;
@@ -5341,9 +5769,54 @@ message TraceConfig {
 
 // End of protos/perfetto/config/trace_config.proto
 
+// Begin of protos/perfetto/config/track_event/track_event_config.proto
+
+message TrackEventConfig {
+  // The following fields define the set of enabled trace categories. Each list
+  // item is a glob.
+  //
+  // To determine if category is enabled, it is checked against the filters in
+  // the following order:
+  //
+  //   1. Exact matches in enabled categories.
+  //   2. Exact matches in enabled tags.
+  //   3. Exact matches in disabled categories.
+  //   4. Exact matches in disabled tags.
+  //   5. Pattern matches in enabled categories.
+  //   6. Pattern matches in enabled tags.
+  //   7. Pattern matches in disabled categories.
+  //   8. Pattern matches in disabled tags.
+  //
+  // If none of the steps produced a match, the category is enabled by default.
+  //
+  // Examples:
+  //
+  //  - To enable all non-slow/debug categories:
+  //
+  //       No configuration needed, happens by default.
+  //
+  //  - To enable a specific category:
+  //
+  //       disabled_categories = ["*"]
+  //       enabled_categories = ["my_category"]
+  //
+  //  - To enable only categories with a specific tag:
+  //
+  //       disabled_tags = ["*"]
+  //       enabled_tags = ["my_tag"]
+  //
+  repeated string disabled_categories = 1;  // Default: []
+  repeated string enabled_categories = 2;   // Default: []
+  repeated string disabled_tags = 3;  // Default: [“slow”, “debug”]
+  repeated string enabled_tags = 4;   // Default: []
+}
+
+// End of protos/perfetto/config/track_event/track_event_config.proto
+
 // Begin of protos/perfetto/config/profiling/heapprofd_config.proto
 
 // Configuration for go/heapprofd.
+// Next id: 17
 message HeapprofdConfig {
   message ContinuousDumpConfig {
     // ms to wait before first dump.
@@ -5382,6 +5855,12 @@ message HeapprofdConfig {
   // heapprofd will likely be overloaded by the amount of data for low
   // sampling intervals.
   optional bool all = 5;
+
+  // Do not profile processes whose anon RSS + swap < given value.
+  optional uint32 min_anonymous_memory_kb = 15;
+
+  // Stop profile if heapprofd memory usage goes beyond the given value.
+  optional uint32 max_heapprofd_memory_kb = 16;
 
   // Do not emit function names for mappings starting with this prefix.
   // E.g. /system to not emit symbols for any system libraries.
@@ -5467,15 +5946,65 @@ message JavaHprofConfig {
 
   // Dump at a predefined interval.
   optional ContinuousDumpConfig continuous_dump_config = 3;
+
+  // Do not profile processes whose anon RSS + swap < given value.
+  optional uint32 min_anonymous_memory_kb = 4;
 }
 
 // End of protos/perfetto/config/profiling/java_hprof_config.proto
 
 // Begin of protos/perfetto/config/profiling/perf_event_config.proto
 
-// TODO(b/144281346): unstable, do not use. Will change in incompatible ways.
+// Configuration for the traced_perf profiler.
+//
+// At the time of writing, the config options are restricted to the periodic
+// system-wide stack sampling use-case (|all_cpus| must be true).
 message PerfEventConfig {
-  optional int32 tid = 1;
+  // If true, sample events on all CPUs.
+  optional bool all_cpus = 1;
+
+  // Per-cpu sampling frequency (requested from the kernel). Not guaranteed to
+  // be honored as the kernel can throttle the sampling rate if it's too high.
+  // If unset, an implementation-defined default is used.
+  optional uint32 sampling_frequency = 2;
+
+  // How often the per-cpu ring buffers are read by the producer.
+  // If unset, an implementation-defined default is used.
+  optional uint32 ring_buffer_read_period_ms = 8;
+
+  // Size (in 4k pages) of each per-cpu ring buffer that is filled by the
+  // kernel. If set, must be a power of two.
+  // If unset, an implementation-defined default is used.
+  optional uint32 ring_buffer_pages = 3;
+
+  // Timeout for the remote /proc/<pid>/{maps,mem} file descriptors for a
+  // sampled process. This is primarily for Android, where this lookup is
+  // asynchronous. As long as the producer is waiting, the associated samples
+  // will be kept enqueued (putting pressure on the capacity of the shared
+  // unwinding queue). Once a lookup for a process expires, all associated
+  // samples are discarded. However, if the lookup still succeeds after the
+  // timeout, future samples will be handled normally.
+  // If unset, an implementation-defined default is used.
+  optional uint32 remote_descriptor_timeout_ms = 9;
+
+  // Process ID (TGID) whitelist. If this list is not empty, only matching
+  // samples will be retained. If multiple whitelists and blacklists are
+  // specified by the config, then all of them are evaluated for each sampled
+  // process.
+  repeated int32 target_pid = 4;
+
+  // Command line whitelist, matched against the
+  // /proc/<pid>/cmdline (not the comm string), with both sides being
+  // "normalized". Normalization is as follows: (1) trim everything beyond the
+  // first null or "@" byte; (2) if the string contains forward slashes, trim
+  // everything up to and including the last one.
+  repeated string target_cmdline = 5;
+
+  // PID blacklist.
+  repeated int32 exclude_pid = 6;
+
+  // Command line blacklist. Normalized in the same way as |target_cmdline|.
+  repeated string exclude_cmdline = 7;
 }
 
 // End of protos/perfetto/config/profiling/perf_event_config.proto

@@ -4,6 +4,12 @@
 
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_linux.h"
 
+#include <algorithm>
+#include <list>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "ui/aura/null_window_targeter.h"
 #include "ui/aura/scoped_window_targeter.h"
 #include "ui/aura/window.h"
@@ -117,10 +123,6 @@ void DesktopWindowTreeHostLinux::CleanUpWindowList(
 
   delete open_windows_;
   open_windows_ = nullptr;
-}
-
-void DesktopWindowTreeHostLinux::SetPendingXVisualId(int x_visual_id) {
-  pending_x_visual_id_ = x_visual_id;
 }
 
 gfx::Rect DesktopWindowTreeHostLinux::GetXRootWindowOuterBounds() const {
@@ -291,6 +293,14 @@ void DesktopWindowTreeHostLinux::OnActivationChanged(bool active) {
   DesktopWindowTreeHostPlatform::OnActivationChanged(active);
 }
 
+ui::X11Extension* DesktopWindowTreeHostLinux::GetX11Extension() {
+  return ui::GetX11Extension(*(platform_window()));
+}
+
+const ui::X11Extension* DesktopWindowTreeHostLinux::GetX11Extension() const {
+  return ui::GetX11Extension(*(platform_window()));
+}
+
 #if BUILDFLAG(USE_ATK)
 bool DesktopWindowTreeHostLinux::OnAtkKeyEvent(AtkKeyEventStruct* atk_event) {
   if (!IsActive() && !HasCapture())
@@ -299,6 +309,11 @@ bool DesktopWindowTreeHostLinux::OnAtkKeyEvent(AtkKeyEventStruct* atk_event) {
          ui::DiscardAtkKeyEvent::Discard;
 }
 #endif
+
+bool DesktopWindowTreeHostLinux::IsOverrideRedirect() const {
+  // BrowserDesktopWindowTreeHostLinux implements this for browser windows.
+  return false;
+}
 
 void DesktopWindowTreeHostLinux::AddAdditionalInitProperties(
     const Widget::InitParams& params,
@@ -333,8 +348,6 @@ void DesktopWindowTreeHostLinux::AddAdditionalInitProperties(
   properties->wm_class_class = params.wm_class_class;
   properties->wm_role_name = params.wm_role_name;
 
-  properties->x_visual_id = pending_x_visual_id_;
-
   DCHECK(!properties->x11_extension_delegate);
   properties->x11_extension_delegate = this;
 }
@@ -355,10 +368,6 @@ void DesktopWindowTreeHostLinux::DestroyNonClientEventFilter() {
   non_client_window_event_filter_.reset();
 }
 
-void DesktopWindowTreeHostLinux::OnXWindowMapped() {}
-
-void DesktopWindowTreeHostLinux::OnXWindowUnmapped() {}
-
 void DesktopWindowTreeHostLinux::GetWindowMask(const gfx::Size& size,
                                                SkPath* window_mask) {
   DCHECK(window_mask);
@@ -378,14 +387,6 @@ void DesktopWindowTreeHostLinux::EnableEventListening() {
   DCHECK_GT(modal_dialog_counter_, 0UL);
   if (!--modal_dialog_counter_)
     targeter_for_modal_.reset();
-}
-
-ui::X11Extension* DesktopWindowTreeHostLinux::GetX11Extension() {
-  return ui::GetX11Extension(*(platform_window()));
-}
-
-const ui::X11Extension* DesktopWindowTreeHostLinux::GetX11Extension() const {
-  return ui::GetX11Extension(*(platform_window()));
 }
 
 std::list<gfx::AcceleratedWidget>& DesktopWindowTreeHostLinux::open_windows() {

@@ -215,7 +215,8 @@ const char* kBlacklistExtensions[] = {
 sk_sp<GrGLInterface> CreateGrGLInterface(
     const gl::GLVersionInfo& version_info,
     bool use_version_es2,
-    gl::ProgressReporter* progress_reporter) {
+    gl::ProgressReporter* progress_reporter,
+    std::vector<const char*> blacklisted_extensions) {
   // Can't fake ES with desktop GL.
   use_version_es2 &= version_info.is_es;
 
@@ -266,6 +267,8 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
     return nullptr;
   }
   for (const char* extension : kBlacklistExtensions)
+    extensions.remove(extension);
+  for (const char* extension : blacklisted_extensions)
     extensions.remove(extension);
 
   GrGLInterface* interface = new GrGLInterface();
@@ -345,8 +348,14 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
 
   functions->fDrawArraysInstanced = bind_slow_on_mac<true>(
       gl->glDrawArraysInstancedANGLEFn, progress_reporter);
+  functions->fDrawArraysInstancedBaseInstance = bind_slow_on_mac<true>(
+      gl->glDrawArraysInstancedBaseInstanceANGLEFn, progress_reporter);
   functions->fDrawElementsInstanced = bind_slow_on_mac<true>(
       gl->glDrawElementsInstancedANGLEFn, progress_reporter);
+  functions->fDrawElementsInstancedBaseVertexBaseInstance =
+      bind_slow_on_mac<true>(
+          gl->glDrawElementsInstancedBaseVertexBaseInstanceANGLEFn,
+          progress_reporter);
 
   // GL 4.0 or GL_ARB_draw_indirect or ES 3.1
   functions->fDrawArraysIndirect =
@@ -766,6 +775,13 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
     // GL_APPLE_sync support.
     extensions.add("GL_APPLE_sync");
   }
+
+  // Skia can fall back to GL_NV_fence if GLsync objects are not available.
+  functions->fDeleteFences = gl->glDeleteFencesNVFn;
+  functions->fFinishFence = gl->glFinishFenceNVFn;
+  functions->fGenFences = gl->glGenFencesNVFn;
+  functions->fSetFence = gl->glSetFenceNVFn;
+  functions->fTestFence = gl->glTestFenceNVFn;
 
   functions->fGetInternalformativ = gl->glGetInternalformativFn;
 

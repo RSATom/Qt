@@ -31,13 +31,15 @@ DedicatedWorkerHostFactoryClient::DedicatedWorkerHostFactoryClient(
 
 DedicatedWorkerHostFactoryClient::~DedicatedWorkerHostFactoryClient() = default;
 
-void DedicatedWorkerHostFactoryClient::CreateWorkerHostDeprecated() {
+void DedicatedWorkerHostFactoryClient::CreateWorkerHostDeprecated(
+    base::OnceCallback<void(const network::CrossOriginEmbedderPolicy&)>
+        callback) {
   DCHECK(!base::FeatureList::IsEnabled(blink::features::kPlzDedicatedWorker));
   mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker>
       browser_interface_broker;
   factory_->CreateWorkerHost(
       browser_interface_broker.InitWithNewPipeAndPassReceiver(),
-      remote_host_.BindNewPipeAndPassReceiver());
+      remote_host_.BindNewPipeAndPassReceiver(), std::move(callback));
   OnWorkerHostCreated(std::move(browser_interface_broker));
 }
 
@@ -140,7 +142,7 @@ void DedicatedWorkerHostFactoryClient::OnScriptLoadStarted(
   if (service_worker_provider_info) {
     service_worker_provider_context_ =
         base::MakeRefCounted<ServiceWorkerProviderContext>(
-            blink::mojom::ServiceWorkerProviderType::kForDedicatedWorker,
+            blink::mojom::ServiceWorkerContainerType::kForDedicatedWorker,
             std::move(service_worker_provider_info->client_receiver),
             std::move(service_worker_provider_info->host_remote),
             std::move(controller_info), subresource_loader_factory_bundle_);

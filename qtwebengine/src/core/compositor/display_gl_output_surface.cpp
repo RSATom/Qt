@@ -39,8 +39,6 @@
 
 #include "display_gl_output_surface.h"
 
-#include "chromium_gpu_helper.h"
-
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/viz/service/display/display.h"
 #include "components/viz/service/display/output_surface_frame.h"
@@ -49,7 +47,7 @@
 #include "gpu/command_buffer/service/mailbox_manager.h"
 #include "gpu/command_buffer/service/texture_base.h"
 #include "gpu/ipc/in_process_command_buffer.h"
-#include "ui/gl/color_space_utils.h"
+#include "ui/gfx/buffer_format_util.h"
 
 namespace QtWebEngineCore {
 
@@ -113,12 +111,13 @@ void DisplayGLOutputSurface::DiscardBackbuffer()
 void DisplayGLOutputSurface::Reshape(const gfx::Size &sizeInPixels,
                                      float devicePixelRatio,
                                      const gfx::ColorSpace &colorSpace,
-                                     bool hasAlpha,
+                                     gfx::BufferFormat format,
                                      bool /*useStencil*/)
 {
+    bool hasAlpha = gfx::AlphaBitsForBufferFormat(format) > 0;
     m_currentShape = Shape{sizeInPixels, devicePixelRatio, colorSpace, hasAlpha};
     m_gl->ResizeCHROMIUM(sizeInPixels.width(), sizeInPixels.height(), devicePixelRatio,
-                         gl::ColorSpaceUtils::GetGLColorSpace(colorSpace), hasAlpha);
+                         colorSpace.AsGLColorSpace(), hasAlpha);
 }
 
 std::unique_ptr<DisplayGLOutputSurface::Buffer> DisplayGLOutputSurface::makeBuffer(const Shape &shape)
@@ -211,6 +210,7 @@ void DisplayGLOutputSurface::swapBuffersOnGpuThread(unsigned int id, std::unique
         QMutexLocker locker(&m_mutex);
         m_middleBuffer->serviceId = id;
         m_middleBuffer->fence = CompositorResourceFence::create(std::move(fence));
+        m_readyToUpdate = true;
     }
 
     m_sink->scheduleUpdate();
@@ -249,13 +249,6 @@ unsigned DisplayGLOutputSurface::GetOverlayTextureId() const
     return 0;
 }
 
-// Only used if IsDisplayedAsOverlayPlane was true (called from
-// viz::DirectRender::DrawFrame).
-gfx::BufferFormat DisplayGLOutputSurface::GetOverlayBufferFormat() const
-{
-    return gfx::BufferFormat();
-}
-
 // Called by viz::GLRenderer but always false in all implementations except for
 // android_webview::ParentOutputSurface.
 bool DisplayGLOutputSurface::HasExternalStencilTest() const
@@ -281,6 +274,16 @@ unsigned DisplayGLOutputSurface::UpdateGpuFence()
 {
     NOTREACHED();
     return 0;
+}
+
+scoped_refptr<gpu::GpuTaskSchedulerHelper> DisplayGLOutputSurface::GetGpuTaskSchedulerHelper()
+{
+    return m_vizContextProvider->GetGpuTaskSchedulerHelper();
+}
+
+gpu::MemoryTracker *DisplayGLOutputSurface::GetMemoryTracker()
+{
+    return m_vizContextProvider->GetMemoryTracker();
 }
 
 void DisplayGLOutputSurface::SetUpdateVSyncParametersCallback(viz::UpdateVSyncParametersCallback callback)

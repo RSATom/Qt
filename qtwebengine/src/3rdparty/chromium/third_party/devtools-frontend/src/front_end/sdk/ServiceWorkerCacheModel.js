@@ -1,14 +1,22 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';
+import * as ProtocolClient from '../protocol_client/protocol_client.js';
+
+import {NameValue} from './NetworkRequest.js';               // eslint-disable-line no-unused-vars
+import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+import {Events as SecurityOriginManagerEvents, SecurityOriginManager} from './SecurityOriginManager.js';
+
 /**
  * @implements {Protocol.StorageDispatcher}
  * @unrestricted
  */
-export default class ServiceWorkerCacheModel extends SDK.SDKModel {
+export class ServiceWorkerCacheModel extends SDKModel {
   /**
    * Invariant: This model can only be constructed on a ServiceWorker target.
-   * @param {!SDK.Target} target
+   * @param {!Target} target
    */
   constructor(target) {
     super(target);
@@ -20,10 +28,10 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
     this._cacheAgent = target.cacheStorageAgent();
     this._storageAgent = target.storageAgent();
 
-    this._securityOriginManager = target.model(SDK.SecurityOriginManager);
+    this._securityOriginManager = target.model(SecurityOriginManager);
 
     this._originsUpdated = new Set();
-    this._throttler = new Common.Throttler(2000);
+    this._throttler = new Common.Throttler.Throttler(2000);
 
     /** @type {boolean} */
     this._enabled = false;
@@ -35,9 +43,9 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
     }
 
     this._securityOriginManager.addEventListener(
-        SDK.SecurityOriginManager.Events.SecurityOriginAdded, this._securityOriginAdded, this);
+        SecurityOriginManagerEvents.SecurityOriginAdded, this._securityOriginAdded, this);
     this._securityOriginManager.addEventListener(
-        SDK.SecurityOriginManager.Events.SecurityOriginRemoved, this._securityOriginRemoved, this);
+        SecurityOriginManagerEvents.SecurityOriginRemoved, this._securityOriginRemoved, this);
 
     for (const securityOrigin of this._securityOriginManager.securityOrigins()) {
       this._addOrigin(securityOrigin);
@@ -69,8 +77,9 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
    */
   async deleteCache(cache) {
     const response = await this._cacheAgent.invoke_deleteCache({cacheId: cache.cacheId});
-    if (response[Protocol.Error]) {
-      console.error(`ServiceWorkerCacheAgent error deleting cache ${cache.toString()}: ${response[Protocol.Error]}`);
+    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      console.error(`ServiceWorkerCacheAgent error deleting cache ${cache.toString()}: ${
+          response[ProtocolClient.InspectorBackend.ProtocolError]}`);
       return;
     }
     this._caches.delete(cache.cacheId);
@@ -84,12 +93,12 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
    */
   async deleteCacheEntry(cache, request) {
     const response = await this._cacheAgent.invoke_deleteEntry({cacheId: cache.cacheId, request});
-    if (!response[Protocol.Error]) {
+    if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
       return;
     }
-    Common.console.error(Common.UIString(
+    Common.Console.Console.instance().error(Common.UIString.UIString(
         'ServiceWorkerCacheAgent error deleting cache entry %s in cache: %s', cache.toString(),
-        response[Protocol.Error]));
+        response[ProtocolClient.InspectorBackend.ProtocolError]));
   }
 
   /**
@@ -133,9 +142,9 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
     this._caches.clear();
     if (this._enabled) {
       this._securityOriginManager.removeEventListener(
-          SDK.SecurityOriginManager.Events.SecurityOriginAdded, this._securityOriginAdded, this);
+          SecurityOriginManagerEvents.SecurityOriginAdded, this._securityOriginAdded, this);
       this._securityOriginManager.removeEventListener(
-          SDK.SecurityOriginManager.Events.SecurityOriginRemoved, this._securityOriginRemoved, this);
+          SecurityOriginManagerEvents.SecurityOriginRemoved, this._securityOriginRemoved, this);
     }
   }
 
@@ -167,7 +176,7 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
    * @return {boolean}
    */
   _isValidSecurityOrigin(securityOrigin) {
-    const parsedURL = securityOrigin.asParsedURL();
+    const parsedURL = Common.ParsedURL.ParsedURL.fromString(securityOrigin);
     return !!parsedURL && parsedURL.scheme.startsWith('http');
   }
 
@@ -220,7 +229,7 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _securityOriginAdded(event) {
     const securityOrigin = /** @type {string} */ (event.data);
@@ -228,7 +237,7 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _securityOriginRemoved(event) {
     const securityOrigin = /** @type {string} */ (event.data);
@@ -259,8 +268,10 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
   async _requestEntries(cache, skipCount, pageSize, pathFilter, callback) {
     const response =
         await this._cacheAgent.invoke_requestEntries({cacheId: cache.cacheId, skipCount, pageSize, pathFilter});
-    if (response[Protocol.Error]) {
-      console.error('ServiceWorkerCacheAgent error while requesting entries: ', response[Protocol.Error]);
+    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      console.error(
+          'ServiceWorkerCacheAgent error while requesting entries: ',
+          response[ProtocolClient.InspectorBackend.ProtocolError]);
       return;
     }
     callback(response.cacheDataEntries, response.returnCount);
@@ -273,8 +284,10 @@ export default class ServiceWorkerCacheModel extends SDK.SDKModel {
    */
   async _requestAllEntries(cache, pathFilter, callback) {
     const response = await this._cacheAgent.invoke_requestEntries({cacheId: cache.cacheId, pathFilter});
-    if (response[Protocol.Error]) {
-      console.error('ServiceWorkerCacheAgent error while requesting entries: ', response[Protocol.Error]);
+    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
+      console.error(
+          'ServiceWorkerCacheAgent error while requesting entries: ',
+          response[ProtocolClient.InspectorBackend.ProtocolError]);
       return;
     }
     callback(response.cacheDataEntries, response.returnCount);
@@ -362,7 +375,7 @@ export class Cache {
 
   /**
    * @param {string} url
-   * @param {!Array.<!SDK.NetworkRequest.NameValue>} requestHeaders
+   * @param {!Array.<!NameValue>} requestHeaders
    * @return {!Promise<?Protocol.CacheStorage.CachedResponse>}
    */
   requestCachedResponse(url, requestHeaders) {
@@ -370,19 +383,4 @@ export class Cache {
   }
 }
 
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.ServiceWorkerCacheModel = ServiceWorkerCacheModel;
-
-/** @enum {symbol} */
-SDK.ServiceWorkerCacheModel.Events = Events;
-
-/** @constructor */
-SDK.ServiceWorkerCacheModel.Cache = Cache;
-
-SDK.SDKModel.register(SDK.ServiceWorkerCacheModel, SDK.Target.Capability.Storage, false);
+SDKModel.register(ServiceWorkerCacheModel, Capability.Storage, false);

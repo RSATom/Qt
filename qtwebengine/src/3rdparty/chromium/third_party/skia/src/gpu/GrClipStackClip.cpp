@@ -5,13 +5,13 @@
  * found in the LICENSE file.
  */
 
+#include "src/gpu/GrClipStackClip.h"
+
 #include "include/private/SkTo.h"
 #include "src/core/SkClipOpPriv.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkTaskGroup.h"
 #include "src/core/SkTraceEvent.h"
 #include "src/gpu/GrAppliedClip.h"
-#include "src/gpu/GrClipStackClip.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrDeferredProxyUploader.h"
 #include "src/gpu/GrDrawingManager.h"
@@ -27,6 +27,7 @@
 #include "src/gpu/effects/GrConvexPolyEffect.h"
 #include "src/gpu/effects/GrRRectEffect.h"
 #include "src/gpu/effects/GrTextureDomain.h"
+#include "src/gpu/effects/generated/GrDeviceSpaceEffect.h"
 #include "src/gpu/geometry/GrShape.h"
 
 typedef SkClipStack::Element Element;
@@ -78,11 +79,19 @@ void GrClipStackClip::getConservativeBounds(int width, int height, SkIRect* devR
 
 ////////////////////////////////////////////////////////////////////////////////
 // set up the draw state to enable the aa clipping mask.
-static std::unique_ptr<GrFragmentProcessor> create_fp_for_mask(sk_sp<GrTextureProxy> mask,
-                                                               const SkIRect& devBound) {
-    SkIRect domainTexels = SkIRect::MakeWH(devBound.width(), devBound.height());
-    return GrDeviceSpaceTextureDecalFragmentProcessor::Make(std::move(mask), domainTexels,
-                                                            {devBound.fLeft, devBound.fTop});
+static std::unique_ptr<GrFragmentProcessor> create_fp_for_mask(GrSurfaceProxyView mask,
+                                                               const SkIRect& devBound,
+                                                               const GrCaps& caps) {
+    GrSamplerState samplerState(GrSamplerState::WrapMode::kClampToBorder,
+                                GrSamplerState::Filter::kNearest);
+    auto m = SkMatrix::MakeTrans(-devBound.fLeft, -devBound.fTop);
+    auto subset = SkRect::Make(devBound.size());
+    // We scissor to devBounds. The mask's texel centers are aligned to device space
+    // pixel centers. Hence this domain of texture coordinates.
+    auto domain = subset.makeInset(0.5, 0.5);
+    auto fp = GrTextureEffect::MakeSubset(std::move(mask), kPremul_SkAlphaType, m, samplerState,
+                                          subset, domain, caps);
+    return GrDeviceSpaceEffect::Make(std::move(fp));
 }
 
 // Does the path in 'element' require SW rendering? If so, return true (and,
@@ -125,7 +134,7 @@ bool GrClipStackClip::PathNeedsSWRenderer(GrRecordingContext* context,
         GrShape shape(path, GrStyle::SimpleFill());
         GrPathRenderer::CanDrawPathArgs canDrawArgs;
         canDrawArgs.fCaps = context->priv().caps();
-        canDrawArgs.fProxy = renderTargetContext->proxy();
+        canDrawArgs.fProxy = renderTargetContext->asRenderTargetProxy();
         canDrawArgs.fClipConservativeBounds = &scissorRect;
         canDrawArgs.fViewMatrix = &viewMatrix;
         canDrawArgs.fShape = &shape;
@@ -271,7 +280,7 @@ bool GrClipStackClip::applyClipMask(GrRecordingContext* context,
     if ((renderTargetContext->numSamples() <= 1 && reducedClip.maskRequiresAA()) ||
         context->priv().caps()->avoidStencilBuffers() ||
         renderTargetContext->wrapsVkSecondaryCB()) {
-        sk_sp<GrTextureProxy> result;
+        GrSurfaceProxyView result;
         if (UseSWOnlyPath(context, hasUserStencilSettings, renderTargetContext, reducedClip)) {
             // The clip geometry is complex enough that it will be more efficient to create it
             // entirely in software
@@ -283,7 +292,8 @@ bool GrClipStackClip::applyClipMask(GrRecordingContext* context,
         if (result) {
             // The mask's top left coord should be pinned to the rounded-out top left corner of
             // the clip's device space bounds.
-            out->addCoverageFP(create_fp_for_mask(std::move(result), reducedClip.scissor()));
+            out->addCoverageFP(create_fp_for_mask(std::move(result), reducedClip.scissor(),
+                                                  *context->priv().caps()));
             return true;
         }
 
@@ -342,46 +352,38 @@ static void add_invalidate_on_pop_message(GrRecordingContext* context,
     SkDEBUGFAIL("Gen ID was not found in stack.");
 }
 
-sk_sp<GrTextureProxy> GrClipStackClip::createAlphaClipMask(GrRecordingContext* context,
-                                                           const GrReducedClip& reducedClip) const {
+GrSurfaceProxyView GrClipStackClip::createAlphaClipMask(GrRecordingContext* context,
+                                                        const GrReducedClip& reducedClip) const {
     GrProxyProvider* proxyProvider = context->priv().proxyProvider();
     GrUniqueKey key;
     create_clip_mask_key(reducedClip.maskGenID(), reducedClip.scissor(),
                          reducedClip.numAnalyticFPs(), &key);
 
-    sk_sp<GrTextureProxy> proxy(proxyProvider->findOrCreateProxyByUniqueKey(
-            key, GrColorType::kAlpha_8, kTopLeft_GrSurfaceOrigin));
-    if (proxy) {
-        return proxy;
+    if (sk_sp<GrTextureProxy> proxy = proxyProvider->findOrCreateProxyByUniqueKey(key)) {
+        GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(proxy->backendFormat(),
+                                                                   GrColorType::kAlpha_8);
+        return {std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle};
     }
 
-    auto isProtected = proxy->isProtected() ? GrProtected::kYes : GrProtected::kNo;
-    auto rtc = context->priv().makeDeferredRenderTargetContextWithFallback(SkBackingFit::kApprox,
-                                                                           reducedClip.width(),
-                                                                           reducedClip.height(),
-                                                                           GrColorType::kAlpha_8,
-                                                                           nullptr,
-                                                                           1,
-                                                                           GrMipMapped::kNo,
-                                                                           kTopLeft_GrSurfaceOrigin,
-                                                                           nullptr,
-                                                                           SkBudgeted::kYes,
-                                                                           isProtected);
+    auto rtc = GrRenderTargetContext::MakeWithFallback(
+            context, GrColorType::kAlpha_8, nullptr, SkBackingFit::kApprox,
+            {reducedClip.width(), reducedClip.height()}, 1, GrMipMapped::kNo, GrProtected::kNo,
+            kTopLeft_GrSurfaceOrigin);
     if (!rtc) {
-        return nullptr;
+        return {};
     }
 
     if (!reducedClip.drawAlphaClipMask(rtc.get())) {
-        return nullptr;
+        return {};
     }
 
-    sk_sp<GrTextureProxy> result(rtc->asTextureProxyRef());
-    if (!result) {
-        return nullptr;
+    GrSurfaceProxyView result = rtc->readSurfaceView();
+    if (!result || !result.asTextureProxy()) {
+        return {};
     }
 
-    SkASSERT(result->origin() == kTopLeft_GrSurfaceOrigin);
-    proxyProvider->assignUniqueKeyToProxy(key, result.get());
+    SkASSERT(result.origin() == kTopLeft_GrSurfaceOrigin);
+    proxyProvider->assignUniqueKeyToProxy(key, result.asTextureProxy());
     add_invalidate_on_pop_message(context, *fStack, reducedClip.maskGenID(), key);
 
     return result;
@@ -461,7 +463,7 @@ static void draw_clip_elements_to_mask_helper(GrSWMaskHelper& helper, const Elem
     }
 }
 
-sk_sp<GrTextureProxy> GrClipStackClip::createSoftwareClipMask(
+GrSurfaceProxyView GrClipStackClip::createSoftwareClipMask(
         GrRecordingContext* context, const GrReducedClip& reducedClip,
         GrRenderTargetContext* renderTargetContext) const {
     GrUniqueKey key;
@@ -471,10 +473,10 @@ sk_sp<GrTextureProxy> GrClipStackClip::createSoftwareClipMask(
     GrProxyProvider* proxyProvider = context->priv().proxyProvider();
     const GrCaps* caps = context->priv().caps();
 
-    sk_sp<GrTextureProxy> proxy(proxyProvider->findOrCreateProxyByUniqueKey(
-            key, GrColorType::kAlpha_8, kTopLeft_GrSurfaceOrigin));
-    if (proxy) {
-        return proxy;
+    if (sk_sp<GrTextureProxy> proxy = proxyProvider->findOrCreateProxyByUniqueKey(key)) {
+        GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(proxy->backendFormat(),
+                                                                   GrColorType::kAlpha_8);
+        return {std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle};
     }
 
     // The mask texture may be larger than necessary. We round out the clip bounds and pin the top
@@ -486,29 +488,26 @@ sk_sp<GrTextureProxy> GrClipStackClip::createSoftwareClipMask(
         taskGroup = direct->priv().getTaskGroup();
     }
 
+    GrSurfaceProxyView view;
     if (taskGroup && renderTargetContext) {
         // Create our texture proxy
-        GrSurfaceDesc desc;
-        desc.fWidth = maskSpaceIBounds.width();
-        desc.fHeight = maskSpaceIBounds.height();
-        desc.fConfig = kAlpha_8_GrPixelConfig;
-
         GrBackendFormat format = caps->getDefaultBackendFormat(GrColorType::kAlpha_8,
                                                                GrRenderable::kNo);
 
+        GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(format, GrColorType::kAlpha_8);
+
         // MDB TODO: We're going to fill this proxy with an ASAP upload (which is out of order wrt
         // to ops), so it can't have any pending IO.
-        proxy = proxyProvider->createProxy(format,
-                                           desc,
-                                           GrRenderable::kNo,
-                                           1,
-                                           kTopLeft_GrSurfaceOrigin,
-                                           GrMipMapped::kNo,
-                                           SkBackingFit::kApprox,
-                                           SkBudgeted::kYes,
-                                           GrProtected::kNo);
+        auto proxy = proxyProvider->createProxy(format,
+                                                maskSpaceIBounds.size(),
+                                                GrRenderable::kNo,
+                                                1,
+                                                GrMipMapped::kNo,
+                                                SkBackingFit::kApprox,
+                                                SkBudgeted::kYes,
+                                                GrProtected::kNo);
 
-        auto uploader = skstd::make_unique<GrTDeferredProxyUploader<ClipMaskData>>(reducedClip);
+        auto uploader = std::make_unique<GrTDeferredProxyUploader<ClipMaskData>>(reducedClip);
         GrTDeferredProxyUploader<ClipMaskData>* uploaderRaw = uploader.get();
         auto drawAndUploadMask = [uploaderRaw, maskSpaceIBounds] {
             TRACE_EVENT0("skia.gpu", "Threaded SW Clip Mask Render");
@@ -525,20 +524,23 @@ sk_sp<GrTextureProxy> GrClipStackClip::createSoftwareClipMask(
 
         taskGroup->add(std::move(drawAndUploadMask));
         proxy->texPriv().setDeferredUploader(std::move(uploader));
+
+        view = {std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle};
     } else {
         GrSWMaskHelper helper;
         if (!helper.init(maskSpaceIBounds)) {
-            return nullptr;
+            return {};
         }
 
         draw_clip_elements_to_mask_helper(helper, reducedClip.maskElements(), reducedClip.scissor(),
                                           reducedClip.initialState());
 
-        proxy = helper.toTextureProxy(context, SkBackingFit::kApprox);
+        view = helper.toTextureView(context, SkBackingFit::kApprox);
     }
 
-    SkASSERT(proxy->origin() == kTopLeft_GrSurfaceOrigin);
-    proxyProvider->assignUniqueKeyToProxy(key, proxy.get());
+    SkASSERT(view);
+    SkASSERT(view.origin() == kTopLeft_GrSurfaceOrigin);
+    proxyProvider->assignUniqueKeyToProxy(key, view.asTextureProxy());
     add_invalidate_on_pop_message(context, *fStack, reducedClip.maskGenID(), key);
-    return proxy;
+    return view;
 }

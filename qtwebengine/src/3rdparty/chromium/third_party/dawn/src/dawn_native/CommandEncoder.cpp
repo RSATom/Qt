@@ -26,9 +26,11 @@
 #include "dawn_native/ErrorData.h"
 #include "dawn_native/RenderPassEncoder.h"
 #include "dawn_native/RenderPipeline.h"
+#include "dawn_native/ValidationUtils_autogen.h"
 #include "dawn_platform/DawnPlatform.h"
 #include "dawn_platform/tracing/TraceEvent.h"
 
+#include <cmath>
 #include <map>
 
 namespace dawn_native {
@@ -376,6 +378,18 @@ namespace dawn_native {
                     "renderable");
             }
 
+            DAWN_TRY(ValidateLoadOp(colorAttachment.loadOp));
+            DAWN_TRY(ValidateStoreOp(colorAttachment.storeOp));
+
+            if (colorAttachment.loadOp == wgpu::LoadOp::Clear) {
+                if (std::isnan(colorAttachment.clearColor.r) ||
+                    std::isnan(colorAttachment.clearColor.g) ||
+                    std::isnan(colorAttachment.clearColor.b) ||
+                    std::isnan(colorAttachment.clearColor.a)) {
+                    return DAWN_VALIDATION_ERROR("Color clear value cannot contain NaN");
+                }
+            }
+
             DAWN_TRY(ValidateOrSetColorAttachmentSampleCount(attachment, sampleCount));
 
             DAWN_TRY(ValidateResolveTarget(device, colorAttachment));
@@ -402,6 +416,16 @@ namespace dawn_native {
                 return DAWN_VALIDATION_ERROR(
                     "The format of the texture view used as depth stencil attachment is not a "
                     "depth stencil format");
+            }
+
+            DAWN_TRY(ValidateLoadOp(depthStencilAttachment->depthLoadOp));
+            DAWN_TRY(ValidateLoadOp(depthStencilAttachment->stencilLoadOp));
+            DAWN_TRY(ValidateStoreOp(depthStencilAttachment->depthStoreOp));
+            DAWN_TRY(ValidateStoreOp(depthStencilAttachment->stencilStoreOp));
+
+            if (depthStencilAttachment->depthLoadOp == wgpu::LoadOp::Clear &&
+                std::isnan(depthStencilAttachment->clearDepth)) {
+                return DAWN_VALIDATION_ERROR("Depth clear value cannot be NaN");
             }
 
             // This validates that the depth storeOp and stencil storeOps are the same
@@ -740,6 +764,7 @@ namespace dawn_native {
         // state of the encoding context. The internal state is set to finished, and subsequent
         // calls to encode commands will generate errors.
         if (device->ConsumedError(mEncodingContext.Finish()) ||
+            device->ConsumedError(device->ValidateIsAlive()) ||
             (device->IsValidationEnabled() &&
              device->ConsumedError(ValidateFinish(mEncodingContext.GetIterator(),
                                                   mEncodingContext.GetPassUsages())))) {
@@ -768,12 +793,14 @@ namespace dawn_native {
                 case Command::BeginComputePass: {
                     commands->NextCommand<BeginComputePassCmd>();
                     DAWN_TRY(ValidateComputePass(commands));
-                } break;
+                    break;
+                }
 
                 case Command::BeginRenderPass: {
                     const BeginRenderPassCmd* cmd = commands->NextCommand<BeginRenderPassCmd>();
                     DAWN_TRY(ValidateRenderPass(commands, cmd));
-                } break;
+                    break;
+                }
 
                 case Command::CopyBufferToBuffer: {
                     const CopyBufferToBufferCmd* copy =
@@ -788,7 +815,8 @@ namespace dawn_native {
 
                     DAWN_TRY(ValidateCanUseAs(copy->source.Get(), wgpu::BufferUsage::CopySrc));
                     DAWN_TRY(ValidateCanUseAs(copy->destination.Get(), wgpu::BufferUsage::CopyDst));
-                } break;
+                    break;
+                }
 
                 case Command::CopyBufferToTexture: {
                     const CopyBufferToTextureCmd* copy =
@@ -821,7 +849,8 @@ namespace dawn_native {
                         ValidateCanUseAs(copy->source.buffer.Get(), wgpu::BufferUsage::CopySrc));
                     DAWN_TRY(ValidateCanUseAs(copy->destination.texture.Get(),
                                               wgpu::TextureUsage::CopyDst));
-                } break;
+                    break;
+                }
 
                 case Command::CopyTextureToBuffer: {
                     const CopyTextureToBufferCmd* copy =
@@ -854,7 +883,8 @@ namespace dawn_native {
                         ValidateCanUseAs(copy->source.texture.Get(), wgpu::TextureUsage::CopySrc));
                     DAWN_TRY(ValidateCanUseAs(copy->destination.buffer.Get(),
                                               wgpu::BufferUsage::CopyDst));
-                } break;
+                    break;
+                }
 
                 case Command::CopyTextureToTexture: {
                     const CopyTextureToTextureCmd* copy =
@@ -879,24 +909,28 @@ namespace dawn_native {
                         ValidateCanUseAs(copy->source.texture.Get(), wgpu::TextureUsage::CopySrc));
                     DAWN_TRY(ValidateCanUseAs(copy->destination.texture.Get(),
                                               wgpu::TextureUsage::CopyDst));
-                } break;
+                    break;
+                }
 
                 case Command::InsertDebugMarker: {
                     const InsertDebugMarkerCmd* cmd = commands->NextCommand<InsertDebugMarkerCmd>();
                     commands->NextData<char>(cmd->length + 1);
-                } break;
+                    break;
+                }
 
                 case Command::PopDebugGroup: {
                     commands->NextCommand<PopDebugGroupCmd>();
                     DAWN_TRY(ValidateCanPopDebugGroup(debugGroupStackSize));
                     debugGroupStackSize--;
-                } break;
+                    break;
+                }
 
                 case Command::PushDebugGroup: {
                     const PushDebugGroupCmd* cmd = commands->NextCommand<PushDebugGroupCmd>();
                     commands->NextData<char>(cmd->length + 1);
                     debugGroupStackSize++;
-                } break;
+                    break;
+                }
                 default:
                     return DAWN_VALIDATION_ERROR("Command disallowed outside of a pass");
             }

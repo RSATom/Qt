@@ -416,6 +416,10 @@ void ExtensionHost::AddNewContents(WebContents* source,
 }
 
 void ExtensionHost::RenderViewReady() {
+  if (has_creation_notification_already_fired_)
+    return;
+  has_creation_notification_already_fired_ = true;
+
   content::NotificationService::current()->Notify(
       extensions::NOTIFICATION_EXTENSION_HOST_CREATED,
       content::Source<BrowserContext>(browser_context_),
@@ -438,7 +442,7 @@ bool ExtensionHost::CheckMediaAccessPermission(
       render_frame_host, security_origin, type, extension());
 }
 
-bool ExtensionHost::IsNeverVisible(content::WebContents* web_contents) {
+bool ExtensionHost::IsNeverComposited(content::WebContents* web_contents) {
   ViewType view_type = extensions::GetViewType(web_contents);
   return view_type == extensions::VIEW_TYPE_EXTENSION_BACKGROUND_PAGE;
 }

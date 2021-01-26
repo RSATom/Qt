@@ -3357,11 +3357,13 @@ std::array<MessageDescriptor, 334> descriptors{{
     },
     {
         "rss_stat",
-        2,
+        4,
         {
             {},
             {"member", ProtoSchemaType::kInt32},
             {"size", ProtoSchemaType::kInt64},
+            {"curr", ProtoSchemaType::kUint32},
+            {"mm_id", ProtoSchemaType::kUint32},
         },
     },
     {
@@ -3555,13 +3557,14 @@ std::array<MessageDescriptor, 334> descriptors{{
     },
     {
         "sde_tracing_mark_write",
-        4,
+        5,
         {
             {},
             {"pid", ProtoSchemaType::kInt32},
             {"trace_name", ProtoSchemaType::kString},
             {"trace_type", ProtoSchemaType::kUint32},
             {"value", ProtoSchemaType::kInt32},
+            {"trace_begin", ProtoSchemaType::kUint32},
         },
     },
 }};
@@ -3571,6 +3574,14 @@ std::array<MessageDescriptor, 334> descriptors{{
 MessageDescriptor* GetMessageDescriptorForId(size_t id) {
   PERFETTO_CHECK(id < descriptors.size());
   return &descriptors[id];
+}
+
+MessageDescriptor* GetMessageDescriptorForName(base::StringView name) {
+  for (MessageDescriptor& descriptor : descriptors) {
+    if (descriptor.name != nullptr && descriptor.name == name)
+      return &descriptor;
+  }
+  return nullptr;
 }
 
 size_t GetDescriptorsSize() {

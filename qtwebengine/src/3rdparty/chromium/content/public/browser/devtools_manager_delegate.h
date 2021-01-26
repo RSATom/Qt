@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/containers/span.h"
 #include "base/memory/ref_counted.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -19,7 +20,7 @@ class IPEndPoint;
 
 namespace content {
 
-class DevToolsAgentHostClient;
+class DevToolsAgentHostClientChannel;
 class RenderFrameHost;
 class WebContents;
 
@@ -65,17 +66,14 @@ class CONTENT_EXPORT DevToolsManagerDelegate {
                                      DisposeCallback callback);
 
   // Called when a new client is attached/detached.
-  virtual void ClientAttached(DevToolsAgentHost* agent_host,
-                              DevToolsAgentHostClient* client);
-  virtual void ClientDetached(DevToolsAgentHost* agent_host,
-                              DevToolsAgentHostClient* client);
+  virtual void ClientAttached(DevToolsAgentHostClientChannel* channel);
+  virtual void ClientDetached(DevToolsAgentHostClientChannel* channel);
 
   // Call callback if command was not handled.
-  using NotHandledCallback = base::OnceCallback<void(const std::string&)>;
-  virtual void HandleCommand(DevToolsAgentHost* agent_host,
-                             DevToolsAgentHostClient* client,
-                             const std::string& method,
-                             const std::string& message,
+  using NotHandledCallback =
+      base::OnceCallback<void(base::span<const uint8_t>)>;
+  virtual void HandleCommand(DevToolsAgentHostClientChannel* channel,
+                             base::span<const uint8_t> message,
                              NotHandledCallback callback);
 
   // Should return discovery page HTML that should list available tabs

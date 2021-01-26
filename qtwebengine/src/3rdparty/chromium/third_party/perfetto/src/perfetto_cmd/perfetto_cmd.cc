@@ -33,11 +33,13 @@
 #include <iterator>
 #include <sstream>
 
+#include "perfetto/base/compiler.h"
 #include "perfetto/base/logging.h"
 #include "perfetto/base/time.h"
 #include "perfetto/ext/base/file_utils.h"
 #include "perfetto/ext/base/string_view.h"
 #include "perfetto/ext/base/utils.h"
+#include "perfetto/ext/base/uuid.h"
 #include "perfetto/ext/traced/traced.h"
 #include "perfetto/ext/tracing/core/basic_types.h"
 #include "perfetto/ext/tracing/core/trace_packet.h"
@@ -434,7 +436,8 @@ int PerfettoCmd::Main(int argc, char** argv) {
   // 3) A set of option arguments (-t 10s -s 10m).
   // The only cases in which a trace config is not expected is --attach.
   // For this we are just acting on already existing sessions.
-  TraceConfig trace_config_proto;
+  trace_config_.reset(new TraceConfig());
+
   std::vector<std::string> triggers_to_activate;
   bool parsed = false;
   const bool will_trace = !is_attach() && !query_service_;
@@ -450,7 +453,7 @@ int PerfettoCmd::Main(int argc, char** argv) {
           "--buffer, --app, ATRACE_CAT, FTRACE_EVENT");
       return 1;
     }
-    parsed = CreateConfigFromOptions(config_options, &trace_config_proto);
+    parsed = CreateConfigFromOptions(config_options, trace_config_.get());
   } else {
     if (trace_config_raw.empty()) {
       PERFETTO_ELOG("The TraceConfig is empty");
@@ -459,16 +462,14 @@ int PerfettoCmd::Main(int argc, char** argv) {
     PERFETTO_DLOG("Parsing TraceConfig, %zu bytes", trace_config_raw.size());
     if (parse_as_pbtxt) {
       parsed = ParseTraceConfigPbtxt(config_file_name, trace_config_raw,
-                                     &trace_config_proto);
+                                     trace_config_.get());
     } else {
-      parsed = trace_config_proto.ParseFromString(trace_config_raw);
+      parsed = trace_config_->ParseFromString(trace_config_raw);
     }
   }
 
-  trace_config_.reset(new TraceConfig());
   if (parsed) {
-    *trace_config_proto.mutable_statsd_metadata() = std::move(statsd_metadata);
-    trace_config_->FromProto(trace_config_proto);
+    *trace_config_->mutable_statsd_metadata() = std::move(statsd_metadata);
     trace_config_raw.clear();
   } else if (will_trace) {
     PERFETTO_ELOG("The trace config is invalid, bailing out.");
@@ -478,6 +479,10 @@ int PerfettoCmd::Main(int argc, char** argv) {
   if (trace_config_->trace_uuid_lsb() == 0 &&
       trace_config_->trace_uuid_msb() == 0) {
     base::Uuid uuid = base::Uuidv4();
+    if (trace_config_->statsd_metadata().triggering_subscription_id()) {
+      uuid.set_lsb(
+          trace_config_->statsd_metadata().triggering_subscription_id());
+    }
     uuid_ = uuid.ToString();
     trace_config_->set_trace_uuid_msb(uuid.msb());
     trace_config_->set_trace_uuid_lsb(uuid.lsb());
@@ -570,6 +575,7 @@ int PerfettoCmd::Main(int argc, char** argv) {
   // connect as a consumer or run the trace. So bail out after processing all
   // the options.
   if (!triggers_to_activate.empty()) {
+    LogUploadEvent(PerfettoStatsdAtom::kTriggerBegin);
     bool finished_with_success = false;
     TriggerProducer producer(
         &task_runner_,
@@ -579,6 +585,11 @@ int PerfettoCmd::Main(int argc, char** argv) {
         },
         &triggers_to_activate);
     task_runner_.Run();
+    if (finished_with_success) {
+      LogUploadEvent(PerfettoStatsdAtom::kTriggerSuccess);
+    } else {
+      LogUploadEvent(PerfettoStatsdAtom::kTriggerFailure);
+    }
     return finished_with_success ? 0 : 1;
   }
 
@@ -592,7 +603,11 @@ int PerfettoCmd::Main(int argc, char** argv) {
   if (trace_config_->compression_type() ==
       TraceConfig::COMPRESSION_TYPE_DEFLATE) {
     if (packet_writer_) {
+#if PERFETTO_BUILDFLAG(PERFETTO_ZLIB)
       packet_writer_ = CreateZipPacketWriter(std::move(packet_writer_));
+#else
+      PERFETTO_ELOG("Cannot compress. Zlib not enabled in the build config");
+#endif
     } else {
       PERFETTO_ELOG("Cannot compress when tracing directly to file.");
     }
@@ -604,6 +619,7 @@ int PerfettoCmd::Main(int argc, char** argv) {
   args.current_time = base::GetWallTimeS();
   args.ignore_guardrails = ignore_guardrails;
   args.allow_user_build_tracing = trace_config_->allow_user_build_tracing();
+  args.unique_session_name = trace_config_->unique_session_name();
 #if PERFETTO_BUILDFLAG(PERFETTO_ANDROID_USERDEBUG_BUILD) || \
     PERFETTO_BUILDFLAG(PERFETTO_STANDALONE_BUILD)
   args.max_upload_bytes_override =
@@ -627,8 +643,16 @@ int PerfettoCmd::Main(int argc, char** argv) {
     expected_duration_ms_ = timeout_ms + max_stop_delay_ms;
   }
 
-  if (!limiter.ShouldTrace(args))
+  if (trace_config_->trigger_config().trigger_timeout_ms() == 0) {
+    LogUploadEvent(PerfettoStatsdAtom::kTraceBegin);
+  } else {
+    LogUploadEvent(PerfettoStatsdAtom::kBackgroundTraceBegin);
+  }
+
+  if (!limiter.ShouldTrace(args)) {
+    LogUploadEvent(PerfettoStatsdAtom::kHitGuardrails);
     return 1;
+  }
 
   consumer_endpoint_ =
       ConsumerIPCClient::Connect(GetConsumerSocket(), this, &task_runner_);
@@ -640,6 +664,7 @@ int PerfettoCmd::Main(int argc, char** argv) {
 }
 
 void PerfettoCmd::OnConnect() {
+  LogUploadEvent(PerfettoStatsdAtom::kOnConnect);
   if (query_service_) {
     consumer_endpoint_->QueryServiceState(
         [this](bool success, const TracingServiceState& svc_state) {
@@ -692,6 +717,7 @@ void PerfettoCmd::OnDisconnect() {
 
 void PerfettoCmd::OnTimeout() {
   PERFETTO_ELOG("Timed out while waiting for trace from the service, aborting");
+  LogUploadEvent(PerfettoStatsdAtom::kOnTimeout);
   task_runner_.Quit();
 }
 
@@ -719,6 +745,8 @@ void PerfettoCmd::OnTraceData(std::vector<TracePacket> packets, bool has_more) {
 }
 
 void PerfettoCmd::OnTracingDisabled() {
+  LogUploadEvent(PerfettoStatsdAtom::kOnTracingDisabled);
+
   if (trace_config_->write_into_file()) {
     // If write_into_file == true, at this point the passed file contains
     // already all the packets.
@@ -734,6 +762,7 @@ void PerfettoCmd::OnTracingDisabled() {
 }
 
 void PerfettoCmd::FinalizeTraceAndExit() {
+  LogUploadEvent(PerfettoStatsdAtom::kFinalizeTraceAndExit);
   packet_writer_.reset();
 
   if (trace_out_stream_) {
@@ -892,6 +921,14 @@ void PerfettoCmd::PrintServiceState(bool success,
 
 void PerfettoCmd::OnObservableEvents(
     const ObservableEvents& /*observable_events*/) {}
+
+void PerfettoCmd::LogUploadEvent(PerfettoStatsdAtom atom) {
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)
+  LogUploadEventAndroid(atom);
+#else
+  base::ignore_result(atom);
+#endif
+}
 
 int __attribute__((visibility("default")))
 PerfettoCmdMain(int argc, char** argv) {

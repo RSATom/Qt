@@ -3,7 +3,7 @@
 #
 
 
-# Copyright (C) 1996-2019 by
+# Copyright (C) 1996-2020 by
 # David Turner, Robert Wilhelm, and Werner Lemberg.
 #
 # This file is part of the FreeType project, and may only be used, modified,
@@ -104,7 +104,7 @@ CONFIG_DIR   := $(PUBLIC_DIR)/config
 
 # The documentation directory.
 #
-DOC_DIR ?= $(TOP_DIR)/docs/reference
+DOC_DIR ?= $(TOP_DIR)/docs
 
 # The final name of the library file.
 #
@@ -290,17 +290,15 @@ objects: $(OBJECTS_LIST)
 library: $(PROJECT_LIBRARY)
 
 # Run `docwriter' in the current Python environment.
-# Option `-B' disables generation of .pyc files (available since python 2.6)
 #
-
 PYTHON ?= python
-PIP    ?= pip
 
 refdoc:
 	@echo Running docwriter...
 	$(PYTHON) -m docwriter \
                   --prefix=ft2 \
                   --title=FreeType-$(version) \
+                  --site=reference \
                   --output=$(DOC_DIR) \
                   $(PUBLIC_DIR)/*.h \
                   $(PUBLIC_DIR)/config/*.h \
@@ -318,17 +316,17 @@ refdoc:
 VENV_NAME  := env
 VENV_DIR   := $(DOC_DIR)$(SEP)$(VENV_NAME)
 ENV_PYTHON := $(VENV_DIR)$(SEP)$(BIN)$(SEP)$(PYTHON)
-ENV_PIP    := $(VENV_DIR)$(SEP)$(BIN)$(SEP)$(PIP)
 
 refdoc-venv:
 	@echo Setting up virtualenv for Python...
 	virtualenv --python=$(PYTHON) $(VENV_DIR)
 	@echo Installing docwriter...
-	$(ENV_PIP) install docwriter
+	$(ENV_PYTHON) -m pip install docwriter
 	@echo Running docwriter...
 	$(ENV_PYTHON) -m docwriter \
                       --prefix=ft2 \
                       --title=FreeType-$(version) \
+                      --site=reference \
                       --output=$(DOC_DIR) \
                       $(PUBLIC_DIR)/*.h \
                       $(PUBLIC_DIR)/config/*.h \

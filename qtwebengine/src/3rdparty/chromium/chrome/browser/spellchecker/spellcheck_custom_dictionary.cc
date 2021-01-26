@@ -20,6 +20,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #ifndef TOOLKIT_QT
@@ -232,8 +233,8 @@ int SpellcheckCustomDictionary::Change::Sanitize(
 
 SpellcheckCustomDictionary::SpellcheckCustomDictionary(
     const base::FilePath& dictionary_directory_name)
-    : task_runner_(base::CreateSequencedTaskRunner(
-          {base::ThreadPool(), base::MayBlock()})),
+    : task_runner_(
+          base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})),
       custom_dictionary_path_(
           dictionary_directory_name.Append(chrome::kCustomDictionaryFileName)),
       is_loaded_(false) {}
@@ -366,7 +367,7 @@ void SpellcheckCustomDictionary::StopSyncing(syncer::ModelType type) {
   sync_error_handler_.reset();
 }
 
-syncer::SyncDataList SpellcheckCustomDictionary::GetAllSyncData(
+syncer::SyncDataList SpellcheckCustomDictionary::GetAllSyncDataForTesting(
     syncer::ModelType type) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(syncer::DICTIONARY, type);

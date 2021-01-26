@@ -183,13 +183,13 @@ class NET_EXPORT CookieMonster : public CookieStore {
 
   void SetCanonicalCookieAsyncAndFiltered(
       const GURL& url,
-      const GURL& site_for_cookies,
+      const SiteForCookies& site_for_cookies,
       std::unique_ptr<CanonicalCookie> cookie,
       const CookieOptions& options,
       SetCookiesCallback callback);
   void GetCookieListWithOptionsAsyncAndFiltered(
       const GURL& url,
-      const GURL& site_for_cookies,
+      const SiteForCookies& site_for_cookies,
       const CookieOptions& options,
       GetCookieListCallback callback);
 

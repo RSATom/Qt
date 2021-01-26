@@ -159,6 +159,22 @@ void NinjaCBinaryTargetWriter::WriteCompilerVars() {
     out_ << std::endl;
   }
 
+  // Framework search path.
+  if (subst.used.count(&CSubstitutionFrameworkDirs)) {
+    const Tool* tool = target_->toolchain()->GetTool(CTool::kCToolLink);
+
+    out_ << CSubstitutionFrameworkDirs.ninja_name << " =";
+    PathOutput framework_dirs_output(
+        path_output_.current_dir(),
+        settings_->build_settings()->root_path_utf8(), ESCAPE_NINJA_COMMAND);
+    RecursiveTargetConfigToStream<SourceDir>(
+        target_, &ConfigValues::framework_dirs,
+        FrameworkDirsWriter(framework_dirs_output,
+                            tool->framework_dir_switch()),
+        out_);
+    out_ << std::endl;
+  }
+
   // Include directories.
   if (subst.used.count(&CSubstitutionIncludeDirs)) {
     out_ << CSubstitutionIncludeDirs.ninja_name << " =";
@@ -450,7 +466,9 @@ void NinjaCBinaryTargetWriter::WriteLinkerStuff(
   UniqueVector<OutputFile> extra_object_files;
   UniqueVector<const Target*> linkable_deps;
   UniqueVector<const Target*> non_linkable_deps;
-  GetDeps(&extra_object_files, &linkable_deps, &non_linkable_deps);
+  UniqueVector<const Target*> framework_deps;
+  GetDeps(&extra_object_files, &linkable_deps, &non_linkable_deps,
+          &framework_deps);
 
   // Object files.
   path_output_.WriteFiles(out_, object_files);
@@ -499,6 +517,17 @@ void NinjaCBinaryTargetWriter::WriteLinkerStuff(
     }
   }
 
+  // If any target creates a framework bundle, then treat it as an implicit
+  // dependency via the .stamp file. This is a pessimisation as it is not
+  // always necessary to relink the current target if one of the framework
+  // is regenerated, but it ensure that if one of the framework API changes,
+  // any dependent target will relink it (see crbug.com/1037607).
+  if (!framework_deps.empty()) {
+    for (const Target* dep : framework_deps) {
+      implicit_deps.push_back(dep->dependency_output_file());
+    }
+  }
+
   // The input dependency is only needed if there are no object files, as the
   // dependency is normally provided transitively by the source files.
   if (!input_dep.value().empty() && object_files.empty())
@@ -534,8 +563,15 @@ void NinjaCBinaryTargetWriter::WriteLinkerStuff(
   if (target_->output_type() == Target::EXECUTABLE ||
       target_->output_type() == Target::SHARED_LIBRARY ||
       target_->output_type() == Target::LOADABLE_MODULE) {
-    WriteLinkerFlags(optional_def_file);
-    WriteLibs();
+    out_ << "  ldflags =";
+    WriteLinkerFlags(out_, tool_, optional_def_file);
+    out_ << std::endl;
+    out_ << "  libs =";
+    WriteLibs(out_, tool_);
+    out_ << std::endl;
+    out_ << "  frameworks =";
+    WriteFrameworks(out_, tool_);
+    out_ << std::endl;
   } else if (target_->output_type() == Target::STATIC_LIBRARY) {
     out_ << "  arflags =";
     RecursiveTargetConfigStringsToStream(target_, &ConfigValues::arflags,
@@ -544,68 +580,6 @@ void NinjaCBinaryTargetWriter::WriteLinkerStuff(
   }
   WriteOutputSubstitutions();
   WriteSolibs(solibs);
-}
-
-void NinjaCBinaryTargetWriter::WriteLinkerFlags(
-    const SourceFile* optional_def_file) {
-  out_ << "  ldflags =";
-
-  // First the ldflags from the target and its config.
-  RecursiveTargetConfigStringsToStream(target_, &ConfigValues::ldflags,
-                                       GetFlagOptions(), out_);
-
-  // Followed by library search paths that have been recursively pushed
-  // through the dependency tree.
-  const OrderedSet<SourceDir> all_lib_dirs = target_->all_lib_dirs();
-  if (!all_lib_dirs.empty()) {
-    // Since we're passing these on the command line to the linker and not
-    // to Ninja, we need to do shell escaping.
-    PathOutput lib_path_output(path_output_.current_dir(),
-                               settings_->build_settings()->root_path_utf8(),
-                               ESCAPE_NINJA_COMMAND);
-    for (size_t i = 0; i < all_lib_dirs.size(); i++) {
-      out_ << " " << tool_->lib_dir_switch();
-      lib_path_output.WriteDir(out_, all_lib_dirs[i],
-                               PathOutput::DIR_NO_LAST_SLASH);
-    }
-  }
-
-  if (optional_def_file) {
-    out_ << " /DEF:";
-    path_output_.WriteFile(out_, *optional_def_file);
-  }
-
-  out_ << std::endl;
-}
-
-void NinjaCBinaryTargetWriter::WriteLibs() {
-  out_ << "  libs =";
-
-  // Libraries that have been recursively pushed through the dependency tree.
-  EscapeOptions lib_escape_opts;
-  lib_escape_opts.mode = ESCAPE_NINJA_COMMAND;
-  const OrderedSet<LibFile> all_libs = target_->all_libs();
-  const std::string framework_ending(".framework");
-  for (size_t i = 0; i < all_libs.size(); i++) {
-    const LibFile& lib_file = all_libs[i];
-    const std::string& lib_value = lib_file.value();
-    if (lib_file.is_source_file()) {
-      out_ << " ";
-      path_output_.WriteFile(out_, lib_file.source_file());
-    } else if (base::EndsWith(lib_value, framework_ending,
-                              base::CompareCase::INSENSITIVE_ASCII)) {
-      // Special-case libraries ending in ".framework" to support Mac: Add the
-      // -framework switch and don't add the extension to the output.
-      out_ << " -framework ";
-      EscapeStringToStream(
-          out_, lib_value.substr(0, lib_value.size() - framework_ending.size()),
-          lib_escape_opts);
-    } else {
-      out_ << " " << tool_->lib_switch();
-      EscapeStringToStream(out_, lib_value, lib_escape_opts);
-    }
-  }
-  out_ << std::endl;
 }
 
 void NinjaCBinaryTargetWriter::WriteOutputSubstitutions() {

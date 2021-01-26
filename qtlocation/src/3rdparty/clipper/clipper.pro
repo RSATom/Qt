@@ -1,4 +1,4 @@
-TARGET = clipper
+TARGET = qt_clipper
 
 CONFIG += staticlib exceptions warn_off optimize_full
 

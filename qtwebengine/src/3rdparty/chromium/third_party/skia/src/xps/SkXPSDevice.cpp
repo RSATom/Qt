@@ -40,16 +40,17 @@
 #include "src/core/SkEndian.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkImagePriv.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkMaskFilterBase.h"
 #include "src/core/SkRasterClip.h"
 #include "src/core/SkStrikeCache.h"
 #include "src/core/SkTLazy.h"
 #include "src/core/SkTypefacePriv.h"
 #include "src/core/SkUtils.h"
+#include "src/image/SkImage_Base.h"
 #include "src/sfnt/SkSFNTHeader.h"
 #include "src/sfnt/SkTTCFHeader.h"
 #include "src/shaders/SkShaderBase.h"
+#include "src/utils/SkClipStackUtils.h"
 #include "src/utils/win/SkHRESULT.h"
 #include "src/utils/win/SkIStream.h"
 #include "src/utils/win/SkTScopedComPtr.h"
@@ -168,7 +169,7 @@ HRESULT SkXPSDevice::createXpsThumbnail(IXpsOMPage* page,
         "Could not create thumbnail generator.");
 
     SkTScopedComPtr<IOpcPartUri> partUri;
-    constexpr size_t size = SkTMax(
+    constexpr size_t size = std::max(
             SK_ARRAY_COUNT(L"/Documents/1/Metadata/.png") + sk_digits_in<decltype(pageNum)>(),
             SK_ARRAY_COUNT(L"/Metadata/" L_GUID_ID L".png"));
     wchar_t buffer[size];
@@ -1137,8 +1138,7 @@ void SkXPSDevice::drawPoints(SkCanvas::PointMode mode,
     //TODO
 }
 
-void SkXPSDevice::drawVertices(const SkVertices* v, const SkVertices::Bone bones[], int boneCount,
-                               SkBlendMode blendMode, const SkPaint& paint) {
+void SkXPSDevice::drawVertices(const SkVertices*, SkBlendMode, const SkPaint&) {
     //TODO
 }
 
@@ -1607,7 +1607,7 @@ void SkXPSDevice::drawPath(const SkPath& platonicPath,
     //Set the fill rule.
     SkPath* xpsCompatiblePath = fillablePath;
     XPS_FILL_RULE xpsFillRule;
-    switch (fillablePath->getNewFillType()) {
+    switch (fillablePath->getFillType()) {
         case SkPathFillType::kWinding:
             xpsFillRule = XPS_FILL_RULE_NONZERO;
             break;
@@ -1683,7 +1683,7 @@ HRESULT SkXPSDevice::clip(IXpsOMVisual* xpsVisual) {
     }
     SkPath clipPath;
     // clipPath.addRect(this->cs().bounds(size(*this)));
-    (void)this->cs().asPath(&clipPath);
+    SkClipStack_AsPath(this->cs(), &clipPath);
     // TODO: handle all the kinds of paths, like drawPath does
     return this->clipToPath(xpsVisual, clipPath, XPS_FILL_RULE_EVENODD);
 }
@@ -1711,11 +1711,6 @@ HRESULT SkXPSDevice::clipToPath(IXpsOMVisual* xpsVisual,
         "Could not set clip geometry.");
 
     return S_OK;
-}
-
-void SkXPSDevice::drawSprite(const SkBitmap& bitmap, int x, int y, const SkPaint& paint) {
-    //TODO: override this for XPS
-    SkDEBUGF("XPS drawSprite not yet implemented.");
 }
 
 HRESULT SkXPSDevice::CreateTypefaceUse(const SkFont& font,
@@ -1989,11 +1984,16 @@ void SkXPSDevice::drawOval( const SkRect& o, const SkPaint& p) {
     this->drawPath(path, p, true);
 }
 
-void SkXPSDevice::drawBitmapRect(const SkBitmap& bitmap,
-                                 const SkRect* src,
-                                 const SkRect& dst,
-                                 const SkPaint& paint,
-                                 SkCanvas::SrcRectConstraint constraint) {
+void SkXPSDevice::drawImageRect(const SkImage* image,
+                                const SkRect* src,
+                                const SkRect& dst,
+                                const SkPaint& paint,
+                                SkCanvas::SrcRectConstraint constraint) {
+    SkBitmap bitmap;
+    if (!as_IB(image)->getROPixels(&bitmap)) {
+        return;
+    }
+
     SkRect bitmapBounds = SkRect::Make(bitmap.bounds());
     SkRect srcBounds = src ? *src : bitmapBounds;
     SkMatrix matrix = SkMatrix::MakeRectToRect(srcBounds, dst, SkMatrix::kFill_ScaleToFit);
@@ -2006,6 +2006,7 @@ void SkXPSDevice::drawBitmapRect(const SkBitmap& bitmap,
         }
         matrix.mapRect(&actualDst, srcBounds);
     }
+
     auto bitmapShader = SkMakeBitmapShaderForPaint(paint, bitmap, SkTileMode::kClamp,
                                                    SkTileMode::kClamp, &matrix,
                                                    kNever_SkCopyPixelsMode);

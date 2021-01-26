@@ -15,7 +15,7 @@
 #include "content/shell/browser/shell.h"
 #include "content/test/content_browser_test_utils_internal.h"
 #include "net/dns/mock_host_resolver.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/events/base_event_utils.h"
 
@@ -153,7 +153,7 @@ class BrowserSideFlingBrowserTest : public ContentBrowserTest {
         blink::WebInputEvent::kNoModifiers, ui::EventTimeForNow());
     gesture_scroll_begin.SetSourceDevice(blink::WebGestureDevice::kTouchscreen);
     gesture_scroll_begin.data.scroll_begin.delta_hint_units =
-        ui::input_types::ScrollGranularity::kScrollByPrecisePixel;
+        ui::ScrollGranularity::kScrollByPrecisePixel;
     gesture_scroll_begin.data.scroll_begin.delta_x_hint = fling_velocity.x();
     gesture_scroll_begin.data.scroll_begin.delta_y_hint = fling_velocity.y();
     const gfx::PointF scroll_location_in_widget(1, 1);
@@ -200,7 +200,7 @@ class BrowserSideFlingBrowserTest : public ContentBrowserTest {
     blink::WebMouseWheelEvent wheel_event =
         SyntheticWebMouseWheelEventBuilder::Build(
             10, 10, fling_velocity.x() / 1000, fling_velocity.y() / 1000, 0,
-            ui::input_types::ScrollGranularity::kScrollByPrecisePixel);
+            ui::ScrollGranularity::kScrollByPrecisePixel);
     wheel_event.phase = blink::WebMouseWheelEvent::kPhaseBegan;
     const gfx::PointF position_in_widget(1, 1);
     const gfx::PointF position_in_root =
@@ -390,7 +390,7 @@ IN_PROC_BROWSER_TEST_F(BrowserSideFlingBrowserTest,
 }
 
 // Touchpad fling only happens on ChromeOS.
-#if defined(CHROMEOS)
+#if defined(OS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(BrowserSideFlingBrowserTest,
                        TouchpadInertialGSUsBubbleFromOOPIF) {
   LoadPageWithOOPIF();
@@ -408,7 +408,7 @@ IN_PROC_BROWSER_TEST_F(BrowserSideFlingBrowserTest,
   SimulateTouchpadFling(child_view_->host(), GetWidgetHost(), fling_velocity);
   WaitForFrameScroll(GetRootNode(), 15, true /* upward */);
 }
-#endif  // defined(CHROMEOS)
+#endif  // defined(OS_CHROMEOS)
 
 IN_PROC_BROWSER_TEST_F(BrowserSideFlingBrowserTest,
                        InertialGSEGetsBubbledFromOOPIF) {

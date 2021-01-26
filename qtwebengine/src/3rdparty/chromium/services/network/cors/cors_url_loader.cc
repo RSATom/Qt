@@ -9,14 +9,15 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
+#include "base/strings/string_split.h"
 #include "net/base/load_flags.h"
 #include "services/network/cors/preflight_controller.h"
-#include "services/network/loader_util.h"
 #include "services/network/public/cpp/cors/cors.h"
 #include "services/network/public/cpp/cors/origin_access_list.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/header_util.h"
 #include "services/network/public/cpp/request_mode.h"
+#include "services/network/url_loader.h"
 #include "url/url_util.h"
 
 namespace network {
@@ -79,15 +80,20 @@ void ReportCompletionStatusMetric(bool fetch_cors_flag,
   UMA_HISTOGRAM_ENUMERATION("Net.Cors.CompletionStatus", metric);
 }
 
+constexpr const char kTimingAllowOrigin[] = "Timing-Allow-Origin";
+
 }  // namespace
 
 CorsURLLoader::CorsURLLoader(
     mojo::PendingReceiver<mojom::URLLoader> loader_receiver,
+    int32_t process_id,
     int32_t routing_id,
     int32_t request_id,
     uint32_t options,
     DeleteCallback delete_callback,
     const ResourceRequest& resource_request,
+    bool ignore_isolated_world_origin,
+    bool skip_cors_enabled_scheme_check,
     mojo::PendingRemote<mojom::URLLoaderClient> client,
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
     mojom::URLLoaderFactory* network_loader_factory,
@@ -95,6 +101,7 @@ CorsURLLoader::CorsURLLoader(
     const OriginAccessList* factory_bound_origin_access_list,
     PreflightController* preflight_controller)
     : receiver_(this, std::move(loader_receiver)),
+      process_id_(process_id),
       routing_id_(routing_id),
       request_id_(request_id),
       options_(options),
@@ -105,7 +112,11 @@ CorsURLLoader::CorsURLLoader(
       traffic_annotation_(traffic_annotation),
       origin_access_list_(origin_access_list),
       factory_bound_origin_access_list_(factory_bound_origin_access_list),
-      preflight_controller_(preflight_controller) {
+      preflight_controller_(preflight_controller),
+      skip_cors_enabled_scheme_check_(skip_cors_enabled_scheme_check) {
+  if (ignore_isolated_world_origin)
+    request_.isolated_world_origin = base::nullopt;
+
   receiver_.set_disconnect_handler(
       base::BindOnce(&CorsURLLoader::OnMojoDisconnect, base::Unretained(this)));
   DCHECK(network_loader_factory_);
@@ -168,8 +179,8 @@ void CorsURLLoader::FollowRedirect(
     }
   }
 
-  LogConcerningRequestHeaders(modified_headers,
-                              true /* added_during_redirect */);
+  network::URLLoader::LogConcerningRequestHeaders(
+      modified_headers, true /* added_during_redirect */);
 
   for (const auto& name : removed_headers) {
     request_.headers.RemoveHeader(name);
@@ -251,14 +262,13 @@ void CorsURLLoader::OnReceiveResponse(mojom::URLResponseHeadPtr response_head) {
   DCHECK(forwarding_client_);
   DCHECK(!deferred_redirect_url_);
 
-  int response_status_code =
-      response_head->headers ? response_head->headers->response_code() : 0;
-
+  // See 10.7.4 of https://fetch.spec.whatwg.org/#http-network-or-cache-fetch
   const bool is_304_for_revalidation =
-      request_.is_revalidating && response_status_code == 304;
+      request_.is_revalidating && response_head->headers &&
+      response_head->headers->response_code() == 304;
   if (fetch_cors_flag_ && !is_304_for_revalidation) {
     const auto error_status = CheckAccess(
-        request_.url, response_status_code,
+        request_.url,
         GetHeaderString(*response_head,
                         header_names::kAccessControlAllowOrigin),
         GetHeaderString(*response_head,
@@ -271,7 +281,10 @@ void CorsURLLoader::OnReceiveResponse(mojom::URLResponseHeadPtr response_head) {
     }
   }
 
+  timing_allow_failed_flag_ = !PassesTimingAllowOriginCheck(*response_head);
+
   response_head->response_type = response_tainting_;
+  response_head->timing_allow_passed = !timing_allow_failed_flag_;
   forwarding_client_->OnReceiveResponse(std::move(response_head));
 }
 
@@ -292,7 +305,7 @@ void CorsURLLoader::OnReceiveRedirect(const net::RedirectInfo& redirect_info,
   // failure, then return a network error.
   if (fetch_cors_flag_ && IsCorsEnabledRequestMode(request_.mode)) {
     const auto error_status = CheckAccess(
-        request_.url, response_head->headers->response_code(),
+        request_.url,
         GetHeaderString(*response_head,
                         header_names::kAccessControlAllowOrigin),
         GetHeaderString(*response_head,
@@ -304,6 +317,8 @@ void CorsURLLoader::OnReceiveRedirect(const net::RedirectInfo& redirect_info,
       return;
     }
   }
+
+  timing_allow_failed_flag_ = !PassesTimingAllowOriginCheck(*response_head);
 
   // Because we initiate a new request on redirect in some cases, we cannot
   // rely on the redirect logic in the network stack. Hence we need to
@@ -360,6 +375,7 @@ void CorsURLLoader::OnReceiveRedirect(const net::RedirectInfo& redirect_info,
   } else {
     response_head->response_type = response_tainting_;
   }
+  response_head->timing_allow_passed = !timing_allow_failed_flag_;
   forwarding_client_->OnReceiveRedirect(redirect_info,
                                         std::move(response_head));
 }
@@ -408,7 +424,7 @@ void CorsURLLoader::OnComplete(const URLLoaderCompletionStatus& status) {
 }
 
 void CorsURLLoader::StartRequest() {
-  if (fetch_cors_flag_ &&
+  if (fetch_cors_flag_ && !skip_cors_enabled_scheme_check_ &&
       !base::Contains(url::GetCorsEnabledSchemes(), request_.url.scheme())) {
     HandleComplete(URLLoaderCompletionStatus(
         CorsErrorStatus(mojom::CorsError::kCorsDisabledScheme)));
@@ -422,9 +438,11 @@ void CorsURLLoader::StartRequest() {
   //
   // We exclude navigation requests to keep the existing behavior.
   // TODO(yhirano): Reconsider this.
-  if (!IsNavigationRequestMode(request_.mode) && request_.request_initiator &&
+  if (request_.mode != network::mojom::RequestMode::kNavigate &&
+      request_.request_initiator &&
       (fetch_cors_flag_ ||
-       (request_.method != "GET" && request_.method != "HEAD"))) {
+       (request_.method != net::HttpRequestHeaders::kGetMethod &&
+        request_.method != net::HttpRequestHeaders::kHeadMethod))) {
     if (tainted_) {
       request_.headers.SetHeader(net::HttpRequestHeaders::kOrigin,
                                  url::Origin().Serialize());
@@ -468,6 +486,10 @@ void CorsURLLoader::StartRequest() {
     return;
   }
 
+  // Since we're doing a preflight, we won't reuse the original request. Cancel
+  // it now to free up the socket.
+  network_loader_.reset();
+
   preflight_controller_->PerformPreflightCheck(
       base::BindOnce(&CorsURLLoader::StartNetworkRequest,
                      weak_factory_.GetWeakPtr()),
@@ -475,7 +497,7 @@ void CorsURLLoader::StartRequest() {
       PreflightController::WithTrustedHeaderClient(
           options_ & mojom::kURLLoadOptionUseHeaderClient),
       tainted_, net::NetworkTrafficAnnotationTag(traffic_annotation_),
-      network_loader_factory_);
+      network_loader_factory_, process_id_);
 }
 
 void CorsURLLoader::StartNetworkRequest(
@@ -622,6 +644,38 @@ mojom::FetchResponseType CorsURLLoader::CalculateResponseTainting(
   return mojom::FetchResponseType::kBasic;
 }
 
+bool CorsURLLoader::PassesTimingAllowOriginCheck(
+    const mojom::URLResponseHead& response) const {
+  if (timing_allow_failed_flag_)
+    return false;
+
+  if (response_tainting_ == mojom::FetchResponseType::kBasic)
+    return true;
+
+  base::Optional<std::string> tao_header =
+      GetHeaderString(response, kTimingAllowOrigin);
+  if (!tao_header.has_value())
+    return false;
+
+  // Optimization for the common case when the header is a single '*'.
+  if (tao_header == "*")
+    return true;
+
+  url::Origin origin = tainted_ ? url::Origin() : *request_.request_initiator;
+  std::string serialized_origin = origin.Serialize();
+  std::vector<std::string> tao_headers = base::SplitString(
+      *tao_header, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  for (const std::string& header : tao_headers) {
+    if (header == "*")
+      return true;
+
+    if (header == serialized_origin)
+      return true;
+  }
+  return false;
+}
+
+// static
 base::Optional<std::string> CorsURLLoader::GetHeaderString(
     const mojom::URLResponseHead& response,
     const std::string& header_name) {

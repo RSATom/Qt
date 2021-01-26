@@ -71,9 +71,6 @@ display::DisplaySnapshot::DisplayModeList ExtractDisplayModes(
     const display::DisplayMode** out_current_mode,
     const display::DisplayMode** out_native_mode);
 
-display::DisplayConnectionType GetDisplayType(
-    const drmModeConnector* connector);
-
 // |info| provides the DRM information related to the display, |fd| is the
 // connection to the DRM device.
 std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
@@ -113,18 +110,6 @@ const gfx::Size ModeSize(const drmModeModeInfo& mode);
 float ModeRefreshRate(const drmModeModeInfo& mode);
 
 bool ModeIsInterlaced(const drmModeModeInfo& mode);
-
-OverlaySurfaceCandidateList CreateOverlaySurfaceCandidateListFrom(
-    const std::vector<OverlayCheck_Params>& params);
-
-std::vector<OverlayCheck_Params> CreateParamsFromOverlaySurfaceCandidate(
-    const OverlaySurfaceCandidateList& candidates);
-
-OverlayStatusList CreateOverlayStatusListFrom(
-    const std::vector<OverlayCheckReturn_Params>& params);
-
-std::vector<OverlayCheckReturn_Params> CreateParamsFromOverlayStatusList(
-    const OverlayStatusList& returns);
 
 }  // namespace ui
 

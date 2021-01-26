@@ -1,3 +1,4 @@
+
 // Copyright 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
@@ -62,11 +63,11 @@ let RealboxOutputUpdate;
  */
 const CLASSES = {
   ALTERNATE_LOGO: 'alternate-logo',  // Shows white logo if required by theme
-  // Shows a clock next to historical realbox results.
-  CLOCK_ICON: 'clock-icon',
   // Applies styles to dialogs used in customization.
   CUSTOMIZE_DIALOG: 'customize-dialog',
   DELAYED_HIDE_NOTIFICATION: 'mv-notice-delayed-hide',
+  DESCRIPTION: 'description',
+  DIM: 'dim',
   DISMISSABLE: 'dismissable',
   DISMISS_ICON: 'dismiss-icon',
   DISMISS_PROMO: 'dismiss-promo',
@@ -78,18 +79,25 @@ const CLASSES = {
   FLOAT_UP: 'float-up',
   // Applies drag focus style to the fakebox
   FAKEBOX_DRAG_FOCUS: 'fakebox-drag-focused',
+  HAS_IMAGE: 'has-image',  // A realbox match with an image.
   // Applies a different style to the error notification if a link is present.
   HAS_LINK: 'has-link',
   HIDE_FAKEBOX: 'hide-fakebox',
   HIDE_NOTIFICATION: 'notice-hide',
+  // Contains the image next to a realbox match. Displays a placeholder color
+  // while the realbox match image is loading.
+  IMAGE_CONTAINER: 'image-container',
   INITED: 'inited',  // Reveals the <body> once init() is done.
   LEFT_ALIGN_ATTRIBUTION: 'left-align-attribution',
+  // The icon next to a realbox match.
+  MATCH_ICON: 'match-icon',
+  // The image next to a realbox match.
+  MATCH_IMAGE: 'match-image',
   // Vertically centers the most visited section for a non-Google provided page.
   NON_GOOGLE_PAGE: 'non-google-page',
   REMOVABLE: 'removable',
   REMOVE_ICON: 'remove-icon',
   REMOVE_MATCH: 'remove-match',
-  SEARCH_ICON: 'search-icon',  // Magnifying glass/search icon.
   SELECTED: 'selected',  // A selected (via up/down arrow key) realbox match.
   SHOW_ELEMENT: 'show-element',
   // When the realbox has matches to show.
@@ -98,10 +106,7 @@ const CLASSES = {
   USE_NOTIFIER: 'use-notifier',
 };
 
-const SEARCH_HISTORY_MATCH_TYPES = [
-  'search-history',
-  'search-suggest-personalized',
-];
+const DOCUMENT_MATCH_TYPE = 'document';
 
 /**
  * The period of time (ms) before transitions can be applied to a toast
@@ -262,6 +267,21 @@ let delayedHideNotification = null;
 let enterWasPressed = false;
 
 /**
+ * A cache from image URL to image content in the form of data URL in order to
+ * reuse match image data that have been loaded before and to avoid flickering.
+ * @type {!Object<string>}
+ */
+const faviconOrImageUrlToDataUrlCache = {};
+
+/**
+ * The time of the first character insert operation that has not yet been
+ * painted in floating point milliseconds. Used to measure the realbox
+ * responsiveness with a histogram.
+ * @type {number}
+ */
+let charTypedTime = 0;
+
+/**
  * True if dark mode is enabled.
  * @type {boolean}
  */
@@ -330,6 +350,7 @@ function autocompleteResultChanged(result) {
   }
 
   renderAutocompleteMatches(result.matches);
+
   autocompleteResult = result;
 
   $(IDS.REALBOX).focus();
@@ -350,6 +371,54 @@ function autocompleteResultChanged(result) {
     }
   } else {
     setRealboxIcon(undefined);
+  }
+}
+
+/**
+ * @param {number} matchIndex
+ * @param {string} url AutocompleteMatch's imageUrl or destinationUrl.
+ * @param {string} dataUrl
+ */
+function autocompleteMatchImageAvailable(matchIndex, url, dataUrl) {
+  if (!autocompleteResult || !autocompleteResult.matches[matchIndex]) {
+    return;
+  }
+
+  const match = autocompleteResult.matches[matchIndex];
+  if (match.imageUrl !== url && match.destinationUrl !== url) {
+    return;
+  }
+
+  // Return if the image has been rendered. Re-rendering it will cause flicker.
+  if (faviconOrImageUrlToDataUrlCache[url]) {
+    return;
+  }
+  faviconOrImageUrlToDataUrlCache[url] = dataUrl;
+
+  const matchEls = Array.from($(IDS.REALBOX_MATCHES).children);
+  assert(autocompleteResult.matches.length === matchEls.length);
+
+  // Update the match image/favicon.
+  if (match.imageUrl === url) {
+    const imageContainerEl = assert(matchEls[matchIndex].getElementsByClassName(
+        CLASSES.IMAGE_CONTAINER)[0]);
+    const imageEl = document.createElement('img');
+    imageEl.classList.add(CLASSES.MATCH_IMAGE);
+    imageEl.src = dataUrl;
+    imageContainerEl.appendChild(imageEl);
+    imageContainerEl.style.backgroundColor = 'transparent';
+  } else {
+    const iconEl = assert(
+        matchEls[matchIndex].getElementsByClassName(CLASSES.MATCH_ICON)[0]);
+    setBackgroundImageByUrl(iconEl, dataUrl);
+  }
+
+  // If the match is selected, also update the realbox favicon.
+  const selectedMatchIndex = matchEls.findIndex(matchEl => {
+    return matchEl.classList.contains(CLASSES.SELECTED);
+  });
+  if (selectedMatchIndex === matchIndex) {
+    setRealboxIcon(match);
   }
 }
 
@@ -389,6 +458,15 @@ function clearAutocompleteMatches() {
 function convertToRGBAColor(color) {
   return 'rgba(' + color[0] + ',' + color[1] + ',' + color[2] + ',' +
       color[3] / 255 + ')';
+}
+
+/**
+ * Converts an Array of color components into 8-digit Hex format "#RRGGBBAA".
+ * @param {Array<number>} color Array of rgba color components.
+ * @return {string} CSS color in 8-digit Hex format.
+ */
+function convertToHexColor(color) {
+  return '#' + assert(color).map(c => c.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -653,19 +731,6 @@ function floatUpNotification(notification, notificationContainer) {
 }
 
 /**
- * @param {string} url
- * @return {string} The chrome-search://ntpicon/ corresponding to |url|.
- */
-function getIconUrl(url) {
-  // TODO(crbug.com/997229): use chrome://favicon/<url> when perms allow.
-  const iconUrl = new URL('chrome-search://ntpicon/');
-  iconUrl.searchParams.set('show_fallback_monogram', 'false');
-  iconUrl.searchParams.set('size', '24@' + window.devicePixelRatio + 'x');
-  iconUrl.searchParams.set('url', url);
-  return iconUrl.toString();
-}
-
-/**
  * Returns theme background info, first checking for history.state.notheme. If
  * the page has notheme set, returns a fallback light-colored theme (or dark-
  * colored theme if dark mode is enabled). This is used when the doodle is
@@ -847,18 +912,27 @@ function init() {
     customize.init(showErrorNotification, hideNotification);
 
     if (configData.realboxEnabled) {
+      setRealboxIcon(undefined);
+
       const realboxEl = $(IDS.REALBOX);
       realboxEl.placeholder = configData.translatedStrings.searchboxPlaceholder;
+      // Using .onmousedown instead of addEventListener('mousedown') to support
+      // tests.
+      realboxEl.onmousedown = onRealboxMouseDown;
       realboxEl.addEventListener('copy', onRealboxCutCopy);
       realboxEl.addEventListener('cut', onRealboxCutCopy);
+      realboxEl.addEventListener('focus', onRealboxFocus);
       realboxEl.addEventListener('input', onRealboxInput);
+      realboxEl.addEventListener('keyup', onRealboxKeyup);
       realboxEl.addEventListener('paste', onRealboxPaste);
 
       const realboxWrapper = $(IDS.REALBOX_INPUT_WRAPPER);
-      realboxWrapper.addEventListener('focusin', onRealboxWrapperFocusIn);
-      setRealboxWrapperListenForFocusOut(true);
+      realboxWrapper.addEventListener('focusout', onRealboxWrapperFocusOut);
+      realboxWrapper.addEventListener('keydown', onRealboxWrapperKeydown);
 
       searchboxApiHandle.autocompleteresultchanged = autocompleteResultChanged;
+      searchboxApiHandle.autocompletematchimageavailable =
+          autocompleteMatchImageAvailable;
 
       if (!iframesAndVoiceSearchDisabledForTesting) {
         speech.init(
@@ -1013,7 +1087,13 @@ function injectPromo(promo) {
 
   const link = promoContainer.querySelector('a');
   if (link) {
-    link.onclick = function() {
+    link.onclick = e => {
+      const url = new URL(link.href);
+      if (promo.canOpenExtensionsPage && url.origin == 'chrome://extensions') {
+        ntpApiHandle.openExtensionsPage(
+            e.button, e.altKey, e.ctrlKey, e.metaKey, e.shiftKey);
+        e.preventDefault();
+      }
       ntpApiHandle.logEvent(LOG_TYPE.NTP_MIDDLE_SLOT_PROMO_LINK_CLICKED);
     };
   }
@@ -1224,6 +1304,18 @@ function onMostVisitedChange() {
   reloadTiles();
 }
 
+/** @param {Event} e */
+function onRealboxMouseDown(e) {
+  if (!e.isTrusted || e.button !== 0) {
+    // Only handle main (generally left) button presses generated by a user
+    // action.
+    return;
+  }
+  if (!$(IDS.REALBOX).value) {
+    queryAutocomplete('');
+  }
+}
+
 /** @param {!Event} e */
 function onRealboxCutCopy(e) {
   const realboxEl = $(IDS.REALBOX);
@@ -1249,46 +1341,55 @@ function onRealboxCutCopy(e) {
   }
 }
 
+function onRealboxFocus() {
+  lastRealboxFocusTime = Date.now();
+}
+
 function onRealboxInput() {
   const realboxValue = $(IDS.REALBOX).value;
 
   updateRealboxOutput({inline: '', text: realboxValue});
 
+  const charTyped = !isDeletingInput && !!realboxValue.trim();
+  // If a character has been typed, update |charTypedTime|. Otherwise reset it.
+  // If |charTypedTime| is not 0, there's a pending typed character for which
+  // the results have not been painted yet. In that case, keep the earlier time.
+  charTypedTime = charTyped ? charTypedTime || window.performance.now() : 0;
+
   if (realboxValue.trim()) {
     queryAutocomplete(realboxValue);
   } else {
     setRealboxMatchesVisible(false);
-    setRealboxWrapperListenForKeydown(false);
     clearAutocompleteMatches();
   }
 
   pastedInRealbox = false;
 }
 
+/** @param {!Event} e */
+function onRealboxKeyup(e) {
+  if (e.key === 'Tab' && !$(IDS.REALBOX).value) {
+    queryAutocomplete('');
+  }
+}
+
 function onRealboxPaste() {
   pastedInRealbox = true;
 }
 
-/** @param {Event} e */
-function onRealboxWrapperFocusIn(e) {
-  if (e.target.matches(`#${IDS.REALBOX}`)) {
-    if (!$(IDS.REALBOX).value) {
-      queryAutocomplete('');
-    }
-    lastRealboxFocusTime = Date.now();
-  } else if (e.target.matches(`#${IDS.REALBOX_MATCHES} *`)) {
-    const target = /** @type {Element} */ (e.target);
-    const link = findAncestor(target, el => el.nodeName === 'A');
-    if (!link) {
-      return;
-    }
-    const selectedIndex = selectMatchEl(link);
-    // It doesn't really make sense to use fillFromMatch() here as the focus
-    // change drops the selection (and is probably just noisy to
-    // screenreaders).
-    const newFill = autocompleteResult.matches[selectedIndex].fillIntoEdit;
-    updateRealboxOutput({moveCursorToEnd: true, inline: '', text: newFill});
+/** @param {!Event} e */
+function onRealboxMatchesFocusIn(e) {
+  const target = /** @type {Element} */ (e.target);
+  const link = findAncestor(target, el => el.nodeName === 'A');
+  if (!link) {
+    return;
   }
+  const selectedIndex = selectMatchEl(link);
+  // It doesn't really make sense to use fillFromMatch() here as the focus
+  // change drops the selection (and is probably just noisy to
+  // screenreaders).
+  const newFill = autocompleteResult.matches[selectedIndex].fillIntoEdit;
+  updateRealboxOutput({moveCursorToEnd: true, inline: '', text: newFill});
 }
 
 /** @param {Event} e */
@@ -1301,6 +1402,7 @@ function onRealboxWrapperFocusOut(e) {
     // Clear the input if it was empty when displaying the matches.
     if (lastQueriedInput === '') {
       updateRealboxOutput({inline: '', text: ''});
+      setRealboxIcon(undefined);
     }
     setRealboxMatchesVisible(false);
 
@@ -1308,9 +1410,7 @@ function onRealboxWrapperFocusOut(e) {
     // listening for key presses. These stale results should never be shown, but
     // correspond to the potentially stale suggestion left in the realbox when
     // blurred. That stale result may be navigated to by focusing and pressing
-    // Enter, and that match may be privileged, so we need to keep the data
-    // around in order to ascertain this. If matches are reshown, fresh
-    // autocomplete data will be fetched.
+    // Enter.
     window.chrome.embeddedSearch.searchBox.stopAutocomplete(
         /*clearResult=*/ false);
   }
@@ -1336,6 +1436,12 @@ function onRealboxWrapperKeydown(e) {
         inline: lastOutput.inline.substr(1),
         text: assert(lastOutput.text + key),
       });
+
+      // If |charTypedTime| is not 0, there's a pending typed character for
+      // which the results have not been painted yet. In that case, keep the
+      // earlier time.
+      charTypedTime = charTypedTime || window.performance.now();
+
       queryAutocomplete(lastOutput.text);
       e.preventDefault();
       return;
@@ -1343,6 +1449,21 @@ function onRealboxWrapperKeydown(e) {
   }
 
   if (!REALBOX_KEYDOWN_HANDLED_KEYS.includes(key)) {
+    return;
+  }
+
+  if (!areRealboxMatchesVisible()) {
+    if (key === 'ArrowUp' || key === 'ArrowDown') {
+      const realboxValue = $(IDS.REALBOX).value;
+      if (realboxValue.trim() || !realboxValue) {
+        queryAutocomplete(realboxValue);
+      }
+      e.preventDefault();
+      return;
+    }
+  }
+
+  if (!autocompleteResult || autocompleteResult.matches.length === 0) {
     return;
   }
 
@@ -1373,17 +1494,6 @@ function onRealboxWrapperKeydown(e) {
     return;
   }
 
-  if (!areRealboxMatchesVisible()) {
-    if (key === 'ArrowUp' || key === 'ArrowDown') {
-      const realboxValue = $(IDS.REALBOX).value;
-      if (realboxValue.trim()) {
-        queryAutocomplete(realboxValue);
-      }
-      e.preventDefault();
-    }
-    return;
-  }
-
   if (key === 'Delete') {
     if (e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
       const selectedMatch = autocompleteResult.matches[selected];
@@ -1403,7 +1513,6 @@ function onRealboxWrapperKeydown(e) {
   if (key === 'Escape' && selected === 0) {
     updateRealboxOutput({inline: '', text: ''});
     setRealboxMatchesVisible(false);
-    setRealboxWrapperListenForKeydown(false);
     clearAutocompleteMatches();
     e.preventDefault();
     return;
@@ -1589,28 +1698,56 @@ function renderAutocompleteMatches(matches) {
       }
     };
 
-    if (match.isSearchType) {
-      const icon = document.createElement('div');
-      const isSearchHistory = SEARCH_HISTORY_MATCH_TYPES.includes(match.type);
-      icon.classList.add(
-          isSearchHistory ? CLASSES.CLOCK_ICON : CLASSES.SEARCH_ICON);
-      matchEl.appendChild(icon);
-    } else {
-      const iconUrl = getIconUrl(match.destinationUrl);
-      matchEl.style.backgroundImage = `url(${iconUrl})`;
+    const hasImage = !!match.imageUrl;
+    if (hasImage) {
+      matchEl.classList.add(CLASSES.HAS_IMAGE);
     }
 
-    const contentsEls =
+    if (hasImage) {
+      const imageContainer = document.createElement('div');
+      imageContainer.classList.add(CLASSES.IMAGE_CONTAINER);
+
+      if (faviconOrImageUrlToDataUrlCache[match.imageUrl]) {
+        const imageEl = document.createElement('img');
+        imageEl.classList.add(CLASSES.MATCH_IMAGE);
+        imageEl.src = faviconOrImageUrlToDataUrlCache[match.imageUrl];
+        imageContainer.appendChild(imageEl);
+      } else if (match.imageDominantColor) {
+        // .25 Opacity matching c/b/u/views/omnibox/omnibox_match_cell_view.cc
+        imageContainer.style.backgroundColor = match.imageDominantColor + '40';
+      }
+      matchEl.appendChild(imageContainer);
+    } else {
+      const iconEl = document.createElement('div');
+      iconEl.classList.add(CLASSES.MATCH_ICON);
+      if (faviconOrImageUrlToDataUrlCache[match.destinationUrl]) {
+        setBackgroundImageByUrl(
+            iconEl, faviconOrImageUrlToDataUrlCache[match.destinationUrl]);
+      } else if (match.type == DOCUMENT_MATCH_TYPE) {
+        // Document matches use colored SVG icons.
+        setBackgroundImageByUrl(iconEl, match.iconUrl);
+      } else {
+        setWebkitMaskImageByUrl(iconEl, match.iconUrl);
+      }
+      matchEl.appendChild(iconEl);
+    }
+
+    const contentsEl =
         renderMatchClassifications(match.contents, match.contentsClass);
-    const descriptionEls = [];
-    const separatorEls = [];
+    let descriptionEl;
+    let separatorEl;
     let separatorText = '';
 
     if (match.description) {
-      descriptionEls.push(...renderMatchClassifications(
-          match.description, match.descriptionClass));
-      separatorText = configData.translatedStrings.realboxSeparator;
-      separatorEls.push(document.createTextNode(separatorText));
+      descriptionEl =
+          renderMatchClassifications(match.description, match.descriptionClass);
+      descriptionEl.classList.add(CLASSES.DESCRIPTION);
+      if (hasImage) {
+        descriptionEl.classList.add(CLASSES.DIM);
+      } else {
+        separatorText = configData.translatedStrings.realboxSeparator;
+        separatorEl = document.createTextNode(separatorText);
+      }
     }
 
     const ariaLabel = match.swapContentsAndDescription ?
@@ -1619,11 +1756,13 @@ function renderAutocompleteMatches(matches) {
     matchEl.setAttribute('aria-label', ariaLabel);
 
     const layout = match.swapContentsAndDescription ?
-        [descriptionEls, separatorEls, contentsEls] :
-        [contentsEls, separatorEls, descriptionEls];
+        [descriptionEl, separatorEl, contentsEl] :
+        [contentsEl, separatorEl, descriptionEl];
 
-    for (const col of layout) {
-      col.forEach(colEl => matchEl.appendChild(colEl));
+    for (const colEl of layout) {
+      if (colEl) {
+        matchEl.appendChild(colEl);
+      }
     }
 
     if (match.supportsDeletion && configData.suggestionTransparencyEnabled) {
@@ -1655,37 +1794,50 @@ function renderAutocompleteMatches(matches) {
     realboxMatchesEl.append(matchEl);
   }
 
+  if (charTypedTime) {
+    window.chrome.embeddedSearch.searchBox.logCharTypedToRepaintLatency(
+        Math.floor(window.performance.now() - charTypedTime));
+    charTypedTime = 0;
+  }
+
   // When the matches are replaced, the focus gets dropped temporariliy as the
   // focused element is being deleted from the DOM. Stop listening to 'focusout'
-  // event and retore it immediately after since we don't want to stop
+  // event and restore it immediately after since we don't want to stop
   // autocomplete in those cases.
-  setRealboxWrapperListenForFocusOut(false);
+  const realboxWrapper = $(IDS.REALBOX_INPUT_WRAPPER);
+  realboxWrapper.removeEventListener('focusout', onRealboxWrapperFocusOut);
 
   $(IDS.REALBOX_MATCHES).remove();
   realboxMatchesEl.id = IDS.REALBOX_MATCHES;
+  realboxMatchesEl.addEventListener('focusin', onRealboxMatchesFocusIn);
 
-  $(IDS.REALBOX_INPUT_WRAPPER).appendChild(realboxMatchesEl);
+  realboxWrapper.appendChild(realboxMatchesEl);
 
-  setRealboxWrapperListenForFocusOut(true);
+  realboxWrapper.addEventListener('focusout', onRealboxWrapperFocusOut);
 
   const hasMatches = matches.length > 0;
   setRealboxMatchesVisible(hasMatches);
-  setRealboxWrapperListenForKeydown(hasMatches);
 }
 
 /**
  * @param {string} text
  * @param {!Array<!ACMatchClassification>} classifications
- * @return {!Array<!Element>}
+ * @return {!Element}
  */
 function renderMatchClassifications(text, classifications) {
-  return classifications.map((classification, i) => {
-    const classes = classificationStyleToClasses(classification.style);
-    const next = classifications[i + 1] || {offset: text.length};
-    const classifiedText = text.substring(classification.offset, next.offset);
-    return classes.length ? spanWithClasses(classifiedText, classes) :
-                            document.createTextNode(classifiedText);
-  });
+  return classifications
+      .map((classification, i) => {
+        const classes = classificationStyleToClasses(classification.style);
+        const next = classifications[i + 1] || {offset: text.length};
+        const classifiedText =
+            text.substring(classification.offset, next.offset);
+        return classes.length ? spanWithClasses(classifiedText, classes) :
+                                document.createTextNode(classifiedText);
+      })
+      .reduce((container, currentElement) => {
+        container.appendChild(currentElement);
+        return container;
+      }, document.createElement('span'));
 }
 
 /**
@@ -1734,7 +1886,8 @@ function renderTheme() {
   // includes non-white backgrounds, excluding dark mode gray if dark mode is
   // enabled.
   const isDefaultBackground = theme.usingDefaultTheme && !theme.imageUrl;
-  document.body.classList.toggle(CLASSES.USE_NOTIFIER, !isDefaultBackground);
+  const useNotifier = configData.doodleNotifierEnabled && !isDefaultBackground;
+  document.body.classList.toggle(CLASSES.USE_NOTIFIER, useNotifier);
 
   // If a custom background has been selected the image will be applied to the
   // custom-background element instead of the body.
@@ -1800,10 +1953,14 @@ function renderTheme() {
   if (configData.realboxMatchOmniboxTheme) {
     // TODO(dbeam): actually get these from theme service.
     const removeMatchHovered = assert(theme.searchBox.icon).slice();
-    removeMatchHovered[3] = .08 * 255;
+    removeMatchHovered[3] = .16 * 255;
 
-    const removeMatchFocused = theme.searchBox.icon.slice();
-    removeMatchFocused[3] = .16 * 255;
+    const removeMatchSelectedHovered =
+        assert(theme.searchBox.iconSelected).slice();
+    removeMatchSelectedHovered[3] = .16 * 255;
+
+    const removeMatchFocused = theme.searchBox.iconSelected.slice();
+    removeMatchFocused[3] = .32 * 255;
 
     /**
      * @param {string} varName
@@ -1816,6 +1973,7 @@ function renderTheme() {
 
     setCssVar('search-box-bg', theme.searchBox.bg);
     setCssVar('search-box-icon', theme.searchBox.icon);
+    setCssVar('search-box-icon-selected', theme.searchBox.iconSelected);
     setCssVar('search-box-placeholder', theme.searchBox.placeholder);
     setCssVar('search-box-results-bg', theme.searchBox.resultsBg);
     setCssVar(
@@ -1823,10 +1981,18 @@ function renderTheme() {
     setCssVar(
         'search-box-results-bg-selected', theme.searchBox.resultsBgSelected);
     setCssVar('search-box-results-dim', theme.searchBox.resultsDim);
+    setCssVar(
+        'search-box-results-dim-selected', theme.searchBox.resultsDimSelected);
     setCssVar('search-box-results-text', theme.searchBox.resultsText);
+    setCssVar(
+        'search-box-results-text-selected',
+        theme.searchBox.resultsTextSelected);
     setCssVar('search-box-results-url', theme.searchBox.resultsUrl);
+    setCssVar(
+        'search-box-results-url-selected', theme.searchBox.resultsUrlSelected);
     setCssVar('search-box-text', theme.searchBox.text);
     setCssVar('remove-match-hovered', removeMatchHovered);
+    setCssVar('remove-match-selected-hovered', removeMatchSelectedHovered);
     setCssVar('remove-match-focused', removeMatchFocused);
   }
 }
@@ -1966,40 +2132,63 @@ function setFakeboxVisibility(show) {
   document.body.classList.toggle(CLASSES.HIDE_FAKEBOX, !show);
 }
 
+/**
+ * @param {!Element} element
+ * @param {string} url
+ */
+function setBackgroundImageByUrl(element, url) {
+  element.style.webkitMaskImage = '';
+  element.style.backgroundImage = `url(${url})`;
+  element.style.backgroundColor = 'transparent';
+}
+
+/**
+ * @param {!Element} element
+ * @param {string} url
+ */
+function setWebkitMaskImageByUrl(element, url) {
+  element.style.webkitMaskImage = `url(${url})`;
+  element.style.backgroundImage = '';
+  element.style.backgroundColor = '';
+}
+
 /** @param {!AutocompleteMatch|undefined} match */
 function setRealboxIcon(match) {
-  const showIcon = match && !match.isSearchType;
-
   const realboxIcon = $(IDS.REALBOX_ICON);
-  realboxIcon.style.webkitMask = showIcon ? 'none' : '';
-  realboxIcon.style.backgroundColor = showIcon ? 'transparent' : '';
-  realboxIcon.style.backgroundImage =
-      showIcon ? `url(${getIconUrl(match.destinationUrl)})` : '';
+  if (match && !match.isSearchType) {
+    // if the selected match is a navigation match and has a favicon loaded,
+    // display the favicon. Otherwise display the match icon.
+    if (faviconOrImageUrlToDataUrlCache[match.destinationUrl]) {
+      realboxIcon.dataset.icon = '';
+      setBackgroundImageByUrl(
+          realboxIcon, faviconOrImageUrlToDataUrlCache[match.destinationUrl]);
+    } else if (match.type == DOCUMENT_MATCH_TYPE) {
+      realboxIcon.dataset.icon = match.iconUrl;
+      // Document matches use colored SVG icons.
+      setBackgroundImageByUrl(realboxIcon, realboxIcon.dataset.icon);
+    } else {
+      realboxIcon.dataset.icon = match.iconUrl;
+      setWebkitMaskImageByUrl(realboxIcon, realboxIcon.dataset.icon);
+    }
+  } else if (configData.useGoogleGIcon) {
+    // if google_g icon should be used (as the default icon and search matches),
+    // display the default icon which is set to the google_g icon.
+    /** @suppress {missingProperties} */
+    realboxIcon.dataset.icon = realboxIcon.dataset.defaultIcon;
+    setBackgroundImageByUrl(realboxIcon, realboxIcon.dataset.icon);
+  } else {
+    // if no match is selected, display the default icon. Otherwise display the
+    // match icon.
+    /** @suppress {missingProperties} */
+    realboxIcon.dataset.icon =
+        match ? match.iconUrl : realboxIcon.dataset.defaultIcon;
+    setWebkitMaskImageByUrl(realboxIcon, realboxIcon.dataset.icon);
+  }
 }
 
 /** @param {boolean} visible */
 function setRealboxMatchesVisible(visible) {
   $(IDS.REALBOX_INPUT_WRAPPER).classList.toggle(CLASSES.SHOW_MATCHES, visible);
-}
-
-/** @param {boolean} listen */
-function setRealboxWrapperListenForFocusOut(listen) {
-  const realboxWrapper = $(IDS.REALBOX_INPUT_WRAPPER);
-  if (listen) {
-    realboxWrapper.addEventListener('focusout', onRealboxWrapperFocusOut);
-  } else {
-    realboxWrapper.removeEventListener('focusout', onRealboxWrapperFocusOut);
-  }
-}
-
-/** @param {boolean} listen */
-function setRealboxWrapperListenForKeydown(listen) {
-  const realboxWrapper = $(IDS.REALBOX_INPUT_WRAPPER);
-  if (listen) {
-    realboxWrapper.addEventListener('keydown', onRealboxWrapperKeydown);
-  } else {
-    realboxWrapper.removeEventListener('keydown', onRealboxWrapperKeydown);
-  }
 }
 
 /**

@@ -130,7 +130,7 @@ LayoutUnit LayoutSVGRoot::ComputeReplacedLogicalWidth(
   // (border-image/background-image/<html:img>/...) we're forced to resize to a
   // specific size.
   if (!container_size_.IsEmpty())
-    return LayoutUnit(container_size_.Width());
+    return container_size_.Width();
 
   if (IsEmbeddedThroughFrameContainingSVGDocument())
     return ContainingBlock()->AvailableLogicalWidth();
@@ -144,7 +144,7 @@ LayoutUnit LayoutSVGRoot::ComputeReplacedLogicalHeight(
   // (border-image/background-image/<html:img>/...) we're forced to resize to a
   // specific size.
   if (!container_size_.IsEmpty())
-    return LayoutUnit(container_size_.Height());
+    return container_size_.Height();
 
   if (IsEmbeddedThroughFrameContainingSVGDocument())
     return ContainingBlock()->AvailableLogicalHeight(
@@ -300,7 +300,7 @@ bool LayoutSVGRoot::StyleChangeAffectsIntrinsicSize(
 }
 
 void LayoutSVGRoot::IntrinsicSizingInfoChanged() {
-  SetPreferredLogicalWidthsDirty();
+  SetIntrinsicLogicalWidthsDirty();
 
   // TODO(fs): Merge with IntrinsicSizeChanged()? (from LayoutReplaced)
   // Ignore changes to intrinsic dimensions if the <svg> is not in an SVG
@@ -315,7 +315,7 @@ void LayoutSVGRoot::StyleDidChange(StyleDifference diff,
                                    const ComputedStyle* old_style) {
   if (diff.NeedsFullLayout())
     SetNeedsBoundariesUpdate();
-  if (diff.NeedsFullPaintInvalidation()) {
+  if (diff.NeedsPaintInvalidation()) {
     // Box decorations may have appeared/disappeared - recompute status.
     has_box_decoration_background_ = StyleRef().HasBoxDecorationBackground();
   }
@@ -336,7 +336,7 @@ bool LayoutSVGRoot::IsChildAllowed(LayoutObject* child,
 
 void LayoutSVGRoot::AddChild(LayoutObject* child, LayoutObject* before_child) {
   LayoutReplaced::AddChild(child, before_child);
-  SVGResourcesCache::ClientWasAddedToTree(*child, child->StyleRef());
+  SVGResourcesCache::ClientWasAddedToTree(*child);
 
   bool should_isolate_descendants =
       (child->IsBlendingAllowed() && child->StyleRef().HasBlendMode()) ||
@@ -383,7 +383,7 @@ void LayoutSVGRoot::DescendantIsolationRequirementsChanged(
 
 void LayoutSVGRoot::InsertedIntoTree() {
   LayoutReplaced::InsertedIntoTree();
-  SVGResourcesCache::ClientWasAddedToTree(*this, StyleRef());
+  SVGResourcesCache::ClientWasAddedToTree(*this);
 }
 
 void LayoutSVGRoot::WillBeRemovedFromTree() {

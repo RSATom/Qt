@@ -185,7 +185,7 @@ bool IsAudioCodecProprietary(AudioCodec codec) {
 }
 
 bool IsDefaultSupportedAudioType(const AudioType& type) {
-  if (type.spatialRendering)
+  if (type.spatial_rendering)
     return false;
 
 #if !BUILDFLAG(USE_PROPRIETARY_CODECS)
@@ -195,6 +195,15 @@ bool IsDefaultSupportedAudioType(const AudioType& type) {
 
   switch (type.codec) {
     case kCodecAAC:
+      if (type.profile != AudioCodecProfile::kXHE_AAC)
+        return true;
+#if defined(OS_ANDROID)
+      return base::android::BuildInfo::GetInstance()->sdk_int() >=
+             base::android::SDK_VERSION_P;
+#else
+      return false;
+#endif
+
     case kCodecFLAC:
     case kCodecMP3:
     case kCodecOpus:
@@ -258,13 +267,15 @@ bool IsDefaultSupportedVideoType(const VideoType& type) {
       // If the AV1 decoder is enabled, or if we're on Q or later, yes.
 #if BUILDFLAG(ENABLE_AV1_DECODER)
       return IsColorSpaceSupported(type.color_space);
-#elif defined(OS_ANDROID)
+#else
+#if defined(OS_ANDROID)
       if (base::android::BuildInfo::GetInstance()->is_at_least_q() &&
           IsColorSpaceSupported(type.color_space)) {
         return true;
       }
 #endif
       return false;
+#endif
 
     case kCodecVP9:
       // Color management required for HDR to not look terrible.

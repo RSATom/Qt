@@ -301,9 +301,9 @@ size_t CountCookiesForPossibleDeletion(
 // |same_site_requirement|, and the options permit HttpOnly access.
 bool IsHttpSameSiteContextAtLeast(
     const CookieOptions& options,
-    CookieOptions::SameSiteCookieContext same_site_requirement) {
+    CookieOptions::SameSiteCookieContext::ContextType same_site_requirement) {
   return !options.exclude_httponly() &&
-         options.same_site_cookie_context() >= same_site_requirement;
+         options.same_site_cookie_context().context >= same_site_requirement;
 }
 
 }  // namespace
@@ -368,7 +368,7 @@ void CookieMonster::SetAllCookiesAsync(const CookieList& list,
 
 void CookieMonster::SetCanonicalCookieAsyncAndFiltered(
     const GURL& url,
-    const GURL& site_for_cookies,
+    const SiteForCookies& site_for_cookies,
     std::unique_ptr<CanonicalCookie> cookie,
     const CookieOptions& options,
     SetCookiesCallback callback) {
@@ -397,7 +397,7 @@ void CookieMonster::SetCanonicalCookieAsyncAndFiltered_helper(
 
 void CookieMonster::GetCookieListWithOptionsAsyncAndFiltered(
     const GURL& url,
-    const GURL& site_for_cookies,
+    const SiteForCookies& site_for_cookies,
     const CookieOptions& options,
     GetCookieListCallback callback) {
   if (cookie_access_delegate())
@@ -1709,7 +1709,7 @@ std::string CookieMonster::GetKey(base::StringPiece domain) {
       registry_controlled_domains::GetDomainAndRegistry(
           domain, registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES));
   if (effective_domain.empty())
-    domain.CopyToString(&effective_domain);
+    effective_domain = std::string(domain);
 
   if (!effective_domain.empty() && effective_domain[0] == '.')
     return effective_domain.substr(1);
@@ -1766,7 +1766,8 @@ CookieAccessSemantics CookieMonster::GetAccessSemanticsForCookieSet(
       (cookie_util::
            IsRecentHttpSameSiteAccessGrantsLegacyCookieSemanticsEnabled() &&
        IsHttpSameSiteContextAtLeast(
-           options, CookieOptions::SameSiteCookieContext::SAME_SITE_LAX));
+           options,
+           CookieOptions::SameSiteCookieContext::ContextType::SAME_SITE_LAX));
 
   // If the current cookie access is not itself http-and-same-site, but the last
   // one that was, was recent enough, (and the corresponding feature is enabled)
@@ -1814,10 +1815,11 @@ void CookieMonster::MaybeRecordCookieAccessWithOptions(
   // time should not be updated when the cookie is accessed to populate the UI.)
   if (!options.update_access_time())
     return;
-
-  CookieOptions::SameSiteCookieContext same_site_requirement =
-      is_set ? CookieOptions::SameSiteCookieContext::SAME_SITE_LAX
-             : CookieOptions::SameSiteCookieContext::SAME_SITE_STRICT;
+  CookieOptions::SameSiteCookieContext::ContextType same_site_requirement;
+  same_site_requirement =
+      is_set
+          ? CookieOptions::SameSiteCookieContext::ContextType::SAME_SITE_LAX
+          : CookieOptions::SameSiteCookieContext::ContextType::SAME_SITE_STRICT;
   if (IsHttpSameSiteContextAtLeast(options, same_site_requirement))
     last_http_same_site_accesses_[cookie.UniqueKey()] = base::TimeTicks::Now();
 }

@@ -180,7 +180,6 @@ const char kTtsVoicesLang[] = "lang";
 const char kTtsVoicesRemote[] = "remote";
 const char kTtsVoicesVoiceName[] = "voice_name";
 const char kType[] = "type";
-const char kUIOverride[] = "chrome_ui_overrides";
 const char kUpdateURL[] = "update_url";
 const char kUrlHandlers[] = "url_handlers";
 const char kUrlHandlerTitle[] = "title";
@@ -188,6 +187,9 @@ const char kUsbPrinters[] = "usb_printers";
 const char kVersion[] = "version";
 const char kVersionName[] = "version_name";
 const char kWebAccessibleResources[] = "web_accessible_resources";
+const char kWebAppFileHandlers[] = "web_app_file_handlers";
+const char kWebAppFileHandlerAccept[] = "accept";
+const char kWebAppFileHandlerAction[] = "action";
 const char kWebURLs[] = "app.urls";
 const char kWebview[] = "webview";
 const char kWebviewAccessibleResources[] = "accessible_resources";
@@ -382,8 +384,8 @@ const char kInvalidCssList[] =
     "Required value 'content_scripts[*].css' is invalid.";
 const char kInvalidDeclarativeNetRequestKey[] = "Invalid value for '*' key";
 const char kInvalidDeclarativeRulesFileKey[] =
-    "Invalid value for '*.*' key. It must be a list containing a single "
-    "string.";
+    "Invalid value for '*.*' key. It must be a non-empty list containing "
+    "Ruleset dictionaries.";
 const char kInvalidDefaultLocale[] =
     "Invalid value for default locale - locale name must be a string.";
 const char kInvalidDescription[] =
@@ -692,6 +694,23 @@ const char kInvalidWebAccessibleResourcesList[] =
     "Invalid value for 'web_accessible_resources'.";
 const char kInvalidWebAccessibleResource[] =
     "Invalid value for 'web_accessible_resources[*]'.";
+const char kInvalidWebAppFileHandlers[] =
+    "Invalid value for 'web_app_file_handlers'.";
+const char kInvalidWebAppFileHandlersNotBookmarkApp[] =
+    "The 'web_app_file_handlers' manifest key is only supported for Bookmark "
+    "Apps.";
+const char kInvalidWebAppFileHandler[] =
+    "Invalid value for 'web_app_file_handlers[*]'.";
+const char kInvalidWebAppFileHandlerAccept[] =
+    "Invalid value for 'web_app_file_handlers[*].accept'.";
+const char kInvalidWebAppFileHandlerAction[] =
+    "Invalid value for 'web_app_file_handlers[*].action'.";
+const char kInvalidWebAppFileHandlerEmptyAccept[] =
+    "'web_app_file_handlers[*].accept' must be non-empty.";
+const char kInvalidWebAppFileHandlerFileExtensions[] =
+    "Invalid value for 'web_app_file_handlers[*].accept[*].file_extensions'.";
+const char kInvalidWebAppFileHandlerFileExtension[] =
+    "Invalid value for web_app_file_handlers[*].accept[*].file_extensions[*]'.";
 const char kInvalidWebview[] =
     "Invalid value for 'webview'.";
 const char kInvalidWebviewAccessibleResourcesList[] =
@@ -745,6 +764,9 @@ const char kNPAPIPluginsNotSupported[] = "NPAPI plugins are not supported.";
 const char kOneUISurfaceOnly[] =
     "Only one of 'browser_action', 'page_action', and 'app' can be specified.";
 const char kPageCaptureNeeded[] = "'pageCapture' permission is required.";
+const char kPermissionCannotBeOptional[] =
+    "Permission '*' cannot be listed as optional. This permission will be "
+    "omitted.";
 const char kPermissionMarkedOptionalAndRequired[] =
     "Optional permission '*' is redundant with the required permissions;"
     "this permission will be omitted.";
@@ -764,7 +786,10 @@ const char kSandboxPagesCSPKeyNotAllowed[] =
     "The Content Security Policy for sandboxed pages should be specified in "
     "'content_security_policy.sandbox'.";
 const char kRulesFileIsInvalid[] =
-    "Invalid value for key '*.*': The provided path is invalid.";
+    "Invalid value for key '*.*': The provided path '*' is invalid.";
+const char kRulesetCountExceeded[] =
+    "Invalid value for key '*.*': The number of rulesets must be less than or "
+    "equal to *.";
 const char kTransientBackgroundConflictsWithPersistentBackground[] =
     "The 'transientBackground' permission cannot be used with a persistent "
     "background page.";

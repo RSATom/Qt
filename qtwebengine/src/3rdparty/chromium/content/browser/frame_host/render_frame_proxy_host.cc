@@ -26,7 +26,6 @@
 #include "content/browser/scoped_active_url.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/common/frame_messages.h"
-#include "content/common/frame_owner_properties.h"
 #include "content/common/unfreezable_frame_messages.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_client.h"
@@ -34,10 +33,17 @@
 #include "ipc/ipc_message.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom.h"
+#include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom.h"
 
 namespace content {
 
 namespace {
+
+RenderFrameProxyHost::CreatedCallback& GetProxyHostCreatedCallback() {
+  static base::NoDestructor<RenderFrameProxyHost::CreatedCallback> s_callback;
+  return *s_callback;
+}
 
 // The (process id, routing id) pair that identifies one RenderFrameProxy.
 typedef std::pair<int32_t, int32_t> RenderFrameProxyHostID;
@@ -49,6 +55,12 @@ base::LazyInstance<RoutingIDFrameProxyMap>::DestructorAtExit
     g_routing_id_frame_proxy_map = LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
+
+// static
+void RenderFrameProxyHost::SetCreatedCallbackForTesting(
+    const CreatedCallback& created_callback) {
+  GetProxyHostCreatedCallback() = created_callback;
+}
 
 // static
 RenderFrameProxyHost* RenderFrameProxyHost::FromID(int process_id,
@@ -99,6 +111,9 @@ RenderFrameProxyHost::RenderFrameProxyHost(
     // navigated back to the same SiteInstance as its parent.
     cross_process_frame_connector_.reset(new CrossProcessFrameConnector(this));
   }
+
+  if (!GetProxyHostCreatedCallback().is_null())
+    GetProxyHostCreatedCallback().Run(this);
 }
 
 RenderFrameProxyHost::~RenderFrameProxyHost() {
@@ -159,7 +174,6 @@ bool RenderFrameProxyHost::OnMessageReceived(const IPC::Message& msg) {
   IPC_BEGIN_MESSAGE_MAP(RenderFrameProxyHost, msg)
     IPC_MESSAGE_HANDLER(FrameHostMsg_Detach, OnDetach)
     IPC_MESSAGE_HANDLER(FrameHostMsg_OpenURL, OnOpenURL)
-    IPC_MESSAGE_HANDLER(FrameHostMsg_CheckCompleted, OnCheckCompleted)
     IPC_MESSAGE_HANDLER(FrameHostMsg_RouteMessageEvent, OnRouteMessageEvent)
     IPC_MESSAGE_HANDLER(FrameHostMsg_DidChangeOpener, OnDidChangeOpener)
     IPC_MESSAGE_HANDLER(FrameHostMsg_AdvanceFocus, OnAdvanceFocus)
@@ -231,15 +245,18 @@ bool RenderFrameProxyHost::InitRenderFrameProxy() {
   // let the renderer know so it can also mark the proxy as loading. See
   // https://crbug.com/916137.
   if (frame_tree_node_->IsLoading())
-    Send(new FrameMsg_DidStartLoading(routing_id_));
+    GetAssociatedRemoteFrame()->DidStartLoading();
 
   // For subframes, initialize the proxy's FrameOwnerProperties only if they
   // differ from default values.
   bool should_send_properties =
-      frame_tree_node_->frame_owner_properties() != FrameOwnerProperties();
+      !frame_tree_node_->frame_owner_properties().Equals(
+          blink::mojom::FrameOwnerProperties());
   if (frame_tree_node_->parent() && should_send_properties) {
-    Send(new FrameMsg_SetFrameOwnerProperties(
-        routing_id_, frame_tree_node_->frame_owner_properties()));
+    auto frame_owner_properties =
+        frame_tree_node_->frame_owner_properties().Clone();
+    GetAssociatedRemoteFrame()->SetFrameOwnerProperties(
+        std::move(frame_owner_properties));
   }
 
   return true;
@@ -299,10 +316,24 @@ RenderFrameProxyHost::GetAssociatedRemoteFrame() {
   return remote_frame_;
 }
 
+const mojo::AssociatedRemote<content::mojom::RenderFrameProxy>&
+RenderFrameProxyHost::GetAssociatedRenderFrameProxy() {
+  if (!render_frame_proxy_)
+    GetRemoteAssociatedInterfaces()->GetInterface(&render_frame_proxy_);
+  return render_frame_proxy_;
+}
+
 void RenderFrameProxyHost::SetInheritedEffectiveTouchAction(
     cc::TouchAction touch_action) {
   cross_process_frame_connector_->OnSetInheritedEffectiveTouchAction(
       touch_action);
+}
+
+void RenderFrameProxyHost::UpdateRenderThrottlingStatus(
+    bool is_throttled,
+    bool subtree_throttled) {
+  cross_process_frame_connector_->UpdateRenderThrottlingStatus(
+      is_throttled, subtree_throttled);
 }
 
 void RenderFrameProxyHost::VisibilityChanged(
@@ -330,14 +361,9 @@ void RenderFrameProxyHost::SetFocusedFrame() {
 
 void RenderFrameProxyHost::ScrollRectToVisible(
     const gfx::Rect& rect_to_scroll,
-    const blink::WebScrollIntoViewParams& params) {
-  Send(new FrameMsg_ScrollRectToVisible(routing_id_, rect_to_scroll, params));
-}
-
-void RenderFrameProxyHost::BubbleLogicalScroll(
-    blink::WebScrollDirection direction,
-    ui::input_types::ScrollGranularity granularity) {
-  Send(new FrameMsg_BubbleLogicalScroll(routing_id_, direction, granularity));
+    blink::mojom::ScrollIntoViewParamsPtr params) {
+  GetAssociatedRemoteFrame()->ScrollRectToVisible(rect_to_scroll,
+                                                  std::move(params));
 }
 
 void RenderFrameProxyHost::OnDetach() {
@@ -396,6 +422,16 @@ void RenderFrameProxyHost::OnOpenURL(
       frame_tree_node_->navigator()->GetController()->GetWebContents(),
       current_rfh, params.user_gesture, &download_policy);
 
+  if ((frame_tree_node_->pending_frame_policy().sandbox_flags &
+       blink::mojom::WebSandboxFlags::kDownloads) !=
+      blink::mojom::WebSandboxFlags::kNone) {
+    if (download_policy.blocking_downloads_in_sandbox_enabled) {
+      download_policy.SetDisallowed(content::NavigationDownloadType::kSandbox);
+    } else {
+      download_policy.SetAllowed(content::NavigationDownloadType::kSandbox);
+    }
+  }
+
   // TODO(lfg, lukasza): Remove |extra_headers| parameter from
   // RequestTransferURL method once both RenderFrameProxyHost and
   // RenderFrameHostImpl call RequestOpenURL from their OnOpenURL handlers.
@@ -410,9 +446,27 @@ void RenderFrameProxyHost::OnOpenURL(
       std::move(blob_url_loader_factory), params.user_gesture);
 }
 
-void RenderFrameProxyHost::OnCheckCompleted() {
+void RenderFrameProxyHost::CheckCompleted() {
   RenderFrameHostImpl* target_rfh = frame_tree_node()->current_frame_host();
   target_rfh->GetAssociatedLocalFrame()->CheckCompleted();
+}
+
+void RenderFrameProxyHost::EnableAutoResize(const gfx::Size& min_size,
+                                            const gfx::Size& max_size) {
+  GetAssociatedRenderFrameProxy()->EnableAutoResize(min_size, max_size);
+}
+
+void RenderFrameProxyHost::DisableAutoResize() {
+  GetAssociatedRenderFrameProxy()->DisableAutoResize();
+}
+
+void RenderFrameProxyHost::DidUpdateVisualProperties(
+    const cc::RenderFrameMetadata& metadata) {
+  GetAssociatedRenderFrameProxy()->DidUpdateVisualProperties(metadata);
+}
+
+void RenderFrameProxyHost::ChildProcessGone() {
+  GetAssociatedRenderFrameProxy()->ChildProcessGone();
 }
 
 void RenderFrameProxyHost::OnRouteMessageEvent(
@@ -554,10 +608,15 @@ void RenderFrameProxyHost::OnDidChangeOpener(int32_t opener_routing_id) {
                                                       GetSiteInstance());
 }
 
-void RenderFrameProxyHost::OnAdvanceFocus(blink::WebFocusType type,
+void RenderFrameProxyHost::OnAdvanceFocus(blink::mojom::FocusType type,
                                           int32_t source_routing_id) {
   RenderFrameHostImpl* target_rfh =
       frame_tree_node_->render_manager()->current_frame_host();
+  if (target_rfh->InsidePortal()) {
+    bad_message::ReceivedBadMessage(
+        GetProcess(), bad_message::RFPH_ADVANCE_FOCUS_INTO_PORTAL);
+    return;
+  }
 
   // Translate the source RenderFrameHost in this process to its equivalent
   // RenderFrameProxyHost in the target process.  This is needed for continuing
@@ -577,14 +636,45 @@ void RenderFrameProxyHost::OnAdvanceFocus(blink::WebFocusType type,
 }
 
 void RenderFrameProxyHost::DidFocusFrame() {
-  frame_tree_node_->current_frame_host()->delegate()->SetFocusedFrame(
-      frame_tree_node_, GetSiteInstance());
+  RenderFrameHostImpl* render_frame_host =
+      frame_tree_node_->current_frame_host();
+
+  // We need to handle this case due to a race, see documentation in
+  // RenderFrameHostImpl::DidFocusFrame for more details.
+  if (render_frame_host->InsidePortal())
+    return;
+
+  render_frame_host->delegate()->SetFocusedFrame(frame_tree_node_,
+                                                 GetSiteInstance());
+}
+
+void RenderFrameProxyHost::CapturePaintPreviewOfCrossProcessSubframe(
+    const gfx::Rect& clip_rect,
+    const base::UnguessableToken& guid) {
+  RenderFrameHostImpl* rfh = frame_tree_node_->current_frame_host();
+  if (!rfh->is_active())
+    return;
+  rfh->delegate()->CapturePaintPreviewOfCrossProcessSubframe(clip_rect, guid,
+                                                             rfh);
+}
+
+void RenderFrameProxyHost::SetIsInert(bool inert) {
+  cross_process_frame_connector_->SetIsInert(inert);
+}
+
+bool RenderFrameProxyHost::IsInertForTesting() {
+  return cross_process_frame_connector_->IsInert();
 }
 
 void RenderFrameProxyHost::OnPrintCrossProcessSubframe(const gfx::Rect& rect,
                                                        int document_cookie) {
   RenderFrameHostImpl* rfh = frame_tree_node_->current_frame_host();
   rfh->delegate()->PrintCrossProcessSubframe(rect, document_cookie, rfh);
+}
+
+blink::AssociatedInterfaceProvider*
+RenderFrameProxyHost::GetRemoteAssociatedInterfacesTesting() {
+  return GetRemoteAssociatedInterfaces();
 }
 
 }  // namespace content

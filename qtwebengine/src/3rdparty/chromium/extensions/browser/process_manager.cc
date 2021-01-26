@@ -37,6 +37,7 @@
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_util.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/lazy_context_id.h"
 #include "extensions/browser/lazy_context_task_queue.h"
@@ -771,8 +772,7 @@ std::string ProcessManager::IncrementServiceWorkerKeepaliveCount(
 
   std::string request_uuid = base::GenerateGUID();
   content::ServiceWorkerContext* service_worker_context =
-      content::BrowserContext::GetStoragePartitionForSite(browser_context_,
-                                                          extension->url())
+      util::GetStoragePartitionForExtensionId(extension->id(), browser_context_)
           ->GetServiceWorkerContext();
 
   if (content::ServiceWorkerContext::IsServiceWorkerOnUIEnabled()) {
@@ -837,8 +837,7 @@ void ProcessManager::DecrementServiceWorkerKeepaliveCount(
 
   int64_t service_worker_version_id = worker_id.version_id;
   content::ServiceWorkerContext* service_worker_context =
-      content::BrowserContext::GetStoragePartitionForSite(browser_context_,
-                                                          extension->url())
+      util::GetStoragePartitionForExtensionId(extension->id(), browser_context_)
           ->GetServiceWorkerContext();
 
   if (content::ServiceWorkerContext::IsServiceWorkerOnUIEnabled()) {
@@ -1010,6 +1009,8 @@ void ProcessManager::RenderProcessExited(
 void ProcessManager::UnregisterServiceWorker(const WorkerId& worker_id) {
   // TODO(lazyboy): DCHECK that |worker_id| exists in |all_extension_workers_|.
   all_extension_workers_.Remove(worker_id);
+  for (auto& observer : observer_list_)
+    observer.OnServiceWorkerUnregistered(worker_id);
 }
 
 bool ProcessManager::HasServiceWorker(const WorkerId& worker_id) const {

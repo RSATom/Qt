@@ -19,6 +19,7 @@
 
 #include <IOSurface/IOSurfaceRef.h>
 #import <Metal/Metal.h>
+#include "dawn_native/DawnNative.h"
 
 namespace dawn_native { namespace metal {
 
@@ -35,15 +36,26 @@ namespace dawn_native { namespace metal {
         Texture(Device* device, const TextureDescriptor* descriptor);
         Texture(Device* device, const TextureDescriptor* descriptor, id<MTLTexture> mtlTexture);
         Texture(Device* device,
-                const TextureDescriptor* descriptor,
+                const ExternalImageDescriptor* descriptor,
                 IOSurfaceRef ioSurface,
                 uint32_t plane);
         ~Texture();
 
         id<MTLTexture> GetMTLTexture();
 
+        void EnsureSubresourceContentInitialized(uint32_t baseMipLevel,
+                                                 uint32_t levelCount,
+                                                 uint32_t baseArrayLayer,
+                                                 uint32_t layerCount);
+
       private:
         void DestroyImpl() override;
+
+        MaybeError ClearTexture(uint32_t baseMipLevel,
+                                uint32_t levelCount,
+                                uint32_t baseArrayLayer,
+                                uint32_t layerCount,
+                                TextureBase::ClearValue clearValue);
 
         id<MTLTexture> mMtlTexture = nil;
     };

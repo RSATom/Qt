@@ -97,7 +97,7 @@ bool CFFL_FormFiller::OnLButtonDown(CPDFSDK_PageView* pPageView,
   InvalidateRect(rect);
   if (!rect.Contains(static_cast<int>(point.x), static_cast<int>(point.y)))
     return false;
-  return pWnd->OnLButtonDown(WndtoPWL(pPageView, point), nFlags);
+  return pWnd->OnLButtonDown(FFLtoPWL(point), nFlags);
 }
 
 bool CFFL_FormFiller::OnLButtonUp(CPDFSDK_PageView* pPageView,
@@ -109,7 +109,7 @@ bool CFFL_FormFiller::OnLButtonUp(CPDFSDK_PageView* pPageView,
     return false;
 
   InvalidateRect(GetViewBBox(pPageView));
-  pWnd->OnLButtonUp(WndtoPWL(pPageView, point), nFlags);
+  pWnd->OnLButtonUp(FFLtoPWL(point), nFlags);
   return true;
 }
 
@@ -120,7 +120,7 @@ bool CFFL_FormFiller::OnLButtonDblClk(CPDFSDK_PageView* pPageView,
   if (!pWnd)
     return false;
 
-  pWnd->OnLButtonDblClk(WndtoPWL(pPageView, point), nFlags);
+  pWnd->OnLButtonDblClk(FFLtoPWL(point), nFlags);
   return true;
 }
 
@@ -131,7 +131,7 @@ bool CFFL_FormFiller::OnMouseMove(CPDFSDK_PageView* pPageView,
   if (!pWnd)
     return false;
 
-  pWnd->OnMouseMove(WndtoPWL(pPageView, point), nFlags);
+  pWnd->OnMouseMove(FFLtoPWL(point), nFlags);
   return true;
 }
 
@@ -143,36 +143,28 @@ bool CFFL_FormFiller::OnMouseWheel(CPDFSDK_PageView* pPageView,
     return false;
 
   CPWL_Wnd* pWnd = GetPWLWindow(pPageView, true);
-  return pWnd && pWnd->OnMouseWheel(zDelta, WndtoPWL(pPageView, point), nFlags);
+  return pWnd && pWnd->OnMouseWheel(zDelta, FFLtoPWL(point), nFlags);
 }
 
 bool CFFL_FormFiller::OnRButtonDown(CPDFSDK_PageView* pPageView,
                                     uint32_t nFlags,
                                     const CFX_PointF& point) {
   CPWL_Wnd* pWnd = GetPWLWindow(pPageView, true);
-  if (!pWnd)
-    return false;
-
-  pWnd->OnRButtonDown(WndtoPWL(pPageView, point), nFlags);
-  return true;
+  return pWnd && pWnd->OnRButtonDown(FFLtoPWL(point), nFlags);
 }
 
 bool CFFL_FormFiller::OnRButtonUp(CPDFSDK_PageView* pPageView,
                                   uint32_t nFlags,
                                   const CFX_PointF& point) {
   CPWL_Wnd* pWnd = GetPWLWindow(pPageView, false);
-  if (!pWnd)
-    return false;
-
-  pWnd->OnRButtonUp(WndtoPWL(pPageView, point), nFlags);
-  return true;
+  return pWnd && pWnd->OnRButtonUp(FFLtoPWL(point), nFlags);
 }
 
 bool CFFL_FormFiller::OnKeyDown(uint32_t nKeyCode, uint32_t nFlags) {
   if (!IsValid())
     return false;
 
-  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(true), false);
+  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(), false);
   return pWnd && pWnd->OnKeyDown(nKeyCode, nFlags);
 }
 
@@ -182,7 +174,7 @@ bool CFFL_FormFiller::OnChar(CPDFSDK_Annot* pAnnot,
   if (!IsValid())
     return false;
 
-  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(true), false);
+  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(), false);
   return pWnd && pWnd->OnChar(nChar, nFlags);
 }
 
@@ -198,7 +190,7 @@ WideString CFFL_FormFiller::GetText() {
   if (!IsValid())
     return WideString();
 
-  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(true), false);
+  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(), false);
   return pWnd ? pWnd->GetText() : WideString();
 }
 
@@ -206,7 +198,7 @@ WideString CFFL_FormFiller::GetSelectedText() {
   if (!IsValid())
     return WideString();
 
-  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(true), false);
+  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(), false);
   return pWnd ? pWnd->GetSelectedText() : WideString();
 }
 
@@ -214,7 +206,7 @@ void CFFL_FormFiller::ReplaceSelection(const WideString& text) {
   if (!IsValid())
     return;
 
-  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(true), false);
+  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(), false);
   if (!pWnd)
     return;
 
@@ -225,7 +217,7 @@ bool CFFL_FormFiller::CanUndo() {
   if (!IsValid())
     return false;
 
-  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(true), false);
+  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(), false);
   return pWnd && pWnd->CanUndo();
 }
 
@@ -233,7 +225,7 @@ bool CFFL_FormFiller::CanRedo() {
   if (!IsValid())
     return false;
 
-  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(true), false);
+  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(), false);
   return pWnd && pWnd->CanRedo();
 }
 
@@ -241,7 +233,7 @@ bool CFFL_FormFiller::Undo() {
   if (!IsValid())
     return false;
 
-  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(true), false);
+  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(), false);
   return pWnd && pWnd->Undo();
 }
 
@@ -249,7 +241,7 @@ bool CFFL_FormFiller::Redo() {
   if (!IsValid())
     return false;
 
-  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(true), false);
+  CPWL_Wnd* pWnd = GetPWLWindow(GetCurPageView(), false);
   return pWnd && pWnd->Redo();
 }
 
@@ -268,7 +260,8 @@ void CFFL_FormFiller::KillFocusForAnnot(uint32_t nFlag) {
   if (!IsValid())
     return;
 
-  CPDFSDK_PageView* pPageView = GetCurPageView(false);
+  CPDFSDK_PageView* pPageView =
+      m_pFormFillEnv->GetPageView(m_pWidget->GetPage(), false);
   if (!pPageView || !CommitData(pPageView, nFlag))
     return;
   if (CPWL_Wnd* pWnd = GetPWLWindow(pPageView, false))
@@ -424,9 +417,9 @@ CFX_FloatRect CFFL_FormFiller::GetPDFAnnotRect() const {
   return CFX_FloatRect(0, 0, fWidth, fHeight);
 }
 
-CPDFSDK_PageView* CFFL_FormFiller::GetCurPageView(bool renew) {
+CPDFSDK_PageView* CFFL_FormFiller::GetCurPageView() {
   IPDF_Page* pPage = m_pWidget->GetPage();
-  return m_pFormFillEnv->GetPageView(pPage, renew);
+  return m_pFormFillEnv->GetPageView(pPage, true);
 }
 
 CFX_FloatRect CFFL_FormFiller::GetFocusBox(CPDFSDK_PageView* pPageView) {
@@ -434,7 +427,7 @@ CFX_FloatRect CFFL_FormFiller::GetFocusBox(CPDFSDK_PageView* pPageView) {
   if (!pWnd)
     return CFX_FloatRect();
 
-  CFX_FloatRect rcFocus = FFLtoWnd(pPageView, PWLtoFFL(pWnd->GetFocusRect()));
+  CFX_FloatRect rcFocus = PWLtoFFL(pWnd->GetFocusRect());
   return pPageView->GetPDFPage()->GetBBox().Contains(rcFocus) ? rcFocus
                                                               : CFX_FloatRect();
 }
@@ -453,16 +446,6 @@ CFX_PointF CFFL_FormFiller::FFLtoPWL(const CFX_PointF& point) {
 
 CFX_PointF CFFL_FormFiller::PWLtoFFL(const CFX_PointF& point) {
   return GetCurMatrix().Transform(point);
-}
-
-CFX_PointF CFFL_FormFiller::WndtoPWL(CPDFSDK_PageView* pPageView,
-                                     const CFX_PointF& pt) {
-  return FFLtoPWL(pt);
-}
-
-CFX_FloatRect CFFL_FormFiller::FFLtoWnd(CPDFSDK_PageView* pPageView,
-                                        const CFX_FloatRect& rect) {
-  return rect;
 }
 
 bool CFFL_FormFiller::CommitData(CPDFSDK_PageView* pPageView, uint32_t nFlag) {
@@ -532,12 +515,6 @@ void CFFL_FormFiller::SetActionData(CPDFSDK_PageView* pPageView,
                                     CPDF_AAction::AActionType type,
                                     const CPDFSDK_FieldAction& fa) {}
 
-bool CFFL_FormFiller::IsActionDataChanged(CPDF_AAction::AActionType type,
-                                          const CPDFSDK_FieldAction& faOld,
-                                          const CPDFSDK_FieldAction& faNew) {
-  return false;
-}
-
 void CFFL_FormFiller::SaveState(CPDFSDK_PageView* pPageView) {}
 
 void CFFL_FormFiller::RestoreState(CPDFSDK_PageView* pPageView) {}
@@ -548,10 +525,6 @@ CPWL_Wnd* CFFL_FormFiller::ResetPWLWindow(CPDFSDK_PageView* pPageView,
 }
 
 void CFFL_FormFiller::OnTimerFired() {}
-
-IPWL_SystemHandler* CFFL_FormFiller::GetSystemHandler() const {
-  return m_pFormFillEnv->GetSysHandler();
-}
 
 void CFFL_FormFiller::EscapeFiller(CPDFSDK_PageView* pPageView,
                                    bool bDestroyPWLWindow) {

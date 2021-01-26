@@ -31,6 +31,11 @@ if (use_swiftshader) {
   import("${dawn_swiftshader_dir}/src/Vulkan/vulkan.gni")
 }
 
+# Import mac_min_system_version
+if (is_mac) {
+  import("//build/config/mac/mac_sdk.gni")
+}
+
 ###############################################################################
 # dawn_platform
 ###############################################################################
@@ -60,9 +65,14 @@ config("libdawn_native_internal") {
   # Suppress warnings that Metal isn't in the deployment target of Chrome:
   # initialization of the Metal backend is behind a IsMetalSupported check so
   # Dawn won't call Metal functions on macOS 10.10.
+  # At the time this is written Chromium supports 10.10.0 and above, so if we
+  # aren't on 10.11 it means we are on 10.11 and above, and Metal is available.
+  # Skipping this check on 10.11 and above is important as it allows getting
+  # proper compilation warning when using 10.12 and above feature for example.
   # TODO(cwallez@chromium.org): Consider using API_AVAILABLE annotations on all
-  # metal code in dawn once crbug.com/1004024 is sorted out.
-  if (is_mac) {
+  # metal code in dawn once crbug.com/1004024 is sorted out if Chromium still
+  # supports 10.10 then.
+  if (is_mac && mac_min_system_version == "10.10.0") {
     cflags_objcc = [ "-Wno-unguarded-availability" ]
   }
 }
@@ -161,9 +171,11 @@ source_set("libdawn_native_sources") {
     "src/dawn_native/BackendConnection.h",
     "src/dawn_native/BindGroup.cpp",
     "src/dawn_native/BindGroup.h",
+    "src/dawn_native/BindGroupAndStorageBarrierTracker.h",
     "src/dawn_native/BindGroupLayout.cpp",
     "src/dawn_native/BindGroupLayout.h",
     "src/dawn_native/BindGroupTracker.h",
+    "src/dawn_native/BindingInfo.h",
     "src/dawn_native/BuddyAllocator.cpp",
     "src/dawn_native/BuddyAllocator.h",
     "src/dawn_native/BuddyMemoryAllocator.cpp",
@@ -198,6 +210,8 @@ source_set("libdawn_native_sources") {
     "src/dawn_native/Error.h",
     "src/dawn_native/ErrorData.cpp",
     "src/dawn_native/ErrorData.h",
+    "src/dawn_native/ErrorInjector.cpp",
+    "src/dawn_native/ErrorInjector.h",
     "src/dawn_native/ErrorScope.cpp",
     "src/dawn_native/ErrorScope.h",
     "src/dawn_native/ErrorScopeTracker.cpp",
@@ -252,6 +266,8 @@ source_set("libdawn_native_sources") {
     "src/dawn_native/ShaderModule.h",
     "src/dawn_native/StagingBuffer.cpp",
     "src/dawn_native/StagingBuffer.h",
+    "src/dawn_native/Surface.cpp",
+    "src/dawn_native/Surface.h",
     "src/dawn_native/SwapChain.cpp",
     "src/dawn_native/SwapChain.h",
     "src/dawn_native/Texture.cpp",
@@ -287,6 +303,8 @@ source_set("libdawn_native_sources") {
       "src/dawn_native/d3d12/D3D12Error.h",
       "src/dawn_native/d3d12/D3D12Info.cpp",
       "src/dawn_native/d3d12/D3D12Info.h",
+      "src/dawn_native/d3d12/DescriptorHeapAllocationD3D12.cpp",
+      "src/dawn_native/d3d12/DescriptorHeapAllocationD3D12.h",
       "src/dawn_native/d3d12/DescriptorHeapAllocator.cpp",
       "src/dawn_native/d3d12/DescriptorHeapAllocator.h",
       "src/dawn_native/d3d12/DeviceD3D12.cpp",
@@ -308,6 +326,8 @@ source_set("libdawn_native_sources") {
       "src/dawn_native/d3d12/RenderPassBuilderD3D12.h",
       "src/dawn_native/d3d12/RenderPipelineD3D12.cpp",
       "src/dawn_native/d3d12/RenderPipelineD3D12.h",
+      "src/dawn_native/d3d12/ResidencyManagerD3D12.cpp",
+      "src/dawn_native/d3d12/ResidencyManagerD3D12.h",
       "src/dawn_native/d3d12/ResourceAllocatorManagerD3D12.cpp",
       "src/dawn_native/d3d12/ResourceAllocatorManagerD3D12.h",
       "src/dawn_native/d3d12/ResourceHeapAllocationD3D12.cpp",
@@ -316,6 +336,8 @@ source_set("libdawn_native_sources") {
       "src/dawn_native/d3d12/SamplerD3D12.h",
       "src/dawn_native/d3d12/ShaderModuleD3D12.cpp",
       "src/dawn_native/d3d12/ShaderModuleD3D12.h",
+      "src/dawn_native/d3d12/ShaderVisibleDescriptorAllocatorD3D12.cpp",
+      "src/dawn_native/d3d12/ShaderVisibleDescriptorAllocatorD3D12.h",
       "src/dawn_native/d3d12/StagingBufferD3D12.cpp",
       "src/dawn_native/d3d12/StagingBufferD3D12.h",
       "src/dawn_native/d3d12/SwapChainD3D12.cpp",
@@ -335,14 +357,22 @@ source_set("libdawn_native_sources") {
       "Cocoa.framework",
       "IOKit.framework",
       "IOSurface.framework",
+      "QuartzCore.framework",
     ]
     sources += [
+      "src/dawn_native/Surface_metal.mm",
       "src/dawn_native/metal/BackendMTL.h",
       "src/dawn_native/metal/BackendMTL.mm",
+      "src/dawn_native/metal/BindGroupLayoutMTL.h",
+      "src/dawn_native/metal/BindGroupLayoutMTL.mm",
+      "src/dawn_native/metal/BindGroupMTL.h",
+      "src/dawn_native/metal/BindGroupMTL.mm",
       "src/dawn_native/metal/BufferMTL.h",
       "src/dawn_native/metal/BufferMTL.mm",
       "src/dawn_native/metal/CommandBufferMTL.h",
       "src/dawn_native/metal/CommandBufferMTL.mm",
+      "src/dawn_native/metal/CommandRecordingContext.h",
+      "src/dawn_native/metal/CommandRecordingContext.mm",
       "src/dawn_native/metal/ComputePipelineMTL.h",
       "src/dawn_native/metal/ComputePipelineMTL.mm",
       "src/dawn_native/metal/DeviceMTL.h",
@@ -385,6 +415,10 @@ source_set("libdawn_native_sources") {
     sources += [
       "src/dawn_native/opengl/BackendGL.cpp",
       "src/dawn_native/opengl/BackendGL.h",
+      "src/dawn_native/opengl/BindGroupGL.cpp",
+      "src/dawn_native/opengl/BindGroupGL.h",
+      "src/dawn_native/opengl/BindGroupLayoutGL.cpp",
+      "src/dawn_native/opengl/BindGroupLayoutGL.h",
       "src/dawn_native/opengl/BufferGL.cpp",
       "src/dawn_native/opengl/BufferGL.h",
       "src/dawn_native/opengl/CommandBufferGL.cpp",
@@ -525,10 +559,19 @@ source_set("libdawn_native_sources") {
     }
 
     if (use_swiftshader) {
-      data_deps += [ "${dawn_swiftshader_dir}/src/Vulkan:icd_file" ]
-      defines +=
-          [ "DAWN_SWIFTSHADER_VK_ICD_JSON=\"${swiftshader_icd_file_name}\"" ]
+      data_deps += [
+        "${dawn_swiftshader_dir}/src/Vulkan:icd_file",
+        "${dawn_swiftshader_dir}/src/Vulkan:swiftshader_libvulkan",
+      ]
+      defines += [
+        "DAWN_ENABLE_SWIFTSHADER",
+        "DAWN_SWIFTSHADER_VK_ICD_JSON=\"${swiftshader_icd_file_name}\"",
+      ]
     }
+  }
+
+  if (dawn_use_x11) {
+    libs += [ "X11" ]
   }
 }
 
@@ -651,10 +694,12 @@ dawn_component("libdawn_wire") {
 # GLFW wrapping target
 ###############################################################################
 
+supports_glfw_for_windowing = is_win || (is_linux && !is_chromeos) || is_mac
+
 # GLFW does not support ChromeOS, Android or Fuchsia, so provide a small mock
 # library that can be linked into the Dawn tests on these platforms. Otherwise,
 # use the real library from third_party/.
-if (is_win || (is_linux && !is_chromeos) || is_mac) {
+if (supports_glfw_for_windowing) {
   group("dawn_glfw") {
     public_deps = [
       "third_party:glfw",
@@ -709,28 +754,48 @@ static_library("dawn_utils") {
     "src/utils/SystemUtils.h",
     "src/utils/TerribleCommandBuffer.cpp",
     "src/utils/TerribleCommandBuffer.h",
+    "src/utils/TextureFormatUtils.cpp",
+    "src/utils/TextureFormatUtils.h",
     "src/utils/Timer.h",
     "src/utils/WGPUHelpers.cpp",
     "src/utils/WGPUHelpers.h",
   ]
-
-  if (is_win) {
-    sources += [ "src/utils/WindowsTimer.cpp" ]
-  } else if (is_mac) {
-    sources += [ "src/utils/OSXTimer.cpp" ]
-  } else {
-    sources += [ "src/utils/PosixTimer.cpp" ]
-  }
-
-  public_deps = [
-    "${dawn_root}/src/dawn:dawncpp_headers",
-  ]
-
   deps = [
     ":libdawn_native",
     ":libdawn_wire",
     "${dawn_root}/src/common",
     "${dawn_shaderc_dir}:libshaderc",
+  ]
+  libs = []
+
+  if (is_win) {
+    sources += [ "src/utils/WindowsTimer.cpp" ]
+  } else if (is_mac) {
+    sources += [
+      "src/utils/OSXTimer.cpp",
+      "src/utils/ObjCUtils.h",
+      "src/utils/ObjCUtils.mm",
+    ]
+    libs += [ "QuartzCore.framework" ]
+  } else {
+    sources += [ "src/utils/PosixTimer.cpp" ]
+  }
+
+  if (supports_glfw_for_windowing) {
+    sources += [
+      "src/utils/GLFWUtils.cpp",
+      "src/utils/GLFWUtils.h",
+    ]
+    deps += [ ":dawn_glfw" ]
+
+    if (dawn_enable_metal) {
+      sources += [ "src/utils/GLFWUtils_metal.mm" ]
+      libs += [ "Metal.framework" ]
+    }
+  }
+
+  public_deps = [
+    "${dawn_root}/src/dawn:dawncpp_headers",
   ]
 }
 
@@ -771,8 +836,6 @@ test("dawn_unittests") {
     "src/dawn_wire/client/ClientMemoryTransferService_mock.h",
     "src/dawn_wire/server/ServerMemoryTransferService_mock.cpp",
     "src/dawn_wire/server/ServerMemoryTransferService_mock.h",
-  ]
-  sources += [
     "src/tests/unittests/BitSetIteratorTests.cpp",
     "src/tests/unittests/BuddyAllocatorTests.cpp",
     "src/tests/unittests/BuddyMemoryAllocatorTests.cpp",
@@ -781,14 +844,17 @@ test("dawn_unittests") {
     "src/tests/unittests/ErrorTests.cpp",
     "src/tests/unittests/ExtensionTests.cpp",
     "src/tests/unittests/GetProcAddressTests.cpp",
+    "src/tests/unittests/LinkedListTests.cpp",
     "src/tests/unittests/MathTests.cpp",
     "src/tests/unittests/ObjectBaseTests.cpp",
     "src/tests/unittests/PerStageTests.cpp",
+    "src/tests/unittests/PlacementAllocatedTests.cpp",
     "src/tests/unittests/RefCountedTests.cpp",
     "src/tests/unittests/ResultTests.cpp",
     "src/tests/unittests/RingBufferAllocatorTests.cpp",
     "src/tests/unittests/SerialMapTests.cpp",
     "src/tests/unittests/SerialQueueTests.cpp",
+    "src/tests/unittests/SlabAllocatorTests.cpp",
     "src/tests/unittests/SystemUtilsTests.cpp",
     "src/tests/unittests/ToBackendTests.cpp",
     "src/tests/unittests/validation/BindGroupValidationTests.cpp",
@@ -809,8 +875,10 @@ test("dawn_unittests") {
     "src/tests/unittests/validation/RenderPassDescriptorValidationTests.cpp",
     "src/tests/unittests/validation/RenderPassValidationTests.cpp",
     "src/tests/unittests/validation/RenderPipelineValidationTests.cpp",
+    "src/tests/unittests/validation/ResourceUsageTrackingTests.cpp",
     "src/tests/unittests/validation/SamplerValidationTests.cpp",
     "src/tests/unittests/validation/ShaderModuleValidationTests.cpp",
+    "src/tests/unittests/validation/StorageTextureValidationTests.cpp",
     "src/tests/unittests/validation/TextureValidationTests.cpp",
     "src/tests/unittests/validation/TextureViewValidationTests.cpp",
     "src/tests/unittests/validation/ToggleValidationTests.cpp",
@@ -875,6 +943,7 @@ source_set("dawn_end2end_tests_sources") {
     "src/tests/end2end/DebugMarkerTests.cpp",
     "src/tests/end2end/DepthStencilStateTests.cpp",
     "src/tests/end2end/DestroyTests.cpp",
+    "src/tests/end2end/DeviceLostTests.cpp",
     "src/tests/end2end/DrawIndexedIndirectTests.cpp",
     "src/tests/end2end/DrawIndexedTests.cpp",
     "src/tests/end2end/DrawIndirectTests.cpp",
@@ -893,6 +962,7 @@ source_set("dawn_end2end_tests_sources") {
     "src/tests/end2end/RenderPassTests.cpp",
     "src/tests/end2end/SamplerTests.cpp",
     "src/tests/end2end/ScissorTests.cpp",
+    "src/tests/end2end/StorageTextureTests.cpp",
     "src/tests/end2end/TextureFormatTests.cpp",
     "src/tests/end2end/TextureViewTests.cpp",
     "src/tests/end2end/TextureZeroInitTests.cpp",
@@ -902,13 +972,13 @@ source_set("dawn_end2end_tests_sources") {
     "src/tests/end2end/ViewportTests.cpp",
   ]
 
+  # Validation tests that need OS windows live in end2end tests.
+  sources += [
+    "src/tests/unittests/validation/ValidationTest.cpp",
+    "src/tests/unittests/validation/ValidationTest.h",
+  ]
+
   libs = []
-
-  if (dawn_enable_metal) {
-    sources += [ "src/tests/end2end/IOSurfaceWrappingTests.cpp" ]
-
-    libs += [ "IOSurface.framework" ]
-  }
 
   if (dawn_enable_d3d12) {
     sources += [ "src/tests/end2end/D3D12ResourceWrappingTests.cpp" ]
@@ -918,19 +988,34 @@ source_set("dawn_end2end_tests_sources") {
     ]
   }
 
+  if (dawn_enable_metal) {
+    sources += [ "src/tests/end2end/IOSurfaceWrappingTests.cpp" ]
+    libs += [ "IOSurface.framework" ]
+  }
+
   if (dawn_enable_opengl) {
+    assert(supports_glfw_for_windowing)
+  }
+
+  if (supports_glfw_for_windowing) {
+    sources += [
+      "src/tests/end2end/SwapChainTests.cpp",
+      "src/tests/end2end/SwapChainValidationTests.cpp",
+      "src/tests/end2end/WindowSurfaceTests.cpp",
+    ]
     deps += [ ":dawn_glfw" ]
   }
 }
 
 source_set("dawn_white_box_tests_sources") {
-  configs += [ "${dawn_root}/src/common:dawn_internal" ]
+  configs += [ ":libdawn_native_internal" ]
   testonly = true
 
   deps = [
     ":dawn_utils",
-    ":libdawn_native",
     ":libdawn_native_sources",
+    ":libdawn_native_static",  # Static because the tests both link against and have libdawn_native
+                               # sources. MSVC errors when both importing and exporting symbols.
     ":libdawn_wire",
     "${dawn_root}/src/common",
     "${dawn_root}/src/dawn:dawncpp",
@@ -945,13 +1030,26 @@ source_set("dawn_white_box_tests_sources") {
   if (dawn_enable_vulkan) {
     deps += [ "third_party:vulkan_headers" ]
 
-    if (is_linux) {
-      sources += [ "src/tests/white_box/VulkanImageWrappingTests.cpp" ]
+    if (is_chromeos) {
+      sources += [ "src/tests/white_box/VulkanImageWrappingTestsDmaBuf.cpp" ]
+    } else if (is_linux) {
+      sources += [ "src/tests/white_box/VulkanImageWrappingTestsOpaqueFD.cpp" ]
+    }
+
+    if (dawn_enable_error_injection) {
+      sources += [ "src/tests/white_box/VulkanErrorInjectorTests.cpp" ]
     }
   }
 
   if (dawn_enable_d3d12) {
-    sources += [ "src/tests/white_box/D3D12SmallTextureTests.cpp" ]
+    sources += [
+      "src/tests/white_box/D3D12DescriptorHeapTests.cpp",
+      "src/tests/white_box/D3D12SmallTextureTests.cpp",
+    ]
+  }
+
+  if (dawn_enable_metal) {
+    sources += [ "src/tests/white_box/MetalAutoreleasePoolTests.mm" ]
   }
 
   if (dawn_enable_opengl) {
@@ -994,6 +1092,10 @@ test("dawn_end2end_tests") {
   if (dawn_enable_opengl) {
     deps += [ ":dawn_glfw" ]
   }
+
+  if (is_chromeos) {
+    libs += [ "gbm" ]
+  }
 }
 
 test("dawn_perf_tests") {
@@ -1004,7 +1106,6 @@ test("dawn_perf_tests") {
     ":dawn_utils",
     ":libdawn_native",
     ":libdawn_wire",
-    "${dawn_jsoncpp_dir}:jsoncpp",
     "${dawn_root}/src/common",
     "${dawn_root}/src/dawn:dawncpp",
     "${dawn_root}/src/dawn:libdawn_proc",
@@ -1193,6 +1294,12 @@ if (dawn_standalone) {
     ]
   }
 
+  dawn_sample("ManualSwapChainTest") {
+    sources = [
+      "examples/ManualSwapChainTest.cpp",
+    ]
+  }
+
   group("dawn_samples") {
     deps = [
       ":Animometer",
@@ -1214,6 +1321,9 @@ group("dawn_fuzzers") {
     "src/fuzzers:dawn_spirv_cross_glsl_fast_fuzzer",
     "src/fuzzers:dawn_spirv_cross_hlsl_fast_fuzzer",
     "src/fuzzers:dawn_spirv_cross_msl_fast_fuzzer",
+    "src/fuzzers:dawn_spvc_glsl_fast_fuzzer",
+    "src/fuzzers:dawn_spvc_hlsl_fast_fuzzer",
+    "src/fuzzers:dawn_spvc_msl_fast_fuzzer",
     "src/fuzzers:dawn_wire_server_and_frontend_fuzzer",
   ]
 }

@@ -78,6 +78,7 @@ class MockSharedWorkerFactory : public blink::mojom::SharedWorkerFactory {
       blink::mojom::SharedWorkerInfoPtr info,
       const url::Origin& constructor_origin,
       const std::string& user_agent,
+      const blink::UserAgentMetadata& ua_metadata,
       bool pause_on_start,
       const base::UnguessableToken& devtools_worker_token,
       blink::mojom::RendererPreferencesPtr renderer_preferences,
@@ -134,7 +135,7 @@ class MockSharedWorkerClient : public blink::mojom::SharedWorkerClient {
                      creation_context_type) override;
   void OnConnected(
       const std::vector<blink::mojom::WebFeature>& features_used) override;
-  void OnScriptLoadFailed() override;
+  void OnScriptLoadFailed(const std::string& error_message) override;
   void OnFeatureUsed(blink::mojom::WebFeature feature) override;
 
   mojo::Receiver<blink::mojom::SharedWorkerClient> receiver_{this};

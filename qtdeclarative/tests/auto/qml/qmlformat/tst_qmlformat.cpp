@@ -49,6 +49,7 @@ private Q_SLOTS:
     void testLineEndings();
     void testFrontInline();
     void testIfBlocks();
+    void testMultilineComments();
 
     void testReadOnlyProps();
     void testVerbatimStrings();
@@ -60,6 +61,8 @@ private Q_SLOTS:
     void testNestedIf();
 
     void testNestedFunctions();
+    void testForOf();
+    void testPropertyNames();
 
 #if !defined(QTEST_CROSS_COMPILED) // sources not available when cross compiled
     void testExample();
@@ -221,6 +224,12 @@ void TestQmlformat::testIfBlocks()
     QCOMPARE(runQmlformat(testFile("IfBlocks.qml"), false, true), readTestFile("IfBlocks.formatted.qml"));
 }
 
+void TestQmlformat::testMultilineComments()
+{
+    QCOMPARE(runQmlformat(testFile("multilineComment.qml"), false, true), readTestFile("multilineComment.formatted.qml"));
+}
+
+
 void TestQmlformat::testReadOnlyProps()
 {
     QCOMPARE(runQmlformat(testFile("readOnlyProps.qml"), false, true), readTestFile("readOnlyProps.formatted.qml"));
@@ -277,6 +286,18 @@ void TestQmlformat::testNestedFunctions()
 {
     QCOMPARE(runQmlformat(testFile("nestedFunctions.qml"), false, true),
              readTestFile("nestedFunctions.formatted.qml"));
+}
+
+void TestQmlformat::testForOf()
+{
+    QCOMPARE(runQmlformat(testFile("forOf.qml"), false, true),
+             readTestFile("forOf.formatted.qml"));
+}
+
+void TestQmlformat::testPropertyNames()
+{
+    QCOMPARE(runQmlformat(testFile("propertyNames.qml"), false, true),
+             readTestFile("propertyNames.formatted.qml"));
 }
 
 #if !defined(QTEST_CROSS_COMPILED) // sources not available when cross compiled

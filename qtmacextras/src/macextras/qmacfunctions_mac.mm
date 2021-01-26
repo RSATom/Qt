@@ -41,6 +41,7 @@
 #import <AppKit/NSApplication.h>
 
 #include "qmacfunctions.h"
+#ifndef Q_CLANG_QDOC
 #include "qmacfunctions_p.h"
 
 #include <QtCore/QString>
@@ -51,6 +52,7 @@
 #include <QtWidgets/QMenuBar>
 #include <qpa/qplatformmenu.h>
 #endif
+#endif // Q_CLANG_QDOC
 
 QT_BEGIN_NAMESPACE
 
@@ -59,7 +61,8 @@ namespace QtMac
 
 #if QT_DEPRECATED_SINCE(5, 12)
 /*!
-    \fn NSImage* QtMac::toNSImage(const QPixmap &pixmap)
+    \fn NSImage *toNSImage(const QPixmap &pixmap)
+    \obsolete Use QPixmap::toImage and QImage::toCGImage instead.
 
     Creates an \c NSImage equivalent to the QPixmap \a pixmap. Returns the \c NSImage handle.
 
@@ -82,7 +85,7 @@ NSImage* toNSImage(const QPixmap &pixmap)
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 0, 0)
 /*!
-    \fn bool QtMac::isMainWindow(QWindow *window)
+    \fn bool isMainWindow(QWindow *window)
 
     Returns whether the given QWindow \a window is the application's main window
 */
@@ -104,7 +107,8 @@ CGContextRef currentCGContext()
 }
 
 /*!
-    \fn void QtMac::setBadgeLabelText(const QString &text)
+    \fn void setBadgeLabelText(const QString &text)
+    \obsolete Use \c {NSApp.dockTile.badgeLabel} instead.
 
     Sets the \a text shown on the application icon a.k.a badge.
 
@@ -118,7 +122,8 @@ void setBadgeLabelText(const QString &text)
 }
 
 /*!
-    \fn QString QtMac::badgeLabelText()
+    \fn QString badgeLabelText()
+    \obsolete Use \c {NSApp.dockTile.badgeLabel} instead.
 
     Returns the text of the application icon a.k.a badge.
 

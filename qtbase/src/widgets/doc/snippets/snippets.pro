@@ -1,14 +1,18 @@
-TEMPLATE = lib
-
+TEMPLATE = subdirs
 TARGET = widgets_snippets
+SUBDIRS =
 
-QT += widgets printsupport
+#! [qmake_use]
+QT += widgets
+#! [qmake_use]
 
-SOURCES += customviewstyle.cpp \
-           filedialogurls.cpp \
-           graphicssceneadditemsnippet.cpp \
-           graphicsview.cpp \
-           mdiareasnippets.cpp \
-           myscrollarea.cpp
+contains(QT_BUILD_PARTS, tests) {
+    SUBDIRS += \
+        customviewstyle \
+        filedialogurls \
+        graphicssceneadditem \
+        graphicsview \
+        mdiarea \
+        myscrollarea
+}
 
-load(qt_common)

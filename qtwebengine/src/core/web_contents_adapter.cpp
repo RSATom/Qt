@@ -66,6 +66,8 @@
 #include "base/task/sequence_manager/sequence_manager_impl.h"
 #include "base/task/sequence_manager/thread_controller_with_message_pump_impl.h"
 #include "base/values.h"
+#include "chrome/browser/tab_contents/form_interaction_tab_helper.h"
+#include "components/performance_manager/embedder/performance_manager_registry.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/renderer_host/text_input_manager.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -86,9 +88,9 @@
 #include "content/public/common/url_constants.h"
 #include "content/public/common/web_preferences.h"
 #include "extensions/buildflags/buildflags.h"
-#include "third_party/blink/public/common/media/media_player_action.h"
 #include "third_party/blink/public/common/page/page_zoom.h"
 #include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
+#include "third_party/blink/public/mojom/frame/media_player_action.mojom.h"
 #include "printing/buildflags/buildflags.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/clipboard_constants.h"
@@ -240,7 +242,6 @@ static void callbackOnPdfSavingFinished(WebContentsAdapterClient *adapterClient,
 static std::unique_ptr<content::WebContents> createBlankWebContents(WebContentsAdapterClient *adapterClient, content::BrowserContext *browserContext)
 {
     content::WebContents::CreateParams create_params(browserContext, nullptr);
-    create_params.routing_id = MSG_ROUTING_NONE;
     create_params.initially_hidden = true;
 
     std::unique_ptr<content::WebContents> webContents = content::WebContents::Create(create_params);
@@ -525,6 +526,9 @@ void WebContentsAdapter::initialize(content::SiteInstance *site)
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     extensions::ExtensionWebContentsObserverQt::CreateForWebContents(webContents());
 #endif
+    FormInteractionTabHelper::CreateForWebContents(webContents());
+    if (auto *performance_manager_registry = performance_manager::PerformanceManagerRegistry::GetInstance())
+        performance_manager_registry->CreatePageNodeForWebContents(webContents());
 
     // Create an instance of WebEngineVisitedLinksManager to catch the first
     // content::NOTIFICATION_RENDERER_PROCESS_CREATED event. This event will
@@ -552,7 +556,7 @@ void WebContentsAdapter::initializeRenderPrefs()
     const int qtCursorFlashTime = QGuiApplication::styleHints()->cursorFlashTime();
     rendererPrefs->caret_blink_interval =
             base::TimeDelta::FromMillisecondsD(0.5 * static_cast<double>(qtCursorFlashTime));
-    rendererPrefs->user_agent_override = m_profileAdapter->httpUserAgent().toStdString();
+    rendererPrefs->user_agent_override = blink::UserAgentOverride::UserAgentOnly(m_profileAdapter->httpUserAgent().toStdString());
     rendererPrefs->accept_languages = m_profileAdapter->httpAcceptLanguageWithoutQualities().toStdString();
 #if QT_CONFIG(webengine_webrtc)
     base::CommandLine* commandLine = base::CommandLine::ForCurrentProcess();
@@ -1185,22 +1189,22 @@ void WebContentsAdapter::copyImageAt(const QPoint &location)
     m_webContents->GetRenderViewHost()->GetMainFrame()->CopyImageAt(location.x(), location.y());
 }
 
-static blink::MediaPlayerAction::Type toBlinkMediaPlayerActionType(WebContentsAdapter::MediaPlayerAction action)
+static blink::mojom::MediaPlayerActionType toBlinkMediaPlayerActionType(WebContentsAdapter::MediaPlayerAction action)
 {
     switch (action) {
     case WebContentsAdapter::MediaPlayerPlay:
-        return blink::MediaPlayerAction::Type::kPlay;
+        return blink::mojom::MediaPlayerActionType::kPlay;
     case WebContentsAdapter::MediaPlayerMute:
-        return blink::MediaPlayerAction::Type::kMute;
+        return blink::mojom::MediaPlayerActionType::kMute;
     case WebContentsAdapter::MediaPlayerLoop:
-        return blink::MediaPlayerAction::Type::kLoop;
+        return blink::mojom::MediaPlayerActionType::kLoop;
     case WebContentsAdapter::MediaPlayerControls:
-        return blink::MediaPlayerAction::Type::kControls;
+        return blink::mojom::MediaPlayerActionType::kControls;
     case WebContentsAdapter::MediaPlayerNoAction:
         break;
     }
     NOTREACHED();
-    return (blink::MediaPlayerAction::Type)-1;
+    return (blink::mojom::MediaPlayerActionType)-1;
 }
 
 void WebContentsAdapter::executeMediaPlayerActionAt(const QPoint &location, MediaPlayerAction action, bool enable)
@@ -1208,7 +1212,7 @@ void WebContentsAdapter::executeMediaPlayerActionAt(const QPoint &location, Medi
     CHECK_INITIALIZED();
     if (action == MediaPlayerNoAction)
         return;
-    blink::MediaPlayerAction blinkAction(toBlinkMediaPlayerActionType(action), enable);
+    blink::mojom::MediaPlayerAction blinkAction(toBlinkMediaPlayerActionType(action), enable);
     m_webContents->GetRenderViewHost()->GetMainFrame()->ExecuteMediaPlayerActionAtLocation(toGfx(location), blinkAction);
 }
 
@@ -1393,7 +1397,8 @@ void WebContentsAdapter::grantMouseLockPermission(const QUrl &securityOrigin, bo
             granted = false;
     }
 
-    m_webContents->GotResponseToLockMouseRequest(granted);
+    m_webContents->GotResponseToLockMouseRequest(granted ? blink::mojom::PointerLockResult::kSuccess
+                                                         : blink::mojom::PointerLockResult::kPermissionDenied);
 }
 
 void WebContentsAdapter::handlePendingMouseLockPermission()
@@ -1401,7 +1406,8 @@ void WebContentsAdapter::handlePendingMouseLockPermission()
     CHECK_INITIALIZED();
     auto it = m_pendingMouseLockPermissions.find(toQt(m_webContents->GetLastCommittedURL().GetOrigin()));
     if (it != m_pendingMouseLockPermissions.end()) {
-        m_webContents->GotResponseToLockMouseRequest(it.value());
+        m_webContents->GotResponseToLockMouseRequest(it.value() ? blink::mojom::PointerLockResult::kSuccess
+                                                                : blink::mojom::PointerLockResult::kPermissionDenied);
         m_pendingMouseLockPermissions.erase(it);
     }
 }
@@ -1666,7 +1672,7 @@ void WebContentsAdapter::waitForUpdateDragActionCalled()
     DCHECK(delegate);
     m_updateDragActionCalled = false;
     for (;;) {
-        while (delegate->DoWork() && !m_updateDragActionCalled) {}
+        while (delegate->DoWork().is_immediate() && !m_updateDragActionCalled) {}
         if (m_updateDragActionCalled)
             break;
         if (t.hasExpired(timeout)) {
@@ -1893,7 +1899,7 @@ WebContentsAdapter::LifecycleState WebContentsAdapter::determineRecommendedState
         return LifecycleState::Frozen;
 
     // Form input is not saved.
-    if (m_webContents->GetPageImportanceSignals().had_form_interaction)
+    if (FormInteractionTabHelper::FromWebContents(m_webContents.get())->had_form_interaction())
         return LifecycleState::Frozen;
 
     // Do not discard PDFs as they might contain entry that is not saved and they
@@ -2001,6 +2007,9 @@ void WebContentsAdapter::discard()
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     extensions::ExtensionWebContentsObserverQt::CreateForWebContents(webContents());
 #endif
+    FormInteractionTabHelper::CreateForWebContents(webContents());
+    if (auto *performance_manager_registry = performance_manager::PerformanceManagerRegistry::GetInstance())
+        performance_manager_registry->CreatePageNodeForWebContents(webContents());
 }
 
 void WebContentsAdapter::undiscard()
@@ -2037,7 +2046,7 @@ ASSERT_ENUMS_MATCH(ReferrerPolicy::NoReferrerWhenDowngrade, network::mojom::Refe
 ASSERT_ENUMS_MATCH(ReferrerPolicy::Never, network::mojom::ReferrerPolicy::kNever)
 ASSERT_ENUMS_MATCH(ReferrerPolicy::Origin, network::mojom::ReferrerPolicy::kOrigin)
 ASSERT_ENUMS_MATCH(ReferrerPolicy::OriginWhenCrossOrigin, network::mojom::ReferrerPolicy::kOriginWhenCrossOrigin)
-ASSERT_ENUMS_MATCH(ReferrerPolicy::NoReferrerWhenDowngradeOriginWhenCrossOrigin, network::mojom::ReferrerPolicy::kNoReferrerWhenDowngradeOriginWhenCrossOrigin)
+//ASSERT_ENUMS_MATCH(ReferrerPolicy::NoReferrerWhenDowngradeOriginWhenCrossOrigin, network::mojom::ReferrerPolicy::kNoReferrerWhenDowngradeOriginWhenCrossOrigin)
 ASSERT_ENUMS_MATCH(ReferrerPolicy::SameOrigin, network::mojom::ReferrerPolicy::kSameOrigin)
 ASSERT_ENUMS_MATCH(ReferrerPolicy::StrictOrigin, network::mojom::ReferrerPolicy::kStrictOrigin)
 ASSERT_ENUMS_MATCH(ReferrerPolicy::Last, network::mojom::ReferrerPolicy::kLast)

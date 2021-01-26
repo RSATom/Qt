@@ -14,6 +14,11 @@ luci.console_view(
             short_name = 'tst',
         ),
         luci.console_view_entry(
+            builder = 'ci/Network Service Linux',
+            category = 'release',
+            short_name = 'nsl',
+        ),
+        luci.console_view_entry(
             builder = 'ci/linux-gcc-rel',
             category = 'release',
             short_name = 'gcc',
@@ -22,11 +27,6 @@ luci.console_view(
             builder = 'ci/Deterministic Linux',
             category = 'release',
             short_name = 'det',
-        ),
-        luci.console_view_entry(
-            builder = 'ci/Leak Detection Linux',
-            category = 'release',
-            short_name = 'lk',
         ),
         luci.console_view_entry(
             builder = 'ci/linux-ozone-rel',

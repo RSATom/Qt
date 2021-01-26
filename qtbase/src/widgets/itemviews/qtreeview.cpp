@@ -2608,11 +2608,11 @@ void QTreeView::sortByColumn(int column, Qt::SortOrder order)
     Q_D(QTreeView);
     if (column < -1)
         return;
-    // If sorting is enabled it will emit a signal connected to
-    // _q_sortIndicatorChanged, which then actually sorts
     d->header->setSortIndicator(column, order);
-    // If sorting is not enabled, force to sort now
-    if (!d->sortingEnabled)
+    // If sorting is not enabled or has the same order as before, force to sort now
+    // else sorting will be trigger through sortIndicatorChanged()
+    if (!d->sortingEnabled ||
+        (d->header->sortIndicatorSection() == column && d->header->sortIndicatorOrder() == order))
         d->model->sort(column, order);
 }
 
@@ -3317,9 +3317,21 @@ void QTreeViewPrivate::layout(int i, bool recursiveExpanding, bool afterIsUninit
 
     int count = 0;
     if (model->hasChildren(parent)) {
-        if (model->canFetchMore(parent))
+        if (model->canFetchMore(parent)) {
+            // fetchMore first, otherwise we might not yet have any data for sizeHintForRow
             model->fetchMore(parent);
-        count = model->rowCount(parent);
+            // guestimate the number of items in the viewport, and fetch as many as might fit
+            const int itemHeight = defaultItemHeight <= 0 ? q->sizeHintForRow(0) : defaultItemHeight;
+            const int viewCount = itemHeight ? viewport->height() / itemHeight : 0;
+            int lastCount = -1;
+            while ((count = model->rowCount(parent)) < viewCount &&
+                   count != lastCount && model->canFetchMore(parent)) {
+                model->fetchMore(parent);
+                lastCount = count;
+            }
+        } else {
+            count = model->rowCount(parent);
+        }
     }
 
     bool expanding = true;

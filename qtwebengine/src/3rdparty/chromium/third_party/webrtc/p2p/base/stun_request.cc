@@ -17,6 +17,7 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/helpers.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/string_encode.h"
 #include "rtc_base/time_utils.h"  // For TimeMillis
 #include "system_wrappers/include/field_trial.h"
 
@@ -124,7 +125,15 @@ bool StunRequestManager::CheckResponse(StunMessage* msg) {
   }
 
   StunRequest* request = iter->second;
-  if (msg->type() == GetStunSuccessResponseType(request->type())) {
+  if (!msg->GetNonComprehendedAttributes().empty()) {
+    // If a response contains unknown comprehension-required attributes, it's
+    // simply discarded and the transaction is considered failed. See RFC5389
+    // sections 7.3.3 and 7.3.4.
+    RTC_LOG(LS_ERROR) << ": Discarding response due to unknown "
+                         "comprehension-required attribute.";
+    delete request;
+    return false;
+  } else if (msg->type() == GetStunSuccessResponseType(request->type())) {
     request->OnResponse(msg);
   } else if (msg->type() == GetStunErrorResponseType(request->type())) {
     request->OnErrorResponse(msg);

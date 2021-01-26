@@ -48,14 +48,16 @@ struct Variable : public Symbol {
         SkASSERT(!fReadCount && !fWriteCount);
     }
 
+#ifdef SK_DEBUG
     virtual String description() const override {
         return fModifiers.description() + fType.fName + " " + fName;
     }
+#endif
 
     bool dead() const {
         if ((fStorage != kLocal_Storage && fReadCount) ||
             (fModifiers.fFlags & (Modifiers::kIn_Flag | Modifiers::kOut_Flag |
-                                 Modifiers::kUniform_Flag))) {
+                                 Modifiers::kUniform_Flag | Modifiers::kVarying_Flag))) {
             return false;
         }
         return !fWriteCount ||

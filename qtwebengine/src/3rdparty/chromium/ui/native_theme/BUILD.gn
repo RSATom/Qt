@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 
@@ -12,7 +11,7 @@ import("//testing/test.gni")
 # TODO(crbug.com/1018739): remove this when migration is done.
 set_sources_assignment_filter([])
 
-jumbo_component("native_theme") {
+component("native_theme") {
   sources = [
     "caption_style.cc",
     "caption_style.h",
@@ -22,11 +21,14 @@ jumbo_component("native_theme") {
     "native_theme.h",
     "native_theme_base.cc",
     "native_theme_base.h",
+    "native_theme_color_id.h",
     "native_theme_export.h",
     "native_theme_features.cc",
     "native_theme_features.h",
     "native_theme_observer.cc",
     "native_theme_observer.h",
+    "themed_vector_icon.cc",
+    "themed_vector_icon.h",
   ]
 
   if (is_android) {
@@ -52,8 +54,6 @@ jumbo_component("native_theme") {
     sources += [
       "native_theme_aura.cc",
       "native_theme_aura.h",
-      "native_theme_dark_aura.cc",
-      "native_theme_dark_aura.h",
       "overlay_scrollbar_constants_aura.h",
     ]
   } else if (is_mac && use_qt) {
@@ -65,15 +65,17 @@ jumbo_component("native_theme") {
 
   defines = [ "NATIVE_THEME_IMPLEMENTATION" ]
 
-  public_deps = [
-    "//skia",
-  ]
+  public_deps = [ "//skia" ]
 
   deps = [
     "//base",
     "//base/third_party/dynamic_annotations",
     "//cc/paint",
     "//ui/base",
+    "//ui/color",
+
+    # http://crbug.com/730719 - No !is_android to work around gn --check.
+    "//ui/color:mixers",
     "//ui/display",
     "//ui/gfx",
     "//ui/gfx/geometry",
@@ -90,7 +92,7 @@ jumbo_component("native_theme") {
 }
 
 if (is_win) {
-  jumbo_component("native_theme_browser") {
+  component("native_theme_browser") {
     defines = [ "NATIVE_THEME_IMPLEMENTATION" ]
 
     # These files cannot work in the renderer on Windows.
@@ -111,11 +113,11 @@ if (is_win) {
     libs = [ "uxtheme.lib" ]
   }
 } else {
-  jumbo_source_set("native_theme_browser") {
+  source_set("native_theme_browser") {
   }
 }
 
-jumbo_source_set("test_support") {
+source_set("test_support") {
   testonly = true
 
   deps = [
@@ -130,7 +132,7 @@ jumbo_source_set("test_support") {
 }
 
 test("native_theme_unittests") {
-  sources = []
+  sources = [ "native_theme_unittest.cc" ]
 
   if (use_aura) {
     sources += [ "native_theme_aura_unittest.cc" ]

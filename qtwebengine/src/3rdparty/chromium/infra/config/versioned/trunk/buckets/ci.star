@@ -1,8 +1,11 @@
-load('//lib/builders.star', 'builder', 'cpu', 'defaults', 'goma', 'os')
-load('//versioned/vars/ci.star', 'vars')
+load('//lib/builders.star', 'builder_name', 'cpu', 'goma', 'os')
+load('//lib/ci.star', 'ci')
+# Load this using relative path so that the load statement doesn't
+# need to be changed when making a new milestone
+load('../vars.star', 'vars')
 
 luci.bucket(
-    name = vars.bucket.get(),
+    name = vars.ci_bucket,
     acls = [
         acl.entry(
             roles = acl.BUILDBUCKET_READER,
@@ -19,260 +22,461 @@ luci.bucket(
     ],
 )
 
-
-defaults.bucket.set(vars.bucket.get())
-defaults.bucketed_triggers.set(True)
-
-
-XCODE_IOS_11_CACHE = swarming.cache(
-    name = 'xcode_ios_11a1027',
-    path = 'xcode_ios_11a1027.app',
+luci.gitiles_poller(
+    name = vars.ci_poller,
+    bucket = vars.ci_bucket,
+    repo = 'https://chromium.googlesource.com/chromium/src',
+    refs = [vars.ref],
 )
 
 
-# Builders appear after the function used to define them, with all builders
-# defined using the same function ordered lexicographically by name
-# Builder functions are defined in lexicographic order by name ignoring the
-# '_builder' suffix
+ci.defaults.bucket.set(vars.ci_bucket)
+ci.defaults.bucketed_triggers.set(True)
+ci.defaults.triggered_by.set([vars.ci_poller])
 
-# Builder functions are defined for each master, with additional functions
-# for specializing on OS or particular configuration (e.g. builders running
-# libfuzzer recipe): XXX_builder and XXX_YYY_builder where XXX is the part after
-# the last dot in the mastername and YYY is the OS or configuration
 
-def android_builder(
-    *,
-    name,
-    # TODO(tandrii): migrate to this gradually (current value of
-    # goma.jobs.MANY_JOBS_FOR_CI is 500).
-    # goma_jobs=goma.jobs.MANY_JOBS_FOR_CI
-    goma_jobs=goma.jobs.J150,
-    **kwargs):
-  return builder(
-      name = name,
-      goma_jobs = goma_jobs,
-      mastername = 'chromium.android',
-      **kwargs
-  )
+# Builders are sorted first lexicographically by the function used to define
+# them, then lexicographically by their name
 
-android_builder(
+
+ci.android_builder(
+    name = 'Android WebView M (dbg)',
+    triggered_by = [builder_name('Android arm64 Builder (dbg)')],
+)
+
+ci.android_builder(
+    name = 'Android WebView N (dbg)',
+    triggered_by = [builder_name('Android arm64 Builder (dbg)')],
+)
+
+ci.android_builder(
+    name = 'Android WebView O (dbg)',
+    triggered_by = [builder_name('Android arm64 Builder (dbg)')],
+)
+
+ci.android_builder(
+    name = 'Android WebView P (dbg)',
+    triggered_by = [builder_name('Android arm64 Builder (dbg)')],
+)
+
+ci.android_builder(
+    name = 'Android arm Builder (dbg)',
+    execution_timeout = 4 * time.hour,
+)
+
+ci.android_builder(
+    name = 'Android arm64 Builder (dbg)',
+    goma_jobs = goma.jobs.MANY_JOBS_FOR_CI,
+    execution_timeout = 4 * time.hour,
+)
+
+ci.android_builder(
+    name = 'Android x64 Builder (dbg)',
+    execution_timeout = 4 * time.hour,
+)
+
+ci.android_builder(
+    name = 'Android x86 Builder (dbg)',
+)
+
+ci.android_builder(
+    name = 'Cast Android (dbg)',
+)
+
+ci.android_builder(
+    name = 'Marshmallow 64 bit Tester',
+    triggered_by = [builder_name('Android arm64 Builder (dbg)')],
+)
+
+ci.android_builder(
+    name = 'Nougat Phone Tester',
+    triggered_by = [builder_name('Android arm64 Builder (dbg)')],
+)
+
+ci.android_builder(
+    name = 'Oreo Phone Tester',
+    triggered_by = [builder_name('Android arm64 Builder (dbg)')],
+)
+
+ci.android_builder(
+    name = 'android-cronet-arm-dbg',
+    notifies = ['cronet'],
+)
+
+ci.android_builder(
+    name = 'android-cronet-arm-rel',
+    notifies = ['cronet'],
+)
+
+ci.android_builder(
+    name = 'android-cronet-kitkat-arm-rel',
+    notifies = ['cronet'],
+    triggered_by = [builder_name('android-cronet-arm-rel')],
+)
+
+ci.android_builder(
+    name = 'android-cronet-lollipop-arm-rel',
+    notifies = ['cronet'],
+    triggered_by = [builder_name('android-cronet-arm-rel')],
+)
+
+ci.android_builder(
     name = 'android-kitkat-arm-rel',
-    goma_backend = goma.backend.RBE_PROD,
 )
 
-android_builder(
+ci.android_builder(
     name = 'android-marshmallow-arm64-rel',
-    goma_backend = goma.backend.RBE_PROD,
+)
+
+ci.android_builder(
+    name = 'android-pie-arm64-dbg',
+    triggered_by = [builder_name('Android arm64 Builder (dbg)')],
+)
+
+ci.android_builder(
+    name = 'android-pie-arm64-rel',
 )
 
 
-def chromiumos_builder(*, name, **kwargs):
-  return builder(
-      name = name,
-      mastername = 'chromium.chromiumos',
-      goma_backend = goma.backend.RBE_PROD,
-      **kwargs
-  )
+ci.chromiumos_builder(
+    name = 'chromeos-amd64-generic-dbg',
+)
 
-chromiumos_builder(
+ci.chromiumos_builder(
     name = 'chromeos-amd64-generic-rel',
-    goma_enable_ats = True,
 )
 
-chromiumos_builder(
+ci.chromiumos_builder(
+    name = 'chromeos-arm-generic-rel',
+)
+
+ci.chromiumos_builder(
+    name = 'chromeos-kevin-rel',
+)
+
+ci.fyi_builder(
+    name = 'chromeos-kevin-rel-hw-tests',
+)
+
+ci.chromiumos_builder(
+    name = 'linux-chromeos-dbg',
+)
+
+ci.chromiumos_builder(
     name = 'linux-chromeos-rel',
 )
 
 
-def fyi_builder(
-    *,
-    name,
-    execution_timeout=10 * time.hour,
-    **kwargs):
-  return builder(
-      name = name,
-      execution_timeout = execution_timeout,
-      mastername = 'chromium.fyi',
-      **kwargs
-  )
-
-# This is launching & collecting entirely isolated tests.
-# OS shouldn't matter.
-fyi_builder(
-    name = 'mac-osxbeta-rel',
-    goma_backend = goma.backend.RBE_PROD,
+ci.dawn_builder(
+    name = 'Dawn Linux x64 DEPS Builder',
 )
 
-
-def fyi_windows_builder(*, name, os=os.WINDOWS_DEFAULT, **kwargs):
-  return fyi_builder(
-      name = name,
-      os = os,
-      **kwargs
-  )
-
-fyi_windows_builder(
-    name = 'Win10 Tests x64 1803',
-    os = os.WINDOWS_10,
+ci.dawn_builder(
+    name = 'Dawn Linux x64 DEPS Release (Intel HD 630)',
+    cores = 2,
+    os = os.LINUX_DEFAULT,
+    triggered_by = [builder_name('Dawn Linux x64 DEPS Builder')],
 )
 
-
-def gpu_builder(*, name, **kwargs):
-  return builder(
-      name = name,
-      mastername = 'chromium.gpu',
-      **kwargs
-  )
-
-gpu_builder(
-    name = 'Android Release (Nexus 5X)',
-    goma_backend = goma.backend.RBE_PROD,
+ci.dawn_builder(
+    name = 'Dawn Linux x64 DEPS Release (NVIDIA)',
+    cores = 2,
+    os = os.LINUX_DEFAULT,
+    triggered_by = [builder_name('Dawn Linux x64 DEPS Builder')],
 )
 
-gpu_builder(
-    name = 'GPU Linux Builder',
-    goma_backend = goma.backend.RBE_PROD,
-)
-
-gpu_builder(
-    name = 'GPU Mac Builder',
+ci.dawn_builder(
+    name = 'Dawn Mac x64 DEPS Builder',
+    builderless = False,
     cores = None,
-    goma_backend = goma.backend.RBE_PROD,
     os = os.MAC_ANY,
 )
 
-gpu_builder(
+# Note that the Mac testers are all thin Linux VMs, triggering jobs on the
+# physical Mac hardware in the Swarming pool which is why they run on linux
+ci.dawn_builder(
+    name = 'Dawn Mac x64 DEPS Release (AMD)',
+    cores = 2,
+    os = os.LINUX_DEFAULT,
+    triggered_by = [builder_name('Dawn Mac x64 DEPS Builder')],
+)
+
+ci.dawn_builder(
+    name = 'Dawn Mac x64 DEPS Release (Intel)',
+    cores = 2,
+    os = os.LINUX_DEFAULT,
+    triggered_by = [builder_name('Dawn Mac x64 DEPS Builder')],
+)
+
+ci.dawn_builder(
+    name = 'Dawn Win10 x64 DEPS Builder',
+    os = os.WINDOWS_ANY,
+)
+
+ci.dawn_builder(
+    name = 'Dawn Win10 x64 DEPS Release (Intel HD 630)',
+    cores = 2,
+    os = os.LINUX_DEFAULT,
+    triggered_by = [builder_name('Dawn Win10 x64 DEPS Builder')],
+)
+
+ci.dawn_builder(
+    name = 'Dawn Win10 x64 DEPS Release (NVIDIA)',
+    cores = 2,
+    os = os.LINUX_DEFAULT,
+    triggered_by = [builder_name('Dawn Win10 x64 DEPS Builder')],
+)
+
+ci.dawn_builder(
+    name = 'Dawn Win10 x86 DEPS Builder',
+    os = os.WINDOWS_ANY,
+)
+
+ci.dawn_builder(
+    name = 'Dawn Win10 x86 DEPS Release (Intel HD 630)',
+    cores = 2,
+    os = os.LINUX_DEFAULT,
+    triggered_by = [builder_name('Dawn Win10 x86 DEPS Builder')],
+)
+
+ci.dawn_builder(
+    name = 'Dawn Win10 x86 DEPS Release (NVIDIA)',
+    cores = 2,
+    os = os.LINUX_DEFAULT,
+    triggered_by = [builder_name('Dawn Win10 x86 DEPS Builder')],
+)
+
+
+ci.fyi_builder(
+    name = 'VR Linux',
+)
+
+# This is launching & collecting entirely isolated tests.
+# OS shouldn't matter.
+ci.fyi_builder(
+    name = 'mac-osxbeta-rel',
+    goma_backend = None,
+    triggered_by = [builder_name('Mac Builder')],
+)
+
+
+ci.fyi_windows_builder(
+    name = 'Win10 Tests x64 1803',
+    goma_backend = None,
+    os = os.WINDOWS_10,
+    triggered_by = [builder_name('Win x64 Builder')],
+)
+
+
+ci.gpu_builder(
+    name = 'Android Release (Nexus 5X)',
+)
+
+ci.gpu_builder(
+    name = 'GPU Linux Builder',
+)
+
+ci.gpu_builder(
+    name = 'GPU Mac Builder',
+    cores = None,
+    os = os.MAC_ANY,
+)
+
+ci.gpu_builder(
     name = 'GPU Win x64 Builder',
     builderless = True,
     os = os.WINDOWS_ANY,
 )
 
 
-# Many of the GPU testers are thin testers, they use linux VMS regardless of the
-# actual OS that the tests are built for
-def gpu_linux_ci_tester(*, name, **kwargs):
-  return gpu_builder(
-      name = name,
-      cores = 2,
-      os = os.LINUX_DEFAULT,
-      **kwargs
-  )
-
-gpu_linux_ci_tester(
+ci.gpu_thin_tester(
     name = 'Linux Release (NVIDIA)',
+    triggered_by = [builder_name('GPU Linux Builder')],
 )
 
-gpu_linux_ci_tester(
+ci.gpu_thin_tester(
     name = 'Mac Release (Intel)',
+    triggered_by = [builder_name('GPU Mac Builder')],
 )
 
-gpu_linux_ci_tester(
+ci.gpu_thin_tester(
     name = 'Mac Retina Release (AMD)',
+    triggered_by = [builder_name('GPU Mac Builder')],
 )
 
-gpu_linux_ci_tester(
+ci.gpu_thin_tester(
     name = 'Win10 x64 Release (NVIDIA)',
+    triggered_by = [builder_name('GPU Win x64 Builder')],
 )
 
 
-def linux_builder(*, name, goma_jobs = goma.jobs.MANY_JOBS_FOR_CI, **kwargs):
-  return builder(
-      name = name,
-      goma_jobs = goma_jobs,
-      mastername = 'chromium.linux',
-      **kwargs
-  )
+ci.linux_builder(
+    name = 'Cast Linux',
+    goma_jobs = goma.jobs.J50,
+)
 
-linux_builder(
+ci.linux_builder(
+    name = 'Fuchsia ARM64',
+    notifies = ['cr-fuchsia'],
+)
+
+ci.linux_builder(
+    name = 'Fuchsia x64',
+    notifies = ['cr-fuchsia'],
+)
+
+ci.linux_builder(
     name = 'Linux Builder',
-    goma_backend = goma.backend.RBE_PROD,
 )
 
-linux_builder(
+ci.linux_builder(
+    name = 'Linux Builder (dbg)',
+)
+
+ci.linux_builder(
     name = 'Linux Tests',
+    goma_backend = None,
+    triggered_by = [builder_name('Linux Builder')],
+)
+
+ci.linux_builder(
+    name = 'Linux Tests (dbg)(1)',
+    triggered_by = [builder_name('Linux Builder (dbg)')],
+)
+
+ci.linux_builder(
+    name = 'fuchsia-arm64-cast',
+    notifies = ['cr-fuchsia'],
+)
+
+ci.linux_builder(
+    name = 'fuchsia-x64-cast',
+    notifies = ['cr-fuchsia'],
+)
+
+ci.linux_builder(
+    name = 'linux-ozone-rel',
+)
+
+ci.linux_builder(
+    name = 'Linux Ozone Tester (Headless)',
+    triggered_by = [builder_name('linux-ozone-rel')],
+)
+
+ci.linux_builder(
+    name = 'Linux Ozone Tester (Wayland)',
+    triggered_by = [builder_name('linux-ozone-rel')],
+)
+
+ci.linux_builder(
+    name = 'Linux Ozone Tester (X11)',
+    triggered_by = [builder_name('linux-ozone-rel')],
 )
 
 
-def mac_builder(
-    *,
-    name,
-    cores=None,
-    goma_backend = goma.backend.RBE_PROD,
-    os=os.MAC_DEFAULT,
-    **kwargs):
-  return builder(
-      name = name,
-      cores = cores,
-      goma_backend = goma_backend,
-      mastername = 'chromium.mac',
-      os = os,
-      **kwargs
-  )
-
-mac_builder(
+ci.mac_builder(
     name = 'Mac Builder',
+    os = os.MAC_10_14,
+)
+
+ci.mac_builder(
+    name = 'Mac Builder (dbg)',
+    os = os.MAC_ANY,
 )
 
 # The build runs on 10.13, but triggers tests on 10.10 bots.
-mac_builder(
+ci.mac_builder(
     name = 'Mac10.10 Tests',
+    triggered_by = [builder_name('Mac Builder')],
 )
 
 # The build runs on 10.13, but triggers tests on 10.11 bots.
-mac_builder(
+ci.mac_builder(
     name = 'Mac10.11 Tests',
+    triggered_by = [builder_name('Mac Builder')],
 )
 
-mac_builder(
+ci.mac_builder(
     name = 'Mac10.12 Tests',
     os = os.MAC_10_12,
+    triggered_by = [builder_name('Mac Builder')],
 )
 
-mac_builder(
+ci.mac_builder(
     name = 'Mac10.13 Tests',
     os = os.MAC_10_13,
+    triggered_by = [builder_name('Mac Builder')],
 )
 
-mac_builder(
+ci.mac_builder(
+    name = 'Mac10.14 Tests',
+    os = os.MAC_10_14,
+    triggered_by = [builder_name('Mac Builder')],
+)
+
+ci.mac_builder(
+    name = 'Mac10.13 Tests (dbg)',
+    os = os.MAC_ANY,
+    triggered_by = [builder_name('Mac Builder (dbg)')],
+)
+
+ci.mac_builder(
     name = 'WebKit Mac10.13 (retina)',
     os = os.MAC_10_13,
+    triggered_by = [builder_name('Mac Builder')],
 )
 
 
-def mac_ios_builder(*, name, **kwargs):
-  return mac_builder(
-      name = name,
-      caches = [XCODE_IOS_11_CACHE],
-      executable = luci.recipe(name = 'ios/unified_builder_tester'),
-      goma_backend = None,
-      os = os.MAC_ANY,
-      **kwargs
-  )
-
-mac_ios_builder(
+ci.mac_ios_builder(
     name = 'ios-simulator',
+    executable = 'recipe:chromium',
+    properties = {
+        'xcode_build_version': '11c29',
+    },
 )
 
 
-def win_builder(*, name, os=os.WINDOWS_DEFAULT, **kwargs):
-  return builder(
-      name = name,
-      mastername = 'chromium.win',
-      os = os,
-      **kwargs
-  )
+ci.memory_builder(
+    name = 'Linux ASan LSan Builder',
+    ssd = True,
+)
 
-win_builder(
+ci.memory_builder(
+    name = 'Linux ASan LSan Tests (1)',
+    triggered_by = [builder_name('Linux ASan LSan Builder')],
+)
+
+ci.memory_builder(
+    name = 'Linux ASan Tests (sandboxed)',
+    triggered_by = [builder_name('Linux ASan LSan Builder')],
+)
+
+
+ci.win_builder(
+    name = 'Win7 Tests (dbg)(1)',
+    os = os.WINDOWS_7,
+    triggered_by = [builder_name('Win Builder (dbg)')],
+)
+
+ci.win_builder(
     name = 'Win 7 Tests x64 (1)',
     os = os.WINDOWS_7,
+    triggered_by = [builder_name('Win x64 Builder')],
 )
 
-win_builder(
+ci.win_builder(
+    name = 'Win Builder (dbg)',
+    cores = 32,
+    os = os.WINDOWS_ANY,
+)
+
+ci.win_builder(
     name = 'Win x64 Builder',
     cores = 32,
     os = os.WINDOWS_ANY,
 )
 
-win_builder(
+ci.win_builder(
     name = 'Win10 Tests x64',
+    triggered_by = [builder_name('Win x64 Builder')],
 )

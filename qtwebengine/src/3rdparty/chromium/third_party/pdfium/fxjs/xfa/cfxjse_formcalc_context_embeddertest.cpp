@@ -1072,6 +1072,7 @@ TEST_F(CFXJSE_FormCalcContextEmbedderTest, Decode) {
       {R"(Decode("abc&NoneSuchButVeryLongIndeed;", "html"))", "abc"},
       {R"(Decode("&#x0041;&AElig;&Aacute;", "html"))", "A\xC3\x86\xC3\x81"},
       {R"(Decode("xyz&#", "html"))", "xyz"},
+      {R"(Decode("|&zzzzzz;|", "html"))", "||"},
 
       // XML
       {R"(Decode("", "xml"))", ""},
@@ -1079,6 +1080,7 @@ TEST_F(CFXJSE_FormCalcContextEmbedderTest, Decode) {
       {R"(Decode("abc&nonesuchbutverylongindeed;", "xml"))", "abc"},
       {R"(Decode("&quot;&#x45;&lt;&gt;[].&apos;", "xml"))", "\"E<>[].'"},
       {R"(Decode("xyz&#", "xml"))", "xyz"},
+      {R"(Decode("|&zzzzzz;|", "xml"))", "||"},
 
       // URL
       {R"(Decode("", "url"))", ""},
@@ -1515,7 +1517,10 @@ TEST_F(CFXJSE_FormCalcContextEmbedderTest, InvalidFunctions) {
   ASSERT_TRUE(OpenDocument("simple_xfa.pdf"));
 
   const char* const tests[] = {
-      "F()", "()", "()()()", "Round(2.0)()",
+      "F()",
+      "()",
+      "()()()",
+      "Round(2.0)()",
   };
 
   for (size_t i = 0; i < FX_ArraySize(tests); ++i) {

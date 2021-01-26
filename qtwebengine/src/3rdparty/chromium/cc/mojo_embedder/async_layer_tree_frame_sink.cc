@@ -160,8 +160,7 @@ void AsyncLayerTreeFrameSink::SubmitCompositorFrame(
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(compositor_frame_sink_ptr_);
   DCHECK(frame.metadata.begin_frame_ack.has_damage);
-  DCHECK_LE(viz::BeginFrameArgs::kStartingFrameNumber,
-            frame.metadata.begin_frame_ack.sequence_number);
+  DCHECK(frame.metadata.begin_frame_ack.frame_id.IsSequenceValid());
 
   // It's possible to request an immediate composite from cc which will bypass
   // BeginFrame. In that case, we cannot collect full graphics pipeline data.
@@ -247,12 +246,16 @@ void AsyncLayerTreeFrameSink::DidNotProduceFrame(
     const viz::BeginFrameAck& ack) {
   DCHECK(compositor_frame_sink_ptr_);
   DCHECK(!ack.has_damage);
-  DCHECK_LE(viz::BeginFrameArgs::kStartingFrameNumber, ack.sequence_number);
+  DCHECK(ack.frame_id.IsSequenceValid());
 
   // TODO(yiyix): Remove duplicated calls of DidNotProduceFrame from the same
   // BeginFrames. https://crbug.com/881949
   auto it = pipeline_reporting_frame_times_.find(ack.trace_id);
   if (it != pipeline_reporting_frame_times_.end()) {
+    TRACE_EVENT_WITH_FLOW1("viz,benchmark", "Graphics.Pipeline",
+                           TRACE_ID_GLOBAL(ack.trace_id),
+                           TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT,
+                           "step", "DidNotProduceFrame");
     compositor_frame_sink_ptr_->DidNotProduceFrame(ack);
     pipeline_reporting_frame_times_.erase(it);
   }
@@ -336,6 +339,13 @@ void AsyncLayerTreeFrameSink::ReclaimResources(
 
 void AsyncLayerTreeFrameSink::OnNeedsBeginFrames(bool needs_begin_frames) {
   DCHECK(compositor_frame_sink_ptr_);
+  if (needs_begin_frames_ != needs_begin_frames) {
+    if (needs_begin_frames_) {
+      TRACE_EVENT_ASYNC_END0("cc,benchmark", "NeedsBeginFrames", this);
+    } else {
+      TRACE_EVENT_ASYNC_BEGIN0("cc,benchmark", "NeedsBeginFrames", this);
+    }
+  }
   needs_begin_frames_ = needs_begin_frames;
   compositor_frame_sink_ptr_->SetNeedsBeginFrame(needs_begin_frames);
 }

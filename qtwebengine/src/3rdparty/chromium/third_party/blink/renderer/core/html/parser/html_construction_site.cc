@@ -300,7 +300,7 @@ void HTMLConstructionSite::AttachLater(ContainerNode* parent,
   DCHECK(ScriptingContentIsAllowed(parser_content_policy_) || !element ||
          !element->IsScriptElement());
   DCHECK(PluginContentIsAllowed(parser_content_policy_) ||
-         !IsHTMLPlugInElement(child));
+         !IsA<HTMLPlugInElement>(child));
 
   HTMLConstructionSiteTask task(HTMLConstructionSiteTask::kInsert);
   task.parent = parent;
@@ -572,16 +572,15 @@ void HTMLConstructionSite::SetCompatibilityModeFromDoctype(
           "-//W3C//DTD HTML Experimental 970421//") ||
       public_id.StartsWithIgnoringASCIICase("-//W3C//DTD W3 HTML//") ||
       public_id.StartsWithIgnoringASCIICase("-//W3O//DTD W3 HTML 3.0//") ||
-      DeprecatedEqualIgnoringCase(public_id,
-                                  "-//W3O//DTD W3 HTML Strict 3.0//EN//") ||
+      EqualIgnoringASCIICase(public_id,
+                             "-//W3O//DTD W3 HTML Strict 3.0//EN//") ||
       public_id.StartsWithIgnoringASCIICase(
           "-//WebTechs//DTD Mozilla HTML 2.0//") ||
       public_id.StartsWithIgnoringASCIICase(
           "-//WebTechs//DTD Mozilla HTML//") ||
-      DeprecatedEqualIgnoringCase(public_id,
-                                  "-/W3C/DTD HTML 4.0 Transitional/EN") ||
-      DeprecatedEqualIgnoringCase(public_id, "HTML") ||
-      DeprecatedEqualIgnoringCase(
+      EqualIgnoringASCIICase(public_id, "-/W3C/DTD HTML 4.0 Transitional/EN") ||
+      EqualIgnoringASCIICase(public_id, "HTML") ||
+      EqualIgnoringASCIICase(
           system_id,
           "http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd") ||
       (system_id.IsEmpty() && public_id.StartsWithIgnoringASCIICase(
@@ -844,7 +843,7 @@ CreateElementFlags HTMLConstructionSite::GetCreateElementFlags() const {
                               : CreateElementFlags::ByParser();
 }
 
-inline Document& HTMLConstructionSite::OwnerDocumentForCurrentNode() {
+Document& HTMLConstructionSite::OwnerDocumentForCurrentNode() {
   if (auto* template_element = DynamicTo<HTMLTemplateElement>(*CurrentNode()))
     return template_element->content()->GetDocument();
   return CurrentNode()->GetDocument();
@@ -919,11 +918,15 @@ Element* HTMLConstructionSite::CreateElement(
     // reactions stack."
     CEReactionsScope reactions;
 
-    // 7. Let element be the result of creating an element given document,
+    // "7. Let element be the result of creating an element given document,
     // localName, given namespace, null, and is. If will execute script is true,
-    // set the synchronous custom elements flag; otherwise, leave it unset.
-    element =
-        definition->CreateElement(document, tag_name, GetCreateElementFlags());
+    // set the synchronous custom elements flag; otherwise, leave it unset."
+    // TODO(crbug.com/1080673): We clear the CreatedbyParser flag here, so that
+    // elements get fully constructed. Some elements (e.g. HTMLInputElement)
+    // only partially construct themselves when created by the parser, but since
+    // this is a custom element, we need a fully-constructed element here.
+    element = definition->CreateElement(
+        document, tag_name, GetCreateElementFlags().SetCreatedByParser(false));
 
     // "8. Append each attribute in the given token to element." We don't use
     // setAttributes here because the custom element constructor may have

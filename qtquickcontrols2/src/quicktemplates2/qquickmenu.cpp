@@ -216,8 +216,12 @@ public:
 
 QQuickMenuPrivate::QQuickMenuPrivate()
 {
-    Q_Q(QQuickMenu);
     cascade = shouldCascade();
+}
+
+void QQuickMenuPrivate::init()
+{
+    Q_Q(QQuickMenu);
     contentModel = new QQmlObjectModel(q);
 }
 
@@ -721,7 +725,18 @@ QQuickMenu::QQuickMenu(QObject *parent)
 {
     Q_D(QQuickMenu);
     setFocus(true);
+    d->init();
     connect(d->contentModel, &QQmlObjectModel::countChanged, this, &QQuickMenu::countChanged);
+}
+
+QQuickMenu::~QQuickMenu()
+{
+    Q_D(QQuickMenu);
+    // We have to do this to ensure that the change listeners are removed.
+    // It's too late to do this in ~QQuickMenuPrivate, as contentModel has already
+    // been destroyed before that is called.
+    while (d->contentModel->count() > 0)
+        d->removeItem(0, d->itemAt(0));
 }
 
 /*!

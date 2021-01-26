@@ -35,6 +35,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind_helpers.h"
 #include "third_party/blink/public/web/web_settings.h"
 #include "third_party/blink/renderer/bindings/core/v8/referrer_script_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
@@ -71,7 +72,7 @@
 
 namespace blink {
 
-void ScriptController::Trace(blink::Visitor* visitor) {
+void ScriptController::Trace(Visitor* visitor) {
   visitor->Trace(frame_);
   visitor->Trace(window_proxy_manager_);
 }
@@ -129,8 +130,8 @@ v8::Local<v8::Value> ScriptController::ExecuteScriptAndReturnValue(
       return result;
 
     v8::MaybeLocal<v8::Value> maybe_result;
-    maybe_result = V8ScriptRunner::RunCompiledScript(GetIsolate(), script,
-                                                     GetFrame()->GetDocument());
+    maybe_result = V8ScriptRunner::RunCompiledScript(
+        GetIsolate(), script, GetFrame()->GetDocument()->ToExecutionContext());
     probe::ProduceCompilationCache(frame_, source, script);
     V8CodeCache::ProduceCache(GetIsolate(), script, source,
                               produce_cache_options);
@@ -232,7 +233,7 @@ void ScriptController::UpdateDocument() {
 
 void ScriptController::ExecuteJavaScriptURL(
     const KURL& url,
-    ContentSecurityPolicyDisposition check_main_world_csp) {
+    network::mojom::CSPDisposition check_main_world_csp) {
   DCHECK(url.ProtocolIsJavaScript());
 
   const int kJavascriptSchemeLength = sizeof("javascript:") - 1;
@@ -240,8 +241,9 @@ void ScriptController::ExecuteJavaScriptURL(
       url.GetString(), DecodeURLMode::kUTF8OrIsomorphic);
 
   bool should_bypass_main_world_content_security_policy =
-      check_main_world_csp == kDoNotCheckContentSecurityPolicy ||
-      ContentSecurityPolicy::ShouldBypassMainWorld(GetFrame()->GetDocument());
+      check_main_world_csp == network::mojom::CSPDisposition::DO_NOT_CHECK ||
+      ContentSecurityPolicy::ShouldBypassMainWorld(
+          GetFrame()->GetDocument()->ToExecutionContext());
   if (!GetFrame()->GetPage())
     return;
 
@@ -304,7 +306,7 @@ void ScriptController::ExecuteJavaScriptURL(
   WebNavigationParams::FillStaticResponse(params.get(), "text/html", "UTF-8",
                                           StringUTF8Adaptor(result));
   GetFrame()->Loader().CommitNavigation(std::move(params), nullptr,
-                                        base::DoNothing::Once(), true);
+                                        true /* is_javascript_url */);
 }
 
 void ScriptController::ExecuteScriptInMainWorld(

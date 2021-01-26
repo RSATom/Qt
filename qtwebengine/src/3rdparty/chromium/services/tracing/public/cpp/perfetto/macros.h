@@ -8,6 +8,11 @@
 #include "base/trace_event/trace_event.h"
 #include "services/tracing/public/cpp/perfetto/macros_internal.h"
 
+// Needed not for this file but for every user of the TRACE_EVENT macros for the
+// lambda definition. So included here for convenience.
+#include "third_party/perfetto/include/perfetto/tracing/event_context.h"
+#include "third_party/perfetto/protos/perfetto/trace/track_event/track_event.pbzero.h"
+
 #if defined(TRACE_EVENT_BEGIN)
 #error "Another copy of perfetto tracing macros have been included"
 #endif
@@ -38,6 +43,8 @@ constexpr char kTraceEventEndName[] = "";
 //           auto* event = ctx.event();
 //           // Fill in some field in track_event.
 //       });
+//
+// When lambda is passed as an argument, it is executed synchronously.
 #define TRACE_EVENT_BEGIN(category, name, ...)                              \
   TRACING_INTERNAL_ADD_TRACE_EVENT(TRACE_EVENT_PHASE_BEGIN, category, name, \
                                    TRACE_EVENT_FLAG_NONE, ##__VA_ARGS__)
@@ -50,14 +57,15 @@ constexpr char kTraceEventEndName[] = "";
 
 // Begin a thread-scoped slice which gets automatically closed when going out
 // of scope.
+//
+// Similarly to TRACE_EVENT_BEGIN, when lambda is passed as an argument, it is
+// executed synchronously.
 #define TRACE_EVENT(category, name, ...) \
   TRACING_INTERNAL_SCOPED_ADD_TRACE_EVENT(category, name, ##__VA_ARGS__)
 
-// Emit a thread-scoped slice which has zero duration.
-// TODO(nuskos): Add support for process-wide and global instant events when
-// perfetto does.
-#define TRACE_EVENT_INSTANT(category, name, ...)                              \
+// Emit a single event called "name" immediately, with zero duration.
+#define TRACE_EVENT_INSTANT(category, name, scope, ...)                       \
   TRACING_INTERNAL_ADD_TRACE_EVENT(TRACE_EVENT_PHASE_INSTANT, category, name, \
-                                   TRACE_EVENT_SCOPE_THREAD, ##__VA_ARGS__)
+                                   scope, ##__VA_ARGS__)
 
 #endif  // SERVICES_TRACING_PUBLIC_CPP_PERFETTO_MACROS_H_

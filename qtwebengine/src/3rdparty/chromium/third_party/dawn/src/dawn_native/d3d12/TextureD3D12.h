@@ -18,6 +18,7 @@
 #include "common/Serial.h"
 #include "dawn_native/Texture.h"
 
+#include "dawn_native/DawnNative.h"
 #include "dawn_native/d3d12/ResourceHeapAllocationD3D12.h"
 #include "dawn_native/d3d12/d3d12_platform.h"
 
@@ -36,9 +37,10 @@ namespace dawn_native { namespace d3d12 {
         static ResultOrError<TextureBase*> Create(Device* device,
                                                   const TextureDescriptor* descriptor);
         static ResultOrError<TextureBase*> Create(Device* device,
-                                                  const TextureDescriptor* descriptor,
+                                                  const ExternalImageDescriptor* descriptor,
                                                   HANDLE sharedHandle,
-                                                  uint64_t acquireMutexKey);
+                                                  uint64_t acquireMutexKey,
+                                                  bool isSwapChainTexture);
         Texture(Device* device,
                 const TextureDescriptor* descriptor,
                 ComPtr<ID3D12Resource> d3d12Texture);
@@ -47,22 +49,26 @@ namespace dawn_native { namespace d3d12 {
 
         DXGI_FORMAT GetD3D12Format() const;
         ID3D12Resource* GetD3D12Resource() const;
-        bool TransitionUsageAndGetResourceBarrier(CommandRecordingContext* commandContext,
-                                                  D3D12_RESOURCE_BARRIER* barrier,
-                                                  wgpu::TextureUsage newUsage);
-        void TransitionUsageNow(CommandRecordingContext* commandContext, wgpu::TextureUsage usage);
-        void TransitionUsageNow(CommandRecordingContext* commandContext,
-                                D3D12_RESOURCE_STATES newState);
 
-        D3D12_RENDER_TARGET_VIEW_DESC GetRTVDescriptor(uint32_t baseMipLevel,
+        D3D12_RENDER_TARGET_VIEW_DESC GetRTVDescriptor(uint32_t mipLevel,
                                                        uint32_t baseArrayLayer,
                                                        uint32_t layerCount) const;
-        D3D12_DEPTH_STENCIL_VIEW_DESC GetDSVDescriptor(uint32_t baseMipLevel) const;
+        D3D12_DEPTH_STENCIL_VIEW_DESC GetDSVDescriptor(uint32_t mipLevel,
+                                                       uint32_t baseArrayLayer,
+                                                       uint32_t layerCount) const;
         void EnsureSubresourceContentInitialized(CommandRecordingContext* commandContext,
                                                  uint32_t baseMipLevel,
                                                  uint32_t levelCount,
                                                  uint32_t baseArrayLayer,
                                                  uint32_t layerCount);
+
+        bool TrackUsageAndGetResourceBarrier(CommandRecordingContext* commandContext,
+                                             D3D12_RESOURCE_BARRIER* barrier,
+                                             wgpu::TextureUsage newUsage);
+        void TrackUsageAndTransitionNow(CommandRecordingContext* commandContext,
+                                        wgpu::TextureUsage usage);
+        void TrackUsageAndTransitionNow(CommandRecordingContext* commandContext,
+                                        D3D12_RESOURCE_STATES newState);
 
       private:
         using TextureBase::TextureBase;
@@ -70,7 +76,8 @@ namespace dawn_native { namespace d3d12 {
         MaybeError InitializeAsInternalTexture();
         MaybeError InitializeAsExternalTexture(const TextureDescriptor* descriptor,
                                                HANDLE sharedHandle,
-                                               uint64_t acquireMutexKey);
+                                               uint64_t acquireMutexKey,
+                                               bool isSwapChainTexture);
 
         // Dawn API
         void DestroyImpl() override;
@@ -83,6 +90,9 @@ namespace dawn_native { namespace d3d12 {
 
         UINT16 GetDepthOrArraySize();
 
+        bool TrackUsageAndGetResourceBarrier(CommandRecordingContext* commandContext,
+                                             D3D12_RESOURCE_BARRIER* barrier,
+                                             D3D12_RESOURCE_STATES newState);
         bool TransitionUsageAndGetResourceBarrier(CommandRecordingContext* commandContext,
                                                   D3D12_RESOURCE_BARRIER* barrier,
                                                   D3D12_RESOURCE_STATES newState);
@@ -92,6 +102,7 @@ namespace dawn_native { namespace d3d12 {
 
         Serial mLastUsedSerial = UINT64_MAX;
         bool mValidToDecay = false;
+        bool mSwapChainTexture = false;
 
         Serial mAcquireMutexKey = 0;
         ComPtr<IDXGIKeyedMutex> mDxgiKeyedMutex;

@@ -43,14 +43,14 @@ void StackProfileTracker::AddString(SourceStringId id, base::StringView str) {
   string_map_.emplace(id, str.ToStdString());
 }
 
-base::Optional<int64_t> StackProfileTracker::AddMapping(
+base::Optional<MappingId> StackProfileTracker::AddMapping(
     SourceMappingId id,
     const SourceMapping& mapping,
     const InternLookup* intern_lookup) {
   std::string path;
   for (SourceStringId str_id : mapping.name_ids) {
-    auto opt_str =
-        FindString(str_id, intern_lookup, InternedStringType::kMappingPath);
+    auto opt_str = FindOrInsertString(str_id, intern_lookup,
+                                      InternedStringType::kMappingPath);
     if (!opt_str)
       break;
     path += "/" + *opt_str;
@@ -60,7 +60,7 @@ base::Optional<int64_t> StackProfileTracker::AddMapping(
                                           InternedStringType::kBuildId);
   if (!opt_build_id) {
     context_->storage->IncrementStats(stats::stackprofile_invalid_string_id);
-    PERFETTO_DFATAL("Invalid string.");
+    PERFETTO_DLOG("Invalid string.");
     return base::nullopt;
   }
   const StringId raw_build_id = opt_build_id.value();
@@ -68,12 +68,21 @@ base::Optional<int64_t> StackProfileTracker::AddMapping(
       context_->storage->GetString(raw_build_id);
   StringId build_id = GetEmptyStringId();
   if (raw_build_id_str.size() > 0) {
-    std::string hex_build_id =
-        base::ToHex(raw_build_id_str.c_str(), raw_build_id_str.size());
-    build_id = context_->storage->InternString(base::StringView(hex_build_id));
+    // If the build_id is 33 characters long, we assume it's a Breakpad debug
+    // identifier which is already in Hex and doesn't need conversion.
+    // TODO(b/148109467): Remove workaround once all active Chrome versions
+    // write raw bytes instead of a string as build_id.
+    if (raw_build_id_str.size() == 33) {
+      build_id = raw_build_id;
+    } else {
+      std::string hex_build_id =
+          base::ToHex(raw_build_id_str.c_str(), raw_build_id_str.size());
+      build_id =
+          context_->storage->InternString(base::StringView(hex_build_id));
+    }
   }
 
-  TraceStorage::StackProfileMappings::Row row{
+  tables::StackProfileMappingTable::Row row{
       build_id,
       static_cast<int64_t>(mapping.exact_offset),
       static_cast<int64_t>(mapping.start_offset),
@@ -82,42 +91,42 @@ base::Optional<int64_t> StackProfileTracker::AddMapping(
       static_cast<int64_t>(mapping.load_bias),
       context_->storage->InternString(base::StringView(path))};
 
-  TraceStorage::StackProfileMappings* mappings =
-      context_->storage->mutable_stack_profile_mappings();
-  int64_t cur_row = -1;
+  tables::StackProfileMappingTable* mappings =
+      context_->storage->mutable_stack_profile_mapping_table();
+  base::Optional<MappingId> cur_id;
   auto it = mapping_idx_.find(row);
   if (it != mapping_idx_.end()) {
-    cur_row = it->second;
+    cur_id = it->second;
   } else {
-    std::vector<int64_t> db_mappings =
-        mappings->FindMappingRow(row.name_id, row.build_id);
-    for (const int64_t preexisting_mapping : db_mappings) {
-      PERFETTO_DCHECK(preexisting_mapping >= 0);
-      size_t preexisting_row_id = static_cast<size_t>(preexisting_mapping);
-      TraceStorage::StackProfileMappings::Row preexisting_row{
-          mappings->build_ids()[preexisting_row_id],
-          mappings->exact_offsets()[preexisting_row_id],
-          mappings->start_offsets()[preexisting_row_id],
-          mappings->starts()[preexisting_row_id],
-          mappings->ends()[preexisting_row_id],
-          mappings->load_biases()[preexisting_row_id],
-          mappings->names()[preexisting_row_id]};
+    std::vector<MappingId> db_mappings =
+        context_->storage->FindMappingRow(row.name, row.build_id);
+    for (const MappingId preexisting_mapping : db_mappings) {
+      uint32_t preexisting_row = *mappings->id().IndexOf(preexisting_mapping);
+      tables::StackProfileMappingTable::Row preexisting_data{
+          mappings->build_id()[preexisting_row],
+          mappings->exact_offset()[preexisting_row],
+          mappings->start_offset()[preexisting_row],
+          mappings->start()[preexisting_row],
+          mappings->end()[preexisting_row],
+          mappings->load_bias()[preexisting_row],
+          mappings->name()[preexisting_row]};
 
-      if (row == preexisting_row) {
-        cur_row = preexisting_mapping;
+      if (row == preexisting_data) {
+        cur_id = preexisting_mapping;
       }
     }
-    if (cur_row == -1) {
-      cur_row =
-          context_->storage->mutable_stack_profile_mappings()->Insert(row);
+    if (!cur_id) {
+      MappingId mapping_id = mappings->Insert(row).id;
+      context_->storage->InsertMappingId(row.name, row.build_id, mapping_id);
+      cur_id = mapping_id;
     }
-    mapping_idx_.emplace(row, cur_row);
+    mapping_idx_.emplace(row, *cur_id);
   }
-  mappings_.emplace(id, cur_row);
-  return cur_row;
+  mapping_ids_.emplace(id, *cur_id);
+  return cur_id;
 }
 
-base::Optional<int64_t> StackProfileTracker::AddFrame(
+base::Optional<FrameId> StackProfileTracker::AddFrame(
     SourceFrameId id,
     const SourceFrame& frame,
     const InternLookup* intern_lookup) {
@@ -125,102 +134,94 @@ base::Optional<int64_t> StackProfileTracker::AddFrame(
                                         InternedStringType::kFunctionName);
   if (!opt_str_id) {
     context_->storage->IncrementStats(stats::stackprofile_invalid_string_id);
-    PERFETTO_DFATAL("Invalid string.");
+    PERFETTO_DLOG("Invalid string.");
     return base::nullopt;
   }
   const StringId& str_id = opt_str_id.value();
 
-  auto maybe_mapping = FindMapping(frame.mapping_id, intern_lookup);
-  if (!maybe_mapping) {
+  auto opt_mapping = FindOrInsertMapping(frame.mapping_id, intern_lookup);
+  if (!opt_mapping) {
     context_->storage->IncrementStats(stats::stackprofile_invalid_mapping_id);
     PERFETTO_ELOG("Invalid mapping for frame %" PRIu64, id);
     return base::nullopt;
   }
-  int64_t mapping_row = *maybe_mapping;
+  MappingId mapping_id = *opt_mapping;
 
-  TraceStorage::StackProfileFrames::Row row{str_id, mapping_row,
-                                            static_cast<int64_t>(frame.rel_pc)};
+  tables::StackProfileFrameTable::Row row{str_id, mapping_id,
+                                          static_cast<int64_t>(frame.rel_pc)};
 
-  TraceStorage::StackProfileFrames* frames =
-      context_->storage->mutable_stack_profile_frames();
+  auto* frames = context_->storage->mutable_stack_profile_frame_table();
 
-  int64_t cur_row = -1;
+  base::Optional<FrameId> cur_id;
   auto it = frame_idx_.find(row);
   if (it != frame_idx_.end()) {
-    cur_row = it->second;
+    cur_id = it->second;
   } else {
-    std::vector<int64_t> db_frames =
-        frames->FindFrameRow(static_cast<size_t>(mapping_row), frame.rel_pc);
-    for (const int64_t preexisting_frame : db_frames) {
-      PERFETTO_DCHECK(preexisting_frame >= 0);
-      size_t preexisting_row_id = static_cast<size_t>(preexisting_frame);
-      TraceStorage::StackProfileFrames::Row preexisting_row{
-          frames->names()[preexisting_row_id],
-          frames->mappings()[preexisting_row_id],
-          frames->rel_pcs()[preexisting_row_id]};
+    std::vector<FrameId> db_frames =
+        context_->storage->FindFrameIds(mapping_id, frame.rel_pc);
+    for (const FrameId preexisting_frame : db_frames) {
+      uint32_t preexisting_row_id = preexisting_frame.value;
+      tables::StackProfileFrameTable::Row preexisting_row{
+          frames->name()[preexisting_row_id],
+          frames->mapping()[preexisting_row_id],
+          frames->rel_pc()[preexisting_row_id]};
 
       if (row == preexisting_row) {
-        cur_row = preexisting_frame;
+        cur_id = preexisting_frame;
       }
     }
-    if (cur_row == -1) {
-      cur_row = context_->storage->mutable_stack_profile_frames()->Insert(row);
+    if (!cur_id) {
+      cur_id = frames->Insert(row).id;
+      context_->storage->InsertFrameRow(
+          mapping_id, static_cast<uint64_t>(row.rel_pc), *cur_id);
     }
-    frame_idx_.emplace(row, cur_row);
+    frame_idx_.emplace(row, *cur_id);
   }
-  frames_.emplace(id, cur_row);
-  return cur_row;
+  frame_ids_.emplace(id, *cur_id);
+  return cur_id;
 }
 
-base::Optional<int64_t> StackProfileTracker::AddCallstack(
+base::Optional<CallsiteId> StackProfileTracker::AddCallstack(
     SourceCallstackId id,
     const SourceCallstack& frame_ids,
     const InternLookup* intern_lookup) {
-  // TODO(fmayer): This should be NULL.
-  int64_t parent_id = -1;
-  for (size_t depth = 0; depth < frame_ids.size(); ++depth) {
-    std::vector<SourceFrameId> frame_subset = frame_ids;
-    frame_subset.resize(depth + 1);
-    auto self_it = callstacks_from_frames_.find(frame_subset);
-    if (self_it != callstacks_from_frames_.end()) {
-      parent_id = self_it->second;
-      continue;
-    }
+  if (frame_ids.size() == 0)
+    return base::nullopt;
 
-    SourceFrameId frame_id = frame_ids[depth];
-    auto maybe_frame_row = FindFrame(frame_id, intern_lookup);
-    if (!maybe_frame_row) {
+  base::Optional<CallsiteId> parent_id;
+  for (uint32_t depth = 0; depth < frame_ids.size(); ++depth) {
+    auto opt_frame_id = FindOrInsertFrame(frame_ids[depth], intern_lookup);
+    if (!opt_frame_id) {
       context_->storage->IncrementStats(stats::stackprofile_invalid_frame_id);
       PERFETTO_ELOG("Unknown frame in callstack; ignoring.");
       return base::nullopt;
     }
-    int64_t frame_row = *maybe_frame_row;
+    FrameId frame_id = *opt_frame_id;
 
-    tables::StackProfileCallsiteTable::Row row{static_cast<int64_t>(depth),
-                                               parent_id, frame_row};
-
-    int64_t self_id;
+    tables::StackProfileCallsiteTable::Row row{depth, parent_id, frame_id};
+    CallsiteId self_id;
     auto callsite_it = callsite_idx_.find(row);
     if (callsite_it != callsite_idx_.end()) {
       self_id = callsite_it->second;
     } else {
-      self_id =
-          context_->storage->mutable_stack_profile_callsite_table()->Insert(
-              row);
+      auto* callsite =
+          context_->storage->mutable_stack_profile_callsite_table();
+      self_id = callsite->Insert(row).id;
       callsite_idx_.emplace(row, self_id);
     }
     parent_id = self_id;
   }
-  callstacks_.emplace(id, parent_id);
+  PERFETTO_DCHECK(parent_id);  // The loop ran at least once.
+  callstack_ids_.emplace(id, *parent_id);
   return parent_id;
 }
 
-int64_t StackProfileTracker::GetDatabaseFrameIdForTesting(
+FrameId StackProfileTracker::GetDatabaseFrameIdForTesting(
     SourceFrameId frame_id) {
-  auto it = frames_.find(frame_id);
-  if (it == frames_.end()) {
-    PERFETTO_DFATAL("Invalid frame.");
-    return -1;
+  auto it = frame_ids_.find(frame_id);
+  if (it == frame_ids_.end()) {
+    PERFETTO_DLOG("Invalid frame.");
+    return {};
   }
   return it->second;
 }
@@ -232,14 +233,14 @@ base::Optional<StringId> StackProfileTracker::FindAndInternString(
   if (id == 0)
     return GetEmptyStringId();
 
-  auto opt_str = FindString(id, intern_lookup, type);
+  auto opt_str = FindOrInsertString(id, intern_lookup, type);
   if (!opt_str)
     return GetEmptyStringId();
 
   return context_->storage->InternString(base::StringView(*opt_str));
 }
 
-base::Optional<std::string> StackProfileTracker::FindString(
+base::Optional<std::string> StackProfileTracker::FindOrInsertString(
     SourceStringId id,
     const InternLookup* intern_lookup,
     StackProfileTracker::InternedStringType type) {
@@ -253,7 +254,7 @@ base::Optional<std::string> StackProfileTracker::FindString(
       if (!str) {
         context_->storage->IncrementStats(
             stats::stackprofile_invalid_string_id);
-        PERFETTO_DFATAL("Invalid string.");
+        PERFETTO_DLOG("Invalid string.");
         return base::nullopt;
       }
       return str->ToStdString();
@@ -264,12 +265,12 @@ base::Optional<std::string> StackProfileTracker::FindString(
   return it->second;
 }
 
-base::Optional<int64_t> StackProfileTracker::FindMapping(
+base::Optional<MappingId> StackProfileTracker::FindOrInsertMapping(
     SourceMappingId mapping_id,
     const InternLookup* intern_lookup) {
-  base::Optional<int64_t> res;
-  auto it = mappings_.find(mapping_id);
-  if (it == mappings_.end()) {
+  base::Optional<MappingId> res;
+  auto it = mapping_ids_.find(mapping_id);
+  if (it == mapping_ids_.end()) {
     if (intern_lookup) {
       auto interned_mapping = intern_lookup->GetMapping(mapping_id);
       if (interned_mapping) {
@@ -279,19 +280,19 @@ base::Optional<int64_t> StackProfileTracker::FindMapping(
     }
     context_->storage->IncrementStats(stats::stackprofile_invalid_mapping_id);
     PERFETTO_ELOG("Unknown mapping %" PRIu64 " : %zu", mapping_id,
-                  mappings_.size());
+                  mapping_ids_.size());
     return res;
   }
   res = it->second;
   return res;
 }
 
-base::Optional<int64_t> StackProfileTracker::FindFrame(
+base::Optional<FrameId> StackProfileTracker::FindOrInsertFrame(
     SourceFrameId frame_id,
     const InternLookup* intern_lookup) {
-  base::Optional<int64_t> res;
-  auto it = frames_.find(frame_id);
-  if (it == frames_.end()) {
+  base::Optional<FrameId> res;
+  auto it = frame_ids_.find(frame_id);
+  if (it == frame_ids_.end()) {
     if (intern_lookup) {
       auto interned_frame = intern_lookup->GetFrame(frame_id);
       if (interned_frame) {
@@ -300,28 +301,28 @@ base::Optional<int64_t> StackProfileTracker::FindFrame(
       }
     }
     context_->storage->IncrementStats(stats::stackprofile_invalid_frame_id);
-    PERFETTO_DFATAL("Unknown frame %" PRIu64 " : %zu", frame_id,
-                    frames_.size());
+    PERFETTO_DLOG("Unknown frame %" PRIu64 " : %zu", frame_id,
+                  frame_ids_.size());
     return res;
   }
   res = it->second;
   return res;
 }
 
-base::Optional<int64_t> StackProfileTracker::FindCallstack(
+base::Optional<CallsiteId> StackProfileTracker::FindOrInsertCallstack(
     SourceCallstackId callstack_id,
     const InternLookup* intern_lookup) {
-  base::Optional<int64_t> res;
-  auto it = callstacks_.find(callstack_id);
-  if (it == callstacks_.end()) {
+  base::Optional<CallsiteId> res;
+  auto it = callstack_ids_.find(callstack_id);
+  if (it == callstack_ids_.end()) {
     auto interned_callstack = intern_lookup->GetCallstack(callstack_id);
     if (interned_callstack) {
       res = AddCallstack(callstack_id, *interned_callstack, intern_lookup);
       return res;
     }
     context_->storage->IncrementStats(stats::stackprofile_invalid_callstack_id);
-    PERFETTO_DFATAL("Unknown callstack %" PRIu64 " : %zu", callstack_id,
-                    callstacks_.size());
+    PERFETTO_DLOG("Unknown callstack %" PRIu64 " : %zu", callstack_id,
+                  callstack_ids_.size());
     return res;
   }
   res = it->second;
@@ -330,10 +331,9 @@ base::Optional<int64_t> StackProfileTracker::FindCallstack(
 
 void StackProfileTracker::ClearIndices() {
   string_map_.clear();
-  mappings_.clear();
-  callstacks_from_frames_.clear();
-  callstacks_.clear();
-  frames_.clear();
+  mapping_ids_.clear();
+  callstack_ids_.clear();
+  frame_ids_.clear();
 }
 
 }  // namespace trace_processor

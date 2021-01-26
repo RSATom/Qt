@@ -9,12 +9,15 @@
 
 #include "base/message_loop/message_pump_type.h"
 #include "base/strings/utf_string_conversions.h"
+#include "ui/base/buildflags.h"
+#include "ui/base/ime/linux/linux_input_method_context_factory.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/display/fake/fake_display_delegate.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
-#include "ui/events/platform/x11/x11_event_source_default.h"
+#include "ui/events/platform/x11/x11_event_source.h"
+#include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/x/x11_connection.h"
 #include "ui/gfx/x/x11_types.h"
 #include "ui/ozone/common/stub_overlay_manager.h"
@@ -34,6 +37,18 @@
 #include "ui/base/ime/chromeos/input_method_chromeos.h"
 #else
 #include "ui/base/ime/linux/input_method_auralinux.h"
+#endif
+
+#if BUILDFLAG(USE_GTK)
+#include "ui/gtk/gtk_ui_delegate.h"      // nogncheck
+#include "ui/gtk/gtk_ui_delegate_x11.h"  // nogncheck
+#endif
+
+#if BUILDFLAG(USE_XKBCOMMON)
+#include "ui/events/ozone/layout/xkb/xkb_evdev_codes.h"
+#include "ui/events/ozone/layout/xkb/xkb_keyboard_layout_engine.h"
+#else
+#include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
 #endif
 
 namespace ui {
@@ -108,10 +123,17 @@ class OzonePlatformX11 : public OzonePlatform {
   }
 
   std::unique_ptr<InputMethod> CreateInputMethod(
-      internal::InputMethodDelegate* delegate) override {
+      internal::InputMethodDelegate* delegate,
+      gfx::AcceleratedWidget) override {
 #if defined(OS_CHROMEOS)
     return std::make_unique<InputMethodChromeOS>(delegate);
 #else
+    // This method is used by upper layer components (e.g: GtkUi) to determine
+    // if the LinuxInputMethodContextFactory instance is provided by the Ozone
+    // platform implementation, so we must consider the case that it is still
+    // not set at this point.
+    if (!ui::LinuxInputMethodContextFactory::instance())
+      return nullptr;
     return std::make_unique<InputMethodAuraLinux>(delegate);
 #endif
   }
@@ -129,12 +151,24 @@ class OzonePlatformX11 : public OzonePlatform {
     cursor_factory_ozone_ = std::make_unique<X11CursorFactoryOzone>();
     gpu_platform_support_host_.reset(CreateStubGpuPlatformSupportHost());
 
-    // TODO(spang): Support XKB.
+#if BUILDFLAG(USE_XKBCOMMON)
+    keyboard_layout_engine_ =
+        std::make_unique<XkbKeyboardLayoutEngine>(xkb_evdev_code_converter_);
+    // TODO(nickdiego): debugging..
     keyboard_layout_engine_ = std::make_unique<StubKeyboardLayoutEngine>();
+#else
+    keyboard_layout_engine_ = std::make_unique<StubKeyboardLayoutEngine>();
+#endif
     KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
         keyboard_layout_engine_.get());
 
     TouchFactory::SetTouchDeviceListFromCommandLine();
+
+#if BUILDFLAG(USE_GTK)
+    DCHECK(!GtkUiDelegate::instance());
+    gtk_ui_delegate_ = std::make_unique<GtkUiDelegateX11>(gfx::GetXDisplay());
+    GtkUiDelegate::SetInstance(gtk_ui_delegate_.get());
+#endif
   }
 
   void InitializeGPU(const InitParams& params) override {
@@ -175,10 +209,14 @@ class OzonePlatformX11 : public OzonePlatform {
       return;
 
     XDisplay* display = gfx::GetXDisplay();
-    event_source_ = std::make_unique<X11EventSourceDefault>(display);
+    event_source_ = std::make_unique<X11EventSource>(display);
   }
 
   bool common_initialized_ = false;
+
+#if BUILDFLAG(USE_XKBCOMMON)
+  XkbEvdevCodes xkb_evdev_code_converter_;
+#endif
 
   // Objects in the UI process.
   std::unique_ptr<KeyboardLayoutEngine> keyboard_layout_engine_;
@@ -192,7 +230,11 @@ class OzonePlatformX11 : public OzonePlatform {
   std::unique_ptr<X11SurfaceFactory> surface_factory_ozone_;
 
   // Objects in both UI and GPU process.
-  std::unique_ptr<X11EventSourceDefault> event_source_;
+  std::unique_ptr<X11EventSource> event_source_;
+
+#if BUILDFLAG(USE_GTK)
+  std::unique_ptr<GtkUiDelegate> gtk_ui_delegate_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(OzonePlatformX11);
 };

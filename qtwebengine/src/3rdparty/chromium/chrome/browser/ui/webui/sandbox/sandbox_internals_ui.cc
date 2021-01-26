@@ -17,7 +17,7 @@
 #if defined(TOOLKIT_QT)
 #include "qtwebengine/grit/qt_webengine_resources.h"
 #else
-#include "chrome/grit/browser_resources.h"
+#include "chrome/grit/dev_ui_browser_resources.h"
 #endif
 
 #if defined(OS_WIN)

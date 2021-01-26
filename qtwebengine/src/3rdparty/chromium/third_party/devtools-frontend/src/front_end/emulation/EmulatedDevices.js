@@ -1,30 +1,37 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';
+import * as SDK from '../sdk/sdk.js';
+import * as UI from '../ui/ui.js';
+
+import {MaxDeviceSize, MinDeviceSize} from './DeviceModeModel.js';
+
 /**
  * @unrestricted
  */
-Emulation.EmulatedDevice = class {
+export class EmulatedDevice {
   constructor() {
     /** @type {string} */
     this.title = '';
     /** @type {string} */
-    this.type = Emulation.EmulatedDevice.Type.Unknown;
-    /** @type {!Emulation.EmulatedDevice.Orientation} */
+    this.type = Type.Unknown;
+    /** @type {!Orientation} */
     this.vertical = {width: 0, height: 0, outlineInsets: null, outlineImage: null};
-    /** @type {!Emulation.EmulatedDevice.Orientation} */
+    /** @type {!Orientation} */
     this.horizontal = {width: 0, height: 0, outlineInsets: null, outlineImage: null};
     /** @type {number} */
     this.deviceScaleFactor = 1;
     /** @type {!Array.<string>} */
-    this.capabilities = [Emulation.EmulatedDevice.Capability.Touch, Emulation.EmulatedDevice.Capability.Mobile];
+    this.capabilities = [Capability.Touch, Capability.Mobile];
     /** @type {string} */
     this.userAgent = '';
-    /** @type {!Array.<!Emulation.EmulatedDevice.Mode>} */
+    /** @type {!Array.<!Mode>} */
     this.modes = [];
 
     /** @type {string} */
-    this._show = Emulation.EmulatedDevice._Show.Default;
+    this._show = _Show.Default;
     /** @type {boolean} */
     this._showByDefault = true;
 
@@ -34,7 +41,7 @@ Emulation.EmulatedDevice = class {
 
   /**
    * @param {*} json
-   * @return {?Emulation.EmulatedDevice}
+   * @return {?EmulatedDevice}
    */
   static fromJSONV1(json) {
     try {
@@ -74,30 +81,28 @@ Emulation.EmulatedDevice = class {
 
       /**
        * @param {*} json
-       * @return {!UI.Insets}
+       * @return {!UI.Geometry.Insets}
        */
       function parseInsets(json) {
-        return new UI.Insets(
+        return new UI.Geometry.Insets(
             parseIntValue(json, 'left'), parseIntValue(json, 'top'), parseIntValue(json, 'right'),
             parseIntValue(json, 'bottom'));
       }
 
       /**
        * @param {*} json
-       * @return {!Emulation.EmulatedDevice.Orientation}
+       * @return {!Orientation}
        */
       function parseOrientation(json) {
         const result = {};
 
         result.width = parseIntValue(json, 'width');
-        if (result.width < 0 || result.width > Emulation.DeviceModeModel.MaxDeviceSize ||
-            result.width < Emulation.DeviceModeModel.MinDeviceSize) {
+        if (result.width < 0 || result.width > MaxDeviceSize || result.width < MinDeviceSize) {
           throw new Error('Emulated device has wrong width: ' + result.width);
         }
 
         result.height = parseIntValue(json, 'height');
-        if (result.height < 0 || result.height > Emulation.DeviceModeModel.MaxDeviceSize ||
-            result.height < Emulation.DeviceModeModel.MinDeviceSize) {
+        if (result.height < 0 || result.height > MaxDeviceSize || result.height < MinDeviceSize) {
           throw new Error('Emulated device has wrong height: ' + result.height);
         }
 
@@ -109,14 +114,14 @@ Emulation.EmulatedDevice = class {
           }
           result.outlineImage = /** @type {string} */ (parseValue(json['outline'], 'image', 'string'));
         }
-        return /** @type {!Emulation.EmulatedDevice.Orientation} */ (result);
+        return /** @type {!Orientation} */ (result);
       }
 
-      const result = new Emulation.EmulatedDevice();
+      const result = new EmulatedDevice();
       result.title = /** @type {string} */ (parseValue(json, 'title', 'string'));
       result.type = /** @type {string} */ (parseValue(json, 'type', 'string'));
       const rawUserAgent = /** @type {string} */ (parseValue(json, 'user-agent', 'string'));
-      result.userAgent = SDK.MultitargetNetworkManager.patchUserAgentWithChromeVersion(rawUserAgent);
+      result.userAgent = SDK.NetworkManager.MultitargetNetworkManager.patchUserAgentWithChromeVersion(rawUserAgent);
 
       const capabilities = parseValue(json, 'capabilities', 'object', []);
       if (!Array.isArray(capabilities)) {
@@ -147,8 +152,7 @@ Emulation.EmulatedDevice = class {
         const mode = {};
         mode.title = /** @type {string} */ (parseValue(modes[i], 'title', 'string'));
         mode.orientation = /** @type {string} */ (parseValue(modes[i], 'orientation', 'string'));
-        if (mode.orientation !== Emulation.EmulatedDevice.Vertical &&
-            mode.orientation !== Emulation.EmulatedDevice.Horizontal) {
+        if (mode.orientation !== Vertical && mode.orientation !== Horizontal) {
           throw new Error('Emulated device mode has wrong orientation \'' + mode.orientation + '\'');
         }
         const orientation = result.orientationByName(mode.orientation);
@@ -165,7 +169,7 @@ Emulation.EmulatedDevice = class {
 
       result._showByDefault = /** @type {boolean} */ (parseValue(json, 'show-by-default', 'boolean', undefined));
       result._show =
-          /** @type {string} */ (parseValue(json, 'show', 'string', Emulation.EmulatedDevice._Show.Default));
+          /** @type {string} */ (parseValue(json, 'show', 'string', _Show.Default));
 
       return result;
     } catch (e) {
@@ -174,8 +178,8 @@ Emulation.EmulatedDevice = class {
   }
 
   /**
-   * @param {!Emulation.EmulatedDevice} device1
-   * @param {!Emulation.EmulatedDevice} device2
+   * @param {!EmulatedDevice} device1
+   * @param {!EmulatedDevice} device2
    * @return {number}
    */
   static deviceComparator(device1, device2) {
@@ -206,7 +210,7 @@ Emulation.EmulatedDevice = class {
 
   /**
    * @param {string} orientation
-   * @return {!Array.<!Emulation.EmulatedDevice.Mode>}
+   * @return {!Array.<!Mode>}
    */
   modesForOrientation(orientation) {
     const result = [];
@@ -256,7 +260,7 @@ Emulation.EmulatedDevice = class {
   }
 
   /**
-   * @param {!Emulation.EmulatedDevice.Orientation} orientation
+   * @param {!Orientation} orientation
    * @return {*}
    */
   _orientationToJSON(orientation) {
@@ -276,7 +280,7 @@ Emulation.EmulatedDevice = class {
   }
 
   /**
-   * @param {!Emulation.EmulatedDevice.Mode} mode
+   * @param {!Mode} mode
    * @return {string}
    */
   modeImage(mode) {
@@ -290,7 +294,7 @@ Emulation.EmulatedDevice = class {
   }
 
   /**
-   * @param {!Emulation.EmulatedDevice.Mode} mode
+   * @param {!Mode} mode
    * @return {string}
    */
   outlineImage(mode) {
@@ -306,31 +310,31 @@ Emulation.EmulatedDevice = class {
 
   /**
    * @param {string} name
-   * @return {!Emulation.EmulatedDevice.Orientation}
+   * @return {!Orientation}
    */
   orientationByName(name) {
-    return name === Emulation.EmulatedDevice.Vertical ? this.vertical : this.horizontal;
+    return name === Vertical ? this.vertical : this.horizontal;
   }
 
   /**
    * @return {boolean}
    */
   show() {
-    if (this._show === Emulation.EmulatedDevice._Show.Default) {
+    if (this._show === _Show.Default) {
       return this._showByDefault;
     }
-    return this._show === Emulation.EmulatedDevice._Show.Always;
+    return this._show === _Show.Always;
   }
 
   /**
    * @param {boolean} show
    */
   setShow(show) {
-    this._show = show ? Emulation.EmulatedDevice._Show.Always : Emulation.EmulatedDevice._Show.Never;
+    this._show = show ? _Show.Always : _Show.Never;
   }
 
   /**
-   * @param {!Emulation.EmulatedDevice} other
+   * @param {!EmulatedDevice} other
    */
   copyShowFrom(other) {
     this._show = other._show;
@@ -340,27 +344,21 @@ Emulation.EmulatedDevice = class {
    * @return {boolean}
    */
   touch() {
-    return this.capabilities.indexOf(Emulation.EmulatedDevice.Capability.Touch) !== -1;
+    return this.capabilities.indexOf(Capability.Touch) !== -1;
   }
 
   /**
    * @return {boolean}
    */
   mobile() {
-    return this.capabilities.indexOf(Emulation.EmulatedDevice.Capability.Mobile) !== -1;
+    return this.capabilities.indexOf(Capability.Mobile) !== -1;
   }
-};
+}
 
-/** @typedef {!{title: string, orientation: string, insets: !UI.Insets, image: ?string}} */
-Emulation.EmulatedDevice.Mode;
+export const Horizontal = 'horizontal';
+export const Vertical = 'vertical';
 
-/** @typedef {!{width: number, height: number, outlineInsets: ?UI.Insets, outlineImage: ?string}} */
-Emulation.EmulatedDevice.Orientation;
-
-Emulation.EmulatedDevice.Horizontal = 'horizontal';
-Emulation.EmulatedDevice.Vertical = 'vertical';
-
-Emulation.EmulatedDevice.Type = {
+export const Type = {
   Phone: 'phone',
   Tablet: 'tablet',
   Notebook: 'notebook',
@@ -368,58 +366,60 @@ Emulation.EmulatedDevice.Type = {
   Unknown: 'unknown'
 };
 
-Emulation.EmulatedDevice.Capability = {
+export const Capability = {
   Touch: 'touch',
   Mobile: 'mobile'
 };
 
-Emulation.EmulatedDevice._Show = {
+export const _Show = {
   Always: 'Always',
   Default: 'Default',
   Never: 'Never'
 };
 
+/** @type {!EmulatedDevicesList} */
+let _instance;
 
 /**
  * @unrestricted
  */
-Emulation.EmulatedDevicesList = class extends Common.Object {
+export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
   constructor() {
     super();
 
-    /** @type {!Common.Setting} */
-    this._standardSetting = Common.settings.createSetting('standardEmulatedDeviceList', []);
-    /** @type {!Array.<!Emulation.EmulatedDevice>} */
-    this._standard = [];
+    /** @type {!Common.Settings.Setting} */
+    this._standardSetting = Common.Settings.Settings.instance().createSetting('standardEmulatedDeviceList', []);
+    /** @type {!Set.<!EmulatedDevice>} */
+    this._standard = new Set();
     this._listFromJSONV1(this._standardSetting.get(), this._standard);
     this._updateStandardDevices();
 
-    /** @type {!Common.Setting} */
-    this._customSetting = Common.settings.createSetting('customEmulatedDeviceList', []);
-    /** @type {!Array.<!Emulation.EmulatedDevice>} */
-    this._custom = [];
+    /** @type {!Common.Settings.Setting} */
+    this._customSetting = Common.Settings.Settings.instance().createSetting('customEmulatedDeviceList', []);
+    /** @type {!Set.<!EmulatedDevice>} */
+    this._custom = new Set();
     if (!this._listFromJSONV1(this._customSetting.get(), this._custom)) {
       this.saveCustomDevices();
     }
   }
 
   /**
-   * @return {!Emulation.EmulatedDevicesList}
+   * @return {!EmulatedDevicesList}
    */
   static instance() {
-    if (!Emulation.EmulatedDevicesList._instance) {
-      Emulation.EmulatedDevicesList._instance = new Emulation.EmulatedDevicesList();
+    if (!_instance) {
+      _instance = new EmulatedDevicesList();
     }
-    return /** @type {!Emulation.EmulatedDevicesList} */ (Emulation.EmulatedDevicesList._instance);
+    return _instance;
   }
 
   _updateStandardDevices() {
-    const devices = [];
+    const devices = new Set();
     const extensions = self.runtime.extensions('emulated-device');
-    for (let i = 0; i < extensions.length; ++i) {
-      const device = Emulation.EmulatedDevice.fromJSONV1(extensions[i].descriptor()['device']);
-      device.setExtension(extensions[i]);
-      devices.push(device);
+    for (const extension of extensions) {
+      const device = EmulatedDevice.fromJSONV1(extension.descriptor()['device']);
+      device.setExtension(extension);
+      devices.add(device);
     }
     this._copyShowValues(this._standard, devices);
     this._standard = devices;
@@ -428,7 +428,7 @@ Emulation.EmulatedDevicesList = class extends Common.Object {
 
   /**
    * @param {!Array.<*>} jsonArray
-   * @param {!Array.<!Emulation.EmulatedDevice>} result
+   * @param {!Set.<!EmulatedDevice>} result
    * @return {boolean}
    */
   _listFromJSONV1(jsonArray, result) {
@@ -437,22 +437,14 @@ Emulation.EmulatedDevicesList = class extends Common.Object {
     }
     let success = true;
     for (let i = 0; i < jsonArray.length; ++i) {
-      const device = Emulation.EmulatedDevice.fromJSONV1(jsonArray[i]);
+      const device = EmulatedDevice.fromJSONV1(jsonArray[i]);
       if (device) {
-        result.push(device);
+        result.add(device);
         if (!device.modes.length) {
-          device.modes.push({
-            title: '',
-            orientation: Emulation.EmulatedDevice.Horizontal,
-            insets: new UI.Insets(0, 0, 0, 0),
-            image: null
-          });
-          device.modes.push({
-            title: '',
-            orientation: Emulation.EmulatedDevice.Vertical,
-            insets: new UI.Insets(0, 0, 0, 0),
-            image: null
-          });
+          device.modes.push(
+              {title: '', orientation: Horizontal, insets: new UI.Geometry.Insets(0, 0, 0, 0), image: null});
+          device.modes.push(
+              {title: '', orientation: Vertical, insets: new UI.Geometry.Insets(0, 0, 0, 0), image: null});
         }
       } else {
         success = false;
@@ -462,17 +454,17 @@ Emulation.EmulatedDevicesList = class extends Common.Object {
   }
 
   /**
-   * @return {!Array.<!Emulation.EmulatedDevice>}
+   * @return {!Array.<!EmulatedDevice>}
    */
   standard() {
-    return this._standard;
+    return [...this._standard];
   }
 
   /**
-   * @return {!Array.<!Emulation.EmulatedDevice>}
+   * @return {!Array.<!EmulatedDevice>}
    */
   custom() {
-    return this._custom;
+    return [...this._custom];
   }
 
   revealCustomSetting() {
@@ -480,61 +472,64 @@ Emulation.EmulatedDevicesList = class extends Common.Object {
   }
 
   /**
-   * @param {!Emulation.EmulatedDevice} device
+   * @param {!EmulatedDevice} device
    */
   addCustomDevice(device) {
-    this._custom.push(device);
+    this._custom.add(device);
     this.saveCustomDevices();
   }
 
   /**
-   * @param {!Emulation.EmulatedDevice} device
+   * @param {!EmulatedDevice} device
    */
   removeCustomDevice(device) {
-    this._custom.remove(device);
+    this._custom.delete(device);
     this.saveCustomDevices();
   }
 
   saveCustomDevices() {
-    const json = this._custom.map(/** @param {!Emulation.EmulatedDevice} device */ function(device) {
-      return device._toJSON();
-    });
+    const json = [];
+    this._custom.forEach(device => json.push(device._toJSON()));
+
     this._customSetting.set(json);
-    this.dispatchEventToListeners(Emulation.EmulatedDevicesList.Events.CustomDevicesUpdated);
+    this.dispatchEventToListeners(Events.CustomDevicesUpdated);
   }
 
   saveStandardDevices() {
-    const json = this._standard.map(/** @param {!Emulation.EmulatedDevice} device */ function(device) {
-      return device._toJSON();
-    });
+    const json = [];
+    this._standard.forEach(device => json.push(device._toJSON()));
+
     this._standardSetting.set(json);
-    this.dispatchEventToListeners(Emulation.EmulatedDevicesList.Events.StandardDevicesUpdated);
+    this.dispatchEventToListeners(Events.StandardDevicesUpdated);
   }
 
   /**
-   * @param {!Array.<!Emulation.EmulatedDevice>} from
-   * @param {!Array.<!Emulation.EmulatedDevice>} to
+   * @param {!Set.<!EmulatedDevice>} from
+   * @param {!Set.<!EmulatedDevice>} to
    */
   _copyShowValues(from, to) {
-    const deviceById = new Map();
-    for (let i = 0; i < from.length; ++i) {
-      deviceById.set(from[i].title, from[i]);
+    const fromDeviceById = new Map();
+    for (const device of from) {
+      fromDeviceById.set(device.title, device);
     }
 
-    for (let i = 0; i < to.length; ++i) {
-      const title = to[i].title;
-      if (deviceById.has(title)) {
-        to[i].copyShowFrom(/** @type {!Emulation.EmulatedDevice} */ (deviceById.get(title)));
+    for (const toDevice of to) {
+      const fromDevice = fromDeviceById.get(toDevice.title);
+      if (fromDevice) {
+        toDevice.copyShowFrom(fromDevice);
       }
     }
   }
-};
+}
 
 /** @enum {symbol} */
-Emulation.EmulatedDevicesList.Events = {
+export const Events = {
   CustomDevicesUpdated: Symbol('CustomDevicesUpdated'),
   StandardDevicesUpdated: Symbol('StandardDevicesUpdated')
 };
 
-/** @type {?Emulation.EmulatedDevicesList} */
-Emulation.EmulatedDevicesList._instance;
+/** @typedef {!{title: string, orientation: string, insets: !UI.Geometry.Insets, image: ?string}} */
+export let Mode;
+
+/** @typedef {!{width: number, height: number, outlineInsets: ?UI.Geometry.Insets, outlineImage: ?string}} */
+export let Orientation;

@@ -8,6 +8,7 @@
     "scripts": [],
     "modules": [
         "bindings.js",
+        "bindings-legacy.js",
         "LiveLocation.js",
         "ResourceMapping.js",
         "CompilerScriptMapping.js",
@@ -16,6 +17,8 @@
         "StylesSourceMapping.js",
         "CSSWorkspaceBinding.js",
         "DebuggerWorkspaceBinding.js",
+        "DebuggerLanguagePlugins.js",
+        "language_plugins/CXXDWARFLanguagePlugin.js",
         "BreakpointManager.js",
         "ContentProviderBasedProject.js",
         "DefaultScriptMapping.js",

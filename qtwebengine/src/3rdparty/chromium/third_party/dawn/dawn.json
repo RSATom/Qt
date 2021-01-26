@@ -14,12 +14,46 @@
         "See the License for the specific language governing permissions and",
         "limitations under the License."
     ],
+    "adapter properties": {
+        "category": "structure",
+        "extensible": true,
+        "members": [
+            {"name": "device ID", "type": "uint32_t"},
+            {"name": "vendor ID", "type": "uint32_t"},
+            {"name": "name", "type": "char", "annotation": "const*"},
+            {"name": "adapter type", "type": "adapter type"},
+            {"name": "backend type", "type": "backend type"}
+        ]
+    },
+    "adapter type": {
+        "category": "enum",
+        "javascript": false,
+        "values": [
+            {"value": 0, "name": "discrete GPU"},
+            {"value": 1, "name": "integrated GPU"},
+            {"value": 2, "name": "CPU"},
+            {"value": 3, "name": "unknown"}
+        ]
+    },
     "address mode": {
         "category": "enum",
         "values": [
             {"value": 0, "name": "repeat"},
             {"value": 1, "name": "mirror repeat"},
             {"value": 2, "name": "clamp to edge"}
+        ]
+    },
+    "backend type": {
+        "category": "enum",
+        "javascript": false,
+        "values": [
+            {"value": 0, "name": "null"},
+            {"value": 1, "name": "D3D11"},
+            {"value": 2, "name": "D3D12"},
+            {"value": 3, "name": "metal"},
+            {"value": 4, "name": "vulkan"},
+            {"value": 5, "name": "openGL"},
+            {"value": 6, "name": "openGLES"}
         ]
     },
     "bind group": {
@@ -60,7 +94,8 @@
             {"name": "has dynamic offset", "type": "bool", "default": "false"},
             {"name": "multisampled", "type": "bool", "default": "false"},
             {"name": "texture dimension", "type": "texture view dimension", "default": "undefined"},
-            {"name": "texture component type", "type": "texture component type", "default": "float"}
+            {"name": "texture component type", "type": "texture component type", "default": "float"},
+            {"name": "storage texture format", "type": "texture format", "default": "undefined"}
         ]
     },
     "bind group layout descriptor": {
@@ -80,7 +115,9 @@
             {"value": 2, "name": "readonly storage buffer"},
             {"value": 3, "name": "sampler"},
             {"value": 4, "name": "sampled texture"},
-            {"value": 5, "name": "storage texture"}
+            {"value": 5, "name": "storage texture"},
+            {"value": 6, "name": "readonly storage texture"},
+            {"value": 7, "name": "writeonly storage texture"}
         ]
     },
     "blend descriptor": {
@@ -443,7 +480,7 @@
                 "name": "get bind group layout",
                 "returns": "bind group layout",
                 "args": [
-                    {"name": "group", "type": "uint32_t"}
+                    {"name": "group index", "type": "uint32_t"}
                 ]
             }
         ]
@@ -561,6 +598,7 @@
                 "name": "create swap chain",
                 "returns": "swap chain",
                 "args": [
+                    {"name": "surface", "type": "surface", "optional": "true"},
                     {"name": "descriptor", "type": "swap chain descriptor", "annotation": "const*"}
                 ]
             },
@@ -580,12 +618,22 @@
                 "TODO": "enga@: Make this a Dawn extension"
             },
             {
+                "name": "lose for testing"
+            },
+            {
                 "name": "tick"
             },
             {
                 "name": "set uncaptured error callback",
                 "args": [
                     {"name": "callback", "type": "error callback"},
+                    {"name": "userdata", "type": "void", "annotation": "*"}
+                ]
+            },
+            {
+                "name": "set device lost callback",
+                "args": [
+                    {"name": "callback", "type": "device lost callback"},
                     {"name": "userdata", "type": "void", "annotation": "*"}
                 ]
             },
@@ -603,6 +651,13 @@
                     {"name": "userdata", "type": "void", "annotation": "*"}
                 ]
             }
+        ]
+    },
+    "device lost callback": {
+        "category": "callback",
+        "args": [
+            {"name": "message", "type": "char", "annotation": "const*"},
+            {"name": "userdata", "type": "void", "annotation": "*"}
         ]
     },
     "device properties": {
@@ -724,6 +779,23 @@
             {"value": 1, "name": "uint32"}
         ]
     },
+    "instance": {
+        "category": "object",
+        "methods": [
+            {
+                "name": "create surface",
+                "returns": "surface",
+                "args": [
+                    {"name": "descriptor", "type": "surface descriptor", "annotation": "const*"}
+                ]
+            }
+        ]
+    },
+    "instance descriptor": {
+        "category": "structure",
+        "extensible": true,
+        "members": []
+    },
     "vertex attribute descriptor": {
         "category": "structure",
         "extensible": false,
@@ -791,6 +863,14 @@
             {"name": "label", "type": "char", "annotation": "const*", "length": "strlen", "optional": true},
             {"name": "bind group layout count", "type": "uint32_t"},
             {"name": "bind group layouts", "type": "bind group layout", "annotation": "const*", "length": "bind group layout count"}
+        ]
+    },
+    "present mode": {
+        "category": "enum",
+        "values": [
+            {"value": 0, "name": "immediate"},
+            {"value": 1, "name": "mailbox"},
+            {"value": 2, "name": "fifo"}
         ]
     },
     "programmable stage descriptor": {
@@ -876,19 +956,19 @@
                 "name": "draw",
                 "args": [
                     {"name": "vertex count", "type": "uint32_t"},
-                    {"name": "instance count", "type": "uint32_t"},
-                    {"name": "first vertex", "type": "uint32_t"},
-                    {"name": "first instance", "type": "uint32_t"}
+                    {"name": "instance count", "type": "uint32_t", "default": "1"},
+                    {"name": "first vertex", "type": "uint32_t", "default": "0"},
+                    {"name": "first instance", "type": "uint32_t",  "default": "0"}
                 ]
             },
             {
                 "name": "draw indexed",
                 "args": [
                     {"name": "index count", "type": "uint32_t"},
-                    {"name": "instance count", "type": "uint32_t"},
-                    {"name": "first index", "type": "uint32_t"},
-                    {"name": "base vertex", "type": "int32_t"},
-                    {"name": "first instance", "type": "uint32_t"}
+                    {"name": "instance count", "type": "uint32_t", "default": "1"},
+                    {"name": "first index", "type": "uint32_t", "default": "0"},
+                    {"name": "base vertex", "type": "int32_t", "default": "0"},
+                    {"name": "first instance", "type": "uint32_t", "default": "0"}
                 ]
             },
             {
@@ -1022,19 +1102,19 @@
                 "name": "draw",
                 "args": [
                     {"name": "vertex count", "type": "uint32_t"},
-                    {"name": "instance count", "type": "uint32_t"},
-                    {"name": "first vertex", "type": "uint32_t"},
-                    {"name": "first instance", "type": "uint32_t"}
+                    {"name": "instance count", "type": "uint32_t", "default": "1"},
+                    {"name": "first vertex", "type": "uint32_t", "default": "0"},
+                    {"name": "first instance", "type": "uint32_t",  "default": "0"}
                 ]
             },
             {
                 "name": "draw indexed",
                 "args": [
                     {"name": "index count", "type": "uint32_t"},
-                    {"name": "instance count", "type": "uint32_t"},
-                    {"name": "first index", "type": "uint32_t"},
-                    {"name": "base vertex", "type": "int32_t"},
-                    {"name": "first instance", "type": "uint32_t"}
+                    {"name": "instance count", "type": "uint32_t", "default": "1"},
+                    {"name": "first index", "type": "uint32_t", "default": "0"},
+                    {"name": "base vertex", "type": "int32_t", "default": "0"},
+                    {"name": "first instance", "type": "uint32_t", "default": "0"}
                 ]
             },
             {
@@ -1133,7 +1213,7 @@
                 "name": "get bind group layout",
                 "returns": "bind group layout",
                 "args": [
-                    {"name": "group", "type": "uint32_t"}
+                    {"name": "group index", "type": "uint32_t"}
                 ]
             }
         ]
@@ -1220,6 +1300,49 @@
             {"name": "pass op", "type": "stencil operation", "default": "keep"}
         ]
     },
+    "surface": {
+        "category": "object"
+    },
+    "surface descriptor": {
+        "category": "structure",
+        "extensible": true,
+        "members": [
+            {"name": "label", "type": "char", "annotation": "const*", "length": "strlen", "optional": true}
+        ]
+    },
+    "surface descriptor from HTML canvas id": {
+        "category": "structure",
+        "chained": true,
+        "members": [
+            {"name": "id", "type": "char", "annotation": "const*", "length": "strlen"}
+        ]
+    },
+    "surface descriptor from metal layer": {
+        "category": "structure",
+        "chained": true,
+        "javascript": false,
+        "members": [
+            {"name": "layer", "type": "void", "annotation": "*"}
+        ]
+    },
+    "surface descriptor from windows HWND": {
+        "category": "structure",
+        "chained": true,
+        "javascript": false,
+        "members": [
+            {"name": "hinstance", "type": "void", "annotation": "*"},
+            {"name": "hwnd", "type": "void", "annotation": "*"}
+        ]
+    },
+    "surface descriptor from xlib": {
+        "category": "structure",
+        "chained": true,
+        "javascript": false,
+        "members": [
+            {"name": "display", "type": "void", "annotation": "*"},
+            {"name": "window", "type": "uint32_t"}
+        ]
+    },
     "swap chain": {
         "category": "object",
         "methods": [
@@ -1241,7 +1364,23 @@
         "extensible": true,
         "members": [
             {"name": "label", "type": "char", "annotation": "const*", "length": "strlen", "optional": true},
-            {"name": "implementation", "type": "uint64_t"}
+            {"name": "usage", "type": "texture usage"},
+            {"name": "format", "type": "texture format"},
+            {"name": "width", "type": "uint32_t"},
+            {"name": "height", "type": "uint32_t"},
+            {"name": "present mode", "type": "present mode"},
+            {"name": "implementation", "type": "uint64_t", "default": 0}
+        ]
+    },
+    "s type": {
+        "category": "enum",
+        "javascript": false,
+        "values": [
+            {"value": 0, "name": "invalid"},
+            {"value": 1, "name": "surface descriptor from metal layer"},
+            {"value": 2, "name": "surface descriptor from windows HWND"},
+            {"value": 3, "name": "surface descriptor from xlib"},
+            {"value": 4, "name": "surface descriptor from HTML canvas id"}
         ]
     },
     "texture": {
@@ -1310,7 +1449,7 @@
     "texture format": {
         "category": "enum",
         "values": [
-            {"value": 0, "name": "undefined", "valid": false},
+            {"value": 0, "name": "undefined", "valid": false, "jsrepr": "undefined"},
             {"value": 1, "name": "R8 unorm"},
             {"value": 2, "name": "R8 snorm"},
             {"value": 3, "name": "R8 uint"},
@@ -1406,7 +1545,7 @@
     "texture view dimension": {
         "category": "enum",
         "values": [
-            {"value": 0, "name": "undefined", "valid": false},
+            {"value": 0, "name": "undefined", "valid": false, "jsrepr": "undefined"},
             {"value": 1, "name": "1D"},
             {"value": 2, "name": "2D"},
             {"value": 3, "name": "2D array"},

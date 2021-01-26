@@ -68,7 +68,7 @@ export abstract class Engine {
    * Shorthand for sending a SQL query to the engine.
    * Deals with {,un}marshalling of request/response args.
    */
-  async query(sqlQuery: string): Promise<RawQueryResult> {
+  async query(sqlQuery: string, userQuery = false): Promise<RawQueryResult> {
     this.loadingTracker.beginLoading();
     try {
       const args = new RawQueryArgs();
@@ -76,7 +76,11 @@ export abstract class Engine {
       args.timeQueuedNs = Math.floor(performance.now() * 1e6);
       const argsEncoded = RawQueryArgs.encode(args).finish();
       const respEncoded = await this.rawQuery(argsEncoded);
-      return RawQueryResult.decode(respEncoded);
+      const result = RawQueryResult.decode(respEncoded);
+      if (!result.error || userQuery) return result;
+      // Query failed, throw an error since it was not a user query
+      console.error(`Query error "${sqlQuery}": ${result.error}`);
+      throw new Error(`Query error "${sqlQuery}": ${result.error}`);
     } finally {
       this.loadingTracker.endLoading();
     }
@@ -85,7 +89,18 @@ export abstract class Engine {
   async queryOneRow(query: string): Promise<number[]> {
     const result = await this.query(query);
     const res: number[] = [];
-    result.columns.map(c => res.push(+c.longValues![0]));
+    if (result.numRecords === 0) return res;
+    for (const col of result.columns) {
+      if (col.longValues!.length === 0) {
+        console.error(
+            `queryOneRow should only be used for queries that return long values
+             : ${query}`);
+        throw new Error(
+            `queryOneRow should only be used for queries that return long values
+             : ${query}`);
+      }
+      res.push(+col.longValues![0]);
+    }
     return res;
   }
 
@@ -101,8 +116,11 @@ export abstract class Engine {
 
   async getNumberOfGpus(): Promise<number> {
     if (!this._numGpus) {
-      const result = await this.query(
-          'select count(distinct(arg_set_id)) as gpuCount from counters where name = "gpufreq";');
+      const result = await this.query(`
+        select count(distinct(gpu_id)) as gpuCount
+        from gpu_counter_track
+        where name = 'gpufreq';
+      `);
       this._numGpus = +result.columns[0].longValues![0];
     }
     return this._numGpus;

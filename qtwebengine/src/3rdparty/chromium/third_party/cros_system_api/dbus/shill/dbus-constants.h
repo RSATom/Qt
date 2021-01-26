@@ -98,7 +98,6 @@ const char kWifiHiddenSsid[] = "WiFi.HiddenSSID";
 const char kWifiPhyMode[] = "WiFi.PhyMode";
 const char kWifiChannelProperty[] = "WiFi.Channel";
 const char kWifiPreferredDeviceProperty[] = "WiFi.PreferredDevice";
-const char kWifiRoamThresholdProperty[] = "WiFi.RoamThreshold";
 const char kWifiFTEnabled[] = "WiFi.FTEnabled";
 
 // Flimflam EAP property names.
@@ -166,7 +165,6 @@ const char kPoweredProperty[] = "Powered";
 const char kScanIntervalProperty[] = "ScanInterval";
 const char kBgscanMethodProperty[] = "BgscanMethod";
 const char kBgscanShortIntervalProperty[] = "BgscanShortInterval";
-const char kRoamThresholdProperty[] = "RoamThreshold";
 const char kDBusObjectProperty[] = "DBus.Object";
 const char kDBusServiceProperty[] = "DBus.Service";
 const char kBgscanSignalThresholdProperty[] = "BgscanSignalThreshold";
@@ -333,7 +331,6 @@ const char kMonitorPropertyChanged[] = "PropertyChanged";
 // Flimflam type options.
 const char kTypeEthernet[] = "ethernet";
 const char kTypeWifi[] = "wifi";
-const char kTypeBluetooth[] = "bluetooth";
 const char kTypeCellular[] = "cellular";
 const char kTypeVPN[] = "vpn";
 const char kTypePPPoE[] = "pppoe";
@@ -373,6 +370,7 @@ const char kOpenVPNClientCertSlotProperty[] = "OpenVPN.Pkcs11.Slot";
 const char kOpenVPNCipherProperty[] = "OpenVPN.Cipher";
 const char kOpenVPNCompLZOProperty[] = "OpenVPN.CompLZO";
 const char kOpenVPNCompNoAdaptProperty[] = "OpenVPN.CompNoAdapt";
+const char kOpenVPNCompressProperty[] = "OpenVPN.Compress";
 const char kOpenVPNIgnoreDefaultRouteProperty[] = "OpenVPN.IgnoreDefaultRoute";
 const char kOpenVPNKeyDirectionProperty[] = "OpenVPN.KeyDirection";
 const char kOpenVPNMgmtEnableProperty[] = "OpenVPN.Mgmt.Enable";
@@ -394,6 +392,12 @@ const char kOpenVPNStaticChallengeProperty[] = "OpenVPN.StaticChallenge";
 const char kOpenVPNTLSAuthContentsProperty[] = "OpenVPN.TLSAuthContents";
 const char kOpenVPNTLSRemoteProperty[] = "OpenVPN.TLSRemote";
 const char kOpenVPNUserProperty[] = "OpenVPN.User";
+
+// Compress option values as expected by OpenVPN.
+const char kOpenVPNCompressFramingOnly[] = "";
+const char kOpenVPNCompressLz4[] = "lz4";
+const char kOpenVPNCompressLz4V2[] = "lz4-v2";
+const char kOpenVPNCompressLzo[] = "lzo";
 
 // Flimflam ARCVPN property names.
 const char kArcVpnTunnelChromeProperty[] = "ArcVpn.TunnelChrome";
@@ -541,6 +545,7 @@ const char kRemoveAllWakeOnPacketConnectionsFunction[] =
     "RemoveAllWakeOnPacketConnections";
 const char kGetLoadableProfileEntriesFunction[] = "GetLoadableProfileEntries";
 const char kGetNetworksForGeolocation[] = "GetNetworksForGeolocation";
+const char kGetWiFiPassphraseFunction[] = "GetWiFiPassphrase";
 const char kPerformTDLSOperationFunction[] = "PerformTDLSOperation";
 const char kRefreshFunction[] = "Refresh";
 const char kResetFunction[] = "Reset";
@@ -615,6 +620,10 @@ const char kDiagnosticsMisconnectsProperty[] = "Diagnostics.Misconnects";
 const char kEapRemoteCertificationProperty[] = "EAP.RemoteCertification";
 const char kEapCaCertPemProperty[] = "EAP.CACertPEM";
 const char kEapSubjectMatchProperty[] = "EAP.SubjectMatch";
+const char kEapSubjectAlternativeNameMatchProperty[] =
+    "EAP.SubjectAlternativeNameMatch";
+const char kEapSubjectAlternativeNameMatchTypeProperty[] = "Type";
+const char kEapSubjectAlternativeNameMatchValueProperty[] = "Value";
 const char kErrorDetailsProperty[] = "ErrorDetails";
 const char kKeyManagementIEEE8021X[] = "IEEE8021X";
 const char kIPConfigProperty[] = "IPConfig";
@@ -651,6 +660,12 @@ const char kWifiFrequencyListProperty[] = "WiFi.FrequencyList";
 const char kWifiVendorInformationProperty[] = "WiFi.VendorInformation";
 const char kWifiProtectedManagementFrameRequiredProperty[] =
     "WiFi.ProtectedManagementFrameRequired";
+
+// Subject alternative name match type property values as expected by
+// wpa_supplicant.
+const char kEapSubjectAlternativeNameMatchTypeEmail[] = "EMAIL";
+const char kEapSubjectAlternativeNameMatchTypeDNS[] = "DNS";
+const char kEapSubjectAlternativeNameMatchTypeURI[] = "URI";
 
 // Profile property names.
 const char kUserHashProperty[] = "UserHash";

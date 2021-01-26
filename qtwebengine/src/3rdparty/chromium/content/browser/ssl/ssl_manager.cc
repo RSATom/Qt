@@ -67,9 +67,9 @@ void OnAllowCertificate(SSLErrorHandler* handler,
       // ContinueRequest() gets posted to a different thread. Calling
       // AllowCert() first ensures deterministic ordering.
       if (record_decision && state_delegate) {
-        state_delegate->AllowCert(handler->request_url().host(),
-                                  *handler->ssl_info().cert.get(),
-                                  handler->cert_error());
+        state_delegate->AllowCert(
+            handler->request_url().host(), *handler->ssl_info().cert.get(),
+            handler->cert_error(), handler->web_contents());
       }
       handler->ContinueRequest();
       return;
@@ -129,7 +129,7 @@ void SSLManager::OnSSLCertificateError(
     // Requests can fail to dispatch because they don't have a WebContents. See
     // https://crbug.com/86537. In this case we have to make a decision in this
     // function.
-    handler->CancelRequest();
+    handler->DenyRequest();
     return;
   }
 
@@ -139,21 +139,6 @@ void SSLManager::OnSSLCertificateError(
 
   SSLManager* manager = controller->ssl_manager();
   manager->OnCertError(std::move(handler));
-}
-
-// static
-void SSLManager::OnSSLCertificateSubresourceError(
-    const base::WeakPtr<SSLErrorHandler::Delegate>& delegate,
-    const GURL& url,
-    int render_process_id,
-    int render_frame_id,
-    int net_error,
-    const net::SSLInfo& ssl_info,
-    bool fatal) {
-  OnSSLCertificateError(delegate, false, url,
-                        WebContentsImpl::FromRenderFrameHostID(
-                            render_process_id, render_frame_id),
-                        net_error, ssl_info, fatal);
 }
 
 SSLManager::SSLManager(NavigationControllerImpl* controller)
@@ -316,7 +301,7 @@ void SSLManager::OnCertError(std::unique_ptr<SSLErrorHandler> handler) {
       ssl_host_state_delegate_
           ? ssl_host_state_delegate_->QueryPolicy(
                 handler->request_url().host(), *handler->ssl_info().cert.get(),
-                handler->cert_error())
+                handler->cert_error(), handler->web_contents())
           : SSLHostStateDelegate::DENIED;
 
   if (judgment == SSLHostStateDelegate::ALLOWED) {
@@ -336,7 +321,8 @@ void SSLManager::DidStartResourceResponse(const GURL& url,
   // If the scheme is https: or wss and the cert did not have any errors, revoke
   // any previous decisions that have occurred.
   if (!ssl_host_state_delegate_ ||
-      !ssl_host_state_delegate_->HasAllowException(url.host())) {
+      !ssl_host_state_delegate_->HasAllowException(
+          url.host(), controller_->GetWebContents())) {
     return;
   }
 

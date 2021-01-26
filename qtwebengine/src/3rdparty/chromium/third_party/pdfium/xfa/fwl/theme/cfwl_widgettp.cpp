@@ -34,19 +34,10 @@ CFWL_WidgetTP::CFWL_WidgetTP() = default;
 
 CFWL_WidgetTP::~CFWL_WidgetTP() = default;
 
-void CFWL_WidgetTP::Initialize() {}
-
-void CFWL_WidgetTP::Finalize() {
-  if (m_pTextOut)
-    FinalizeTTO();
-}
-
 void CFWL_WidgetTP::DrawBackground(const CFWL_ThemeBackground& pParams) {}
 
 void CFWL_WidgetTP::DrawText(const CFWL_ThemeText& pParams) {
-  if (!m_pTextOut)
-    InitTTO();
-
+  EnsureTTOInitialized();
   int32_t iLen = pParams.m_wsText.GetLength();
   if (iLen <= 0)
     return;
@@ -90,8 +81,7 @@ void CFWL_WidgetTP::InitializeArrowColorData() {
   m_pColorData->clrSign[3] = ArgbEncode(255, 128, 128, 128);
 }
 
-
-void CFWL_WidgetTP::InitTTO() {
+void CFWL_WidgetTP::EnsureTTOInitialized() {
   if (m_pTextOut)
     return;
 
@@ -100,10 +90,6 @@ void CFWL_WidgetTP::InitTTO() {
   m_pTextOut->SetFont(m_pFDEFont);
   m_pTextOut->SetFontSize(FWLTHEME_CAPACITY_FontSize);
   m_pTextOut->SetTextColor(FWLTHEME_CAPACITY_TextColor);
-}
-
-void CFWL_WidgetTP::FinalizeTTO() {
-  m_pTextOut.reset();
 }
 
 void CFWL_WidgetTP::DrawBorder(CXFA_Graphics* pGraphics,

@@ -86,7 +86,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CookieManager
     return listener_registrations_.size();
   }
 
-  void AllowedByFilter(const GURL& url, const GURL& site_for_cookies, base::OnceCallback<void(bool)> callback) const;
+  void AllowedByFilter(const GURL& url, const net::SiteForCookies& site_for_cookies, base::OnceCallback<void(bool)> callback) const;
 
   void FlushCookieStore(FlushCookieStoreCallback callback) override;
   void AllowFileSchemeCookies(bool allow,
@@ -95,6 +95,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CookieManager
   void BlockThirdPartyCookies(bool block) override;
   void SetContentSettingsForLegacyCookieAccess(
       const ContentSettingsForOneType& settings) override;
+  void SetStorageAccessGrantSettings(
+      const ContentSettingsForOneType& settings,
+      SetStorageAccessGrantSettingsCallback callback) override;
 
   // Configures |out| based on |params|. (This doesn't honor
   // allow_file_scheme_cookies, which affects the cookie store rather than the

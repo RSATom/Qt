@@ -217,7 +217,8 @@ class V8_EXPORT_PRIVATE Debug {
   // Debug event triggers.
   void OnDebugBreak(Handle<FixedArray> break_points_hit);
 
-  void OnThrow(Handle<Object> exception);
+  base::Optional<Object> OnThrow(Handle<Object> exception)
+      V8_WARN_UNUSED_RESULT;
   void OnPromiseReject(Handle<Object> promise, Handle<Object> value);
   void OnCompileError(Handle<Script> script);
   void OnAfterCompile(Handle<Script> script);
@@ -238,11 +239,14 @@ class V8_EXPORT_PRIVATE Debug {
   void ChangeBreakOnException(ExceptionBreakType type, bool enable);
   bool IsBreakOnException(ExceptionBreakType type);
 
+  void SetTerminateOnResume();
+
   bool SetBreakPointForScript(Handle<Script> script, Handle<String> condition,
                               int* source_position, int* id);
   bool SetBreakpointForFunction(Handle<SharedFunctionInfo> shared,
                                 Handle<String> condition, int* id);
   void RemoveBreakpoint(int id);
+  void RemoveBreakpointForWasmScript(Handle<Script> script, int id);
 
   // Find breakpoints from the debug info and the break location and check
   // whether they are hit. Return an empty handle if not, or a FixedArray with
@@ -266,8 +270,6 @@ class V8_EXPORT_PRIVATE Debug {
   bool GetPossibleBreakpoints(Handle<Script> script, int start_position,
                               int end_position, bool restrict_to_function,
                               std::vector<BreakLocation>* locations);
-
-  MaybeHandle<JSArray> GetPrivateFields(Handle<JSReceiver> receiver);
 
   bool IsBlackboxed(Handle<SharedFunctionInfo> shared);
 
@@ -565,6 +567,8 @@ class DebugScope {
   explicit DebugScope(Debug* debug);
   ~DebugScope();
 
+  void set_terminate_on_resume();
+
  private:
   Isolate* isolate() { return debug_->isolate_; }
 
@@ -572,6 +576,8 @@ class DebugScope {
   DebugScope* prev_;               // Previous scope if entered recursively.
   StackFrameId break_frame_id_;    // Previous break frame id.
   PostponeInterruptsScope no_interrupts_;
+  // This is used as a boolean.
+  bool terminate_on_resume_ = false;
 };
 
 // This scope is used to handle return values in nested debug break points.

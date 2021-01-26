@@ -72,7 +72,8 @@ js_library("app_detail_view") {
     ":dom_switch",
     ":pwa_detail_view",
     ":store_client",
-    "../../..:route",
+    "../..:os_route",
+    "../../..:router",
   ]
 }
 
@@ -134,6 +135,7 @@ js_library("permission_item") {
     ":store_client",
     ":toggle_row",
     ":util",
+    "../..:metrics_recorder",
   ]
 }
 
@@ -142,6 +144,7 @@ js_library("pin_to_shelf_item") {
     ":browser_proxy",
     ":toggle_row",
     ":types",
+    "../..:metrics_recorder",
   ]
 }
 
@@ -191,15 +194,14 @@ js_library("toggle_row") {
 }
 
 js_library("types") {
-  deps = [
-    "//chrome/browser/ui/webui/app_management:mojo_bindings_js_library_for_compile",
-  ]
+  deps = [ "//chrome/browser/ui/webui/app_management:mojo_bindings_js_library_for_compile" ]
 }
 
 js_library("uninstall_button") {
   deps = [
     ":store_client",
     ":util",
+    "../..:metrics_recorder",
     "//ui/webui/resources/cr_elements/cr_button:cr_button",
     "//ui/webui/resources/cr_elements/policy:cr_tooltip_icon",
     "//ui/webui/resources/js:i18n_behavior",
@@ -210,6 +212,8 @@ js_library("util") {
   deps = [
     ":constants",
     ":types",
+    "../..:os_route",
+    "../../..:router",
     "//ui/webui/resources/js:cr",
   ]
 }

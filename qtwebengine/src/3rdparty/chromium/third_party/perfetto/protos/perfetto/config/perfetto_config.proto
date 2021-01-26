@@ -169,6 +169,7 @@ message GpuCounterDescriptor {
     FAHRENHEIT = 35;
     KELVIN = 36;
 
+    // Values should be out of 100.
     PERCENT = 37;
 
     INSTRUCTION = 40;
@@ -507,8 +508,14 @@ message TracingServiceState {
 
 // Begin of protos/perfetto/common/track_event_descriptor.proto
 
+message TrackEventCategory {
+  optional string name = 1;
+  optional string description = 2;
+  repeated string tags = 3;
+}
+
 message TrackEventDescriptor {
-  repeated string available_categories = 1;
+  repeated TrackEventCategory available_categories = 1;
 }
 
 // End of protos/perfetto/common/track_event_descriptor.proto
@@ -611,6 +618,8 @@ message DataSourceConfig {
   optional PerfEventConfig perf_event_config = 111 [lazy = true];
   // Data source name: vulkan.memory_tracker
   optional VulkanMemoryConfig vulkan_memory_config = 112 [lazy = true];
+  // Data source name: track_event
+  optional TrackEventConfig track_event_config = 113 [lazy = true];
 
   // Chrome is special as it doesn't use the perfetto IPC layer. We want to
   // avoid proto serialization and de-serialization there because that would
@@ -883,14 +892,16 @@ message TraceConfig {
     optional protos.DataSourceConfig config = 1;
 
     // Optional. If multiple producers (~processes) expose the same data source
-    // and |producer_name_filter| != "", the data source is enabled only for
-    // producers whose names match any of the producer_name_filter below.
-    // The |producer_name_filter| has to be an exact match. (TODO(primiano):
-    // support wildcards or regex).
+    // and either |producer_name_filter| or |producer_name_regex_filter| is set,
+    // the data source is enabled only for producers whose names match any of
+    // the filters.
+    // |producer_name_filter| has to be an exact match, while
+    // |producer_name_regex_filter| is a regular expression.
     // This allows to enable a data source only for specific processes.
-    // The "repeated" field has OR sematics: specifying a filter ["foo", "bar"]
-    // will enable data source on both "foo" and "bar" (if existent).
+    // The "repeated" fields have OR semantics: specifying a filter ["foo",
+    // "bar"] will enable data sources on both "foo" and "bar" (if they exist).
     repeated string producer_name_filter = 2;
+    repeated string producer_name_regex_filter = 3;
   }
   repeated DataSource data_sources = 2;
 
@@ -907,6 +918,9 @@ message TraceConfig {
   optional BuiltinDataSource builtin_data_sources = 20;
 
   // If specified, the trace will be stopped |duration_ms| after starting.
+  // This does *not* count the time the system is suspended, so we will run
+  // for duration_ms of system activity, not wall time.
+  //
   // However in case of traces with triggers, see
   // TriggerConfig.trigger_timeout_ms instead.
   optional uint32 duration_ms = 3;
@@ -1136,9 +1150,54 @@ message TraceConfig {
 
 // End of protos/perfetto/config/trace_config.proto
 
+// Begin of protos/perfetto/config/track_event/track_event_config.proto
+
+message TrackEventConfig {
+  // The following fields define the set of enabled trace categories. Each list
+  // item is a glob.
+  //
+  // To determine if category is enabled, it is checked against the filters in
+  // the following order:
+  //
+  //   1. Exact matches in enabled categories.
+  //   2. Exact matches in enabled tags.
+  //   3. Exact matches in disabled categories.
+  //   4. Exact matches in disabled tags.
+  //   5. Pattern matches in enabled categories.
+  //   6. Pattern matches in enabled tags.
+  //   7. Pattern matches in disabled categories.
+  //   8. Pattern matches in disabled tags.
+  //
+  // If none of the steps produced a match, the category is enabled by default.
+  //
+  // Examples:
+  //
+  //  - To enable all non-slow/debug categories:
+  //
+  //       No configuration needed, happens by default.
+  //
+  //  - To enable a specific category:
+  //
+  //       disabled_categories = ["*"]
+  //       enabled_categories = ["my_category"]
+  //
+  //  - To enable only categories with a specific tag:
+  //
+  //       disabled_tags = ["*"]
+  //       enabled_tags = ["my_tag"]
+  //
+  repeated string disabled_categories = 1;  // Default: []
+  repeated string enabled_categories = 2;   // Default: []
+  repeated string disabled_tags = 3;  // Default: [“slow”, “debug”]
+  repeated string enabled_tags = 4;   // Default: []
+}
+
+// End of protos/perfetto/config/track_event/track_event_config.proto
+
 // Begin of protos/perfetto/config/profiling/heapprofd_config.proto
 
 // Configuration for go/heapprofd.
+// Next id: 17
 message HeapprofdConfig {
   message ContinuousDumpConfig {
     // ms to wait before first dump.
@@ -1177,6 +1236,12 @@ message HeapprofdConfig {
   // heapprofd will likely be overloaded by the amount of data for low
   // sampling intervals.
   optional bool all = 5;
+
+  // Do not profile processes whose anon RSS + swap < given value.
+  optional uint32 min_anonymous_memory_kb = 15;
+
+  // Stop profile if heapprofd memory usage goes beyond the given value.
+  optional uint32 max_heapprofd_memory_kb = 16;
 
   // Do not emit function names for mappings starting with this prefix.
   // E.g. /system to not emit symbols for any system libraries.
@@ -1262,15 +1327,65 @@ message JavaHprofConfig {
 
   // Dump at a predefined interval.
   optional ContinuousDumpConfig continuous_dump_config = 3;
+
+  // Do not profile processes whose anon RSS + swap < given value.
+  optional uint32 min_anonymous_memory_kb = 4;
 }
 
 // End of protos/perfetto/config/profiling/java_hprof_config.proto
 
 // Begin of protos/perfetto/config/profiling/perf_event_config.proto
 
-// TODO(b/144281346): unstable, do not use. Will change in incompatible ways.
+// Configuration for the traced_perf profiler.
+//
+// At the time of writing, the config options are restricted to the periodic
+// system-wide stack sampling use-case (|all_cpus| must be true).
 message PerfEventConfig {
-  optional int32 tid = 1;
+  // If true, sample events on all CPUs.
+  optional bool all_cpus = 1;
+
+  // Per-cpu sampling frequency (requested from the kernel). Not guaranteed to
+  // be honored as the kernel can throttle the sampling rate if it's too high.
+  // If unset, an implementation-defined default is used.
+  optional uint32 sampling_frequency = 2;
+
+  // How often the per-cpu ring buffers are read by the producer.
+  // If unset, an implementation-defined default is used.
+  optional uint32 ring_buffer_read_period_ms = 8;
+
+  // Size (in 4k pages) of each per-cpu ring buffer that is filled by the
+  // kernel. If set, must be a power of two.
+  // If unset, an implementation-defined default is used.
+  optional uint32 ring_buffer_pages = 3;
+
+  // Timeout for the remote /proc/<pid>/{maps,mem} file descriptors for a
+  // sampled process. This is primarily for Android, where this lookup is
+  // asynchronous. As long as the producer is waiting, the associated samples
+  // will be kept enqueued (putting pressure on the capacity of the shared
+  // unwinding queue). Once a lookup for a process expires, all associated
+  // samples are discarded. However, if the lookup still succeeds after the
+  // timeout, future samples will be handled normally.
+  // If unset, an implementation-defined default is used.
+  optional uint32 remote_descriptor_timeout_ms = 9;
+
+  // Process ID (TGID) whitelist. If this list is not empty, only matching
+  // samples will be retained. If multiple whitelists and blacklists are
+  // specified by the config, then all of them are evaluated for each sampled
+  // process.
+  repeated int32 target_pid = 4;
+
+  // Command line whitelist, matched against the
+  // /proc/<pid>/cmdline (not the comm string), with both sides being
+  // "normalized". Normalization is as follows: (1) trim everything beyond the
+  // first null or "@" byte; (2) if the string contains forward slashes, trim
+  // everything up to and including the last one.
+  repeated string target_cmdline = 5;
+
+  // PID blacklist.
+  repeated int32 exclude_pid = 6;
+
+  // Command line blacklist. Normalized in the same way as |target_cmdline|.
+  repeated string exclude_cmdline = 7;
 }
 
 // End of protos/perfetto/config/profiling/perf_event_config.proto

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "net/base/features.h"
+#include "build/build_config.h"
 
 namespace net {
 namespace features {
@@ -84,10 +85,14 @@ const base::FeatureParam<int>
         &kRecentCreationTimeGrantsLegacyCookieSemantics,
         "RecentCreationTimeGrantsLegacyCookieSemanticsMilliseconds", 0};
 
+const base::Feature kBlockExternalRequestsFromNonSecureInitiators{
+    "BlockExternalRequestsFromNonSecureInitiators",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
 #if BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)
 const base::Feature kCertVerifierBuiltinFeature {
   "CertVerifierBuiltin",
-#if defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS) || defined(OS_LINUX)
       base::FEATURE_ENABLED_BY_DEFAULT
 #else
       base::FEATURE_DISABLED_BY_DEFAULT
@@ -96,8 +101,7 @@ const base::Feature kCertVerifierBuiltinFeature {
 #endif
 
 const base::Feature kAppendFrameOriginToNetworkIsolationKey{
-    "AppendFrameOriginToNetworkIsolationKey",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+    "AppendFrameOriginToNetworkIsolationKey", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kUseRegistrableDomainInNetworkIsolationKey{
     "UseRegistrableDomainInNetworkIsolationKey",
@@ -105,6 +109,22 @@ const base::Feature kUseRegistrableDomainInNetworkIsolationKey{
 
 const base::Feature kTurnOffStreamingMediaCaching{
     "TurnOffStreamingMediaCaching", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kLegacyTLSEnforced{"LegacyTLSEnforced",
+                                       base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kSchemefulSameSite{"SchemefulSameSite",
+                                       base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kTLSLegacyCryptoFallbackForMetrics{
+    "TLSLegacyCryptoFallbackForMetrics", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kLimitOpenUDPSockets{"LimitOpenUDPSockets",
+                                         base::FEATURE_ENABLED_BY_DEFAULT};
+extern const base::FeatureParam<int> kLimitOpenUDPSocketsMax(
+    &kLimitOpenUDPSockets,
+    "LimitOpenUDPSocketsMax",
+    6000);
 
 }  // namespace features
 }  // namespace net

@@ -9,7 +9,6 @@
 #define GrAtlasTextOp_DEFINED
 
 #include "src/gpu/ops/GrMeshDrawOp.h"
-#include "src/gpu/text/GrDistanceFieldAdjustTable.h"
 #include "src/gpu/text/GrTextBlob.h"
 
 class GrRecordingContext;
@@ -28,13 +27,11 @@ public:
     static const int kVerticesPerGlyph = GrTextBlob::kVerticesPerGlyph;
     static const int kIndicesPerGlyph = 6;
 
-    typedef GrTextBlob Blob;
     struct Geometry {
-        SkMatrix    fViewMatrix;
+        SkMatrix    fDrawMatrix;
         SkIRect     fClipRect;
-        Blob*       fBlob;
-        SkScalar    fX;
-        SkScalar    fY;
+        GrTextBlob* fBlob;
+        SkPoint     fDrawOrigin;
         GrTextBlob::SubRun* fSubRunPtr;
         SkPMColor4f fColor;
     };
@@ -49,7 +46,6 @@ public:
             GrRecordingContext*,
             GrPaint&&,
             int glyphCount,
-            const GrDistanceFieldAdjustTable*,
             bool useGammaCorrectDistanceTable,
             SkColor luminanceColor,
             const SkSurfaceProps&,
@@ -107,10 +103,31 @@ private:
         sk_sp<const GrBuffer> fVertexBuffer;
         sk_sp<const GrBuffer> fIndexBuffer;
         GrGeometryProcessor*  fGeometryProcessor;
-        GrPipeline::FixedDynamicState* fFixedDynamicState;
-        int fGlyphsToFlush;
-        int fVertexOffset;
+        const GrSurfaceProxy** fPrimProcProxies;
+        int fGlyphsToFlush = 0;
+        int fVertexOffset = 0;
+        int fNumDraws = 0;
     };
+
+    GrProgramInfo* programInfo() override {
+        // TODO [PI]: implement
+        return nullptr;
+    }
+
+    void onCreateProgramInfo(const GrCaps*,
+                             SkArenaAlloc*,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&&,
+                             const GrXferProcessor::DstProxyView&) override {
+        // TODO [PI]: implement
+    }
+
+    void onPrePrepareDraws(GrRecordingContext*,
+                           const GrSurfaceProxyView* outputView,
+                           GrAppliedClip*,
+                           const GrXferProcessor::DstProxyView&) override {
+        // TODO [PI]: implement
+    }
 
     void onPrepareDraws(Target*) override;
     void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
@@ -144,18 +161,20 @@ private:
                kLCDBGRDistanceField_MaskType == fMaskType;
     }
 
-    inline void flush(GrMeshDrawOp::Target* target, FlushInfo* flushInfo) const;
+    inline void createDrawForGeneratedGlyphs(
+            GrMeshDrawOp::Target* target, FlushInfo* flushInfo) const;
 
     const SkPMColor4f& color() const { SkASSERT(fGeoCount > 0); return fGeoData[0].fColor; }
     bool usesLocalCoords() const { return fUsesLocalCoords; }
     int numGlyphs() const { return fNumGlyphs; }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override;
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override;
 
-    GrGeometryProcessor* setupDfProcessor(SkArenaAlloc* arena,
-                                          const GrShaderCaps& caps,
-                                          const sk_sp<GrTextureProxy>* proxies,
-                                          unsigned int numActiveProxies) const;
+    GrGeometryProcessor* setupDfProcessor(SkArenaAlloc*,
+                                          const GrShaderCaps&,
+                                          const GrSurfaceProxyView* views,
+                                          unsigned int numActiveViews) const;
 
     SkAutoSTMalloc<kMinGeometryAllocated, Geometry> fGeoData;
     int fGeoDataAllocSize;
@@ -169,7 +188,6 @@ private:
     int fNumGlyphs;
     MaskType fMaskType;
     // Distance field properties
-    sk_sp<const GrDistanceFieldAdjustTable> fDistanceAdjustTable;
     SkColor fLuminanceColor;
     uint32_t fDFGPFlags = 0;
 

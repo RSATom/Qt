@@ -10,6 +10,7 @@
 #include "src/gpu/GrPipeline.h"
 #include "src/gpu/GrProcessorAnalysis.h"
 #include "src/gpu/effects/GrXfermodeFragmentProcessor.h"
+#include "src/gpu/effects/generated/GrClampFragmentProcessor.h"
 #include "src/gpu/effects/generated/GrConstColorProcessor.h"
 #include "src/gpu/effects/generated/GrOverrideInputFragmentProcessor.h"
 #include "src/gpu/effects/generated/GrPremulInputFragmentProcessor.h"
@@ -53,7 +54,7 @@ void GrFragmentProcessor::visitProxies(const GrOp::VisitProxyFunc& func) {
         auto t = *it;
         const GrFragmentProcessor::TextureSampler& sampler = t.first;
         bool mipped = (GrSamplerState::Filter::kMipMap == sampler.samplerState().filter());
-        func(sampler.proxy(), GrMipMapped(mipped));
+        func(sampler.view().proxy(), GrMipMapped(mipped));
     }
 }
 
@@ -73,7 +74,7 @@ const GrFragmentProcessor::TextureSampler& GrFragmentProcessor::textureSampler(i
 
 void GrFragmentProcessor::addCoordTransform(GrCoordTransform* transform) {
     fCoordTransforms.push_back(transform);
-    fFlags |= kHasCoordTranforms_Flag;
+    fFlags |= kHasCoordTransforms_Flag;
 }
 
 #ifdef SK_DEBUG
@@ -95,8 +96,8 @@ bool GrFragmentProcessor::isInstantiated() const {
 #endif
 
 int GrFragmentProcessor::registerChildProcessor(std::unique_ptr<GrFragmentProcessor> child) {
-    if (child->fFlags & kHasCoordTranforms_Flag) {
-        fFlags |= kHasCoordTranforms_Flag;
+    if (child->fFlags & kHasCoordTransforms_Flag) {
+        fFlags |= kHasCoordTransforms_Flag;
     }
     fRequestedFeatures |= child->fRequestedFeatures;
 
@@ -142,6 +143,18 @@ std::unique_ptr<GrFragmentProcessor> GrFragmentProcessor::PremulInput(
     }
     std::unique_ptr<GrFragmentProcessor> fpPipeline[] = { GrPremulInputFragmentProcessor::Make(),
                                                           std::move(fp) };
+    return GrFragmentProcessor::RunInSeries(fpPipeline, 2);
+}
+
+std::unique_ptr<GrFragmentProcessor> GrFragmentProcessor::ClampPremulOutput(
+        std::unique_ptr<GrFragmentProcessor> fp) {
+    if (!fp) {
+        return nullptr;
+    }
+    std::unique_ptr<GrFragmentProcessor> fpPipeline[] = {
+        std::move(fp),
+        GrClampFragmentProcessor::Make(true)
+    };
     return GrFragmentProcessor::RunInSeries(fpPipeline, 2);
 }
 
@@ -234,9 +247,10 @@ std::unique_ptr<GrFragmentProcessor> GrFragmentProcessor::MakeInputPremulAndMulB
             public:
                 void emitCode(EmitArgs& args) override {
                     GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
-                    this->invokeChild(0, args);
+                    SkString temp = this->invokeChild(0, args);
+                    fragBuilder->codeAppendf("%s = %s;", args.fOutputColor, temp.c_str());
                     fragBuilder->codeAppendf("%s.rgb *= %s.rgb;", args.fOutputColor,
-                                                                args.fInputColor);
+                                                                  args.fInputColor);
                     fragBuilder->codeAppendf("%s *= %s.a;", args.fOutputColor, args.fInputColor);
                 }
             };
@@ -284,7 +298,7 @@ std::unique_ptr<GrFragmentProcessor> GrFragmentProcessor::OverrideInput(
 }
 
 std::unique_ptr<GrFragmentProcessor> GrFragmentProcessor::RunInSeries(
-        std::unique_ptr<GrFragmentProcessor>* series, int cnt) {
+        std::unique_ptr<GrFragmentProcessor> series[], int cnt) {
     class SeriesFragmentProcessor : public GrFragmentProcessor {
     public:
         static std::unique_ptr<GrFragmentProcessor> Make(
@@ -310,16 +324,12 @@ std::unique_ptr<GrFragmentProcessor> GrFragmentProcessor::RunInSeries(
             public:
                 void emitCode(EmitArgs& args) override {
                     // First guy's input might be nil.
-                    SkString temp("out0");
-                    this->invokeChild(0, args.fInputColor, &temp, args);
-                    SkString input = temp;
-                    for (int i = 1; i < this->numChildProcessors() - 1; ++i) {
-                        temp.printf("out%d", i);
-                        this->invokeChild(i, input.c_str(), &temp, args);
-                        input = temp;
+                    SkString result = this->invokeChild(0, args.fInputColor, args);
+                    for (int i = 1; i < this->numChildProcessors(); ++i) {
+                        result = this->invokeChild(i, result.c_str(), args);
                     }
-                    // Last guy writes to our output variable.
-                    this->invokeChild(this->numChildProcessors() - 1, input.c_str(), args);
+                    // Copy last output to our output variable
+                    args.fFragBuilder->codeAppendf("%s = %s;", args.fOutputColor, result.c_str());
                 }
             };
             return new GLFP;
@@ -365,8 +375,7 @@ std::unique_ptr<GrFragmentProcessor> GrFragmentProcessor::RunInSeries(
     // Run the through the series, do the invariant output processing, and look for eliminations.
     GrProcessorAnalysisColor inputColor;
     inputColor.setToUnknown();
-    GrColorFragmentProcessorAnalysis info(inputColor, unique_ptr_address_as_pointer_address(series),
-                                          cnt);
+    GrColorFragmentProcessorAnalysis info(inputColor, series, cnt);
     SkTArray<std::unique_ptr<GrFragmentProcessor>> replacementSeries;
     SkPMColor4f knownColor;
     int leadingFPsToEliminate = info.initialProcessorsToEliminate(&knownColor);
@@ -415,17 +424,24 @@ GrFragmentProcessor::CIter::CIter(const GrPipeline& pipeline) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-GrFragmentProcessor::TextureSampler::TextureSampler(sk_sp<GrSurfaceProxy> proxy,
-                                                    const GrSamplerState& samplerState) {
-    this->reset(std::move(proxy), samplerState);
+GrFragmentProcessor::TextureSampler::TextureSampler(GrSurfaceProxyView view,
+                                                    GrSamplerState samplerState)
+        : fView(std::move(view)), fSamplerState(samplerState) {
+    GrSurfaceProxy* proxy = this->proxy();
+    fSamplerState.setFilterMode(
+            std::min(samplerState.filter(),
+                   GrTextureProxy::HighestFilterMode(proxy->backendFormat().textureType())));
 }
 
-void GrFragmentProcessor::TextureSampler::reset(sk_sp<GrSurfaceProxy> proxy,
-                                                const GrSamplerState& samplerState) {
-    SkASSERT(proxy->asTextureProxy());
-    fProxy = std::move(proxy);
+#if GR_TEST_UTILS
+void GrFragmentProcessor::TextureSampler::set(GrSurfaceProxyView view,
+                                              GrSamplerState samplerState) {
+    SkASSERT(view.proxy()->asTextureProxy());
+    fView = std::move(view);
     fSamplerState = samplerState;
+
     fSamplerState.setFilterMode(
-            SkTMin(samplerState.filter(),
-                   GrTextureProxy::HighestFilterMode(fProxy->backendFormat().textureType())));
+            std::min(samplerState.filter(),
+                   GrTextureProxy::HighestFilterMode(this->proxy()->backendFormat().textureType())));
 }
+#endif

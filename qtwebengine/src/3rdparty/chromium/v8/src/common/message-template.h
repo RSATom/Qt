@@ -65,6 +65,8 @@ namespace internal {
   T(ConstructorClassField, "Classes may not have a field named 'constructor'") \
   T(ConstructorNonCallable,                                                    \
     "Class constructor % cannot be invoked without 'new'")                     \
+  T(AnonymousConstructorNonCallable,                                           \
+    "Class constructors cannot be invoked without 'new'")                      \
   T(ConstructorNotFunction, "Constructor % requires 'new'")                    \
   T(ConstructorNotReceiver, "The .constructor property is not an object")      \
   T(CurrencyCode, "Currency code is required with currency style.")            \
@@ -269,7 +271,7 @@ namespace internal {
   T(RegExpNonObject, "% getter called on non-object %")                        \
   T(RegExpNonRegExp, "% getter called on non-RegExp object")                   \
   T(RegExpGlobalInvokedOnNonGlobal,                                            \
-    "%s called with a non-global RegExp argument")                             \
+    "% called with a non-global RegExp argument")                              \
   T(RelativeDateTimeFormatterBadParameters,                                    \
     "Incorrect RelativeDateTimeFormatter provided")                            \
   T(ResolverNotAFunction, "Promise resolver % is not a function")              \
@@ -413,6 +415,7 @@ namespace internal {
     "Invalid left-hand side expression in prefix operation")                   \
   T(InvalidRegExpFlags, "Invalid flags supplied to RegExp constructor '%'")    \
   T(InvalidOrUnexpectedToken, "Invalid or unexpected token")                   \
+  T(InvalidPrivateBrand, "Object must be an instance of class %")              \
   T(InvalidPrivateFieldResolution,                                             \
     "Private field '%' must be declared in an enclosing class")                \
   T(InvalidPrivateMemberRead,                                                  \
@@ -424,6 +427,8 @@ namespace internal {
   T(InvalidPrivateMethodWrite, "Private method '%' is not writable")           \
   T(InvalidPrivateGetterAccess, "'%' was defined without a getter")            \
   T(InvalidPrivateSetterAccess, "'%' was defined without a setter")            \
+  T(InvalidUnusedPrivateStaticMethodAccessedByDebugger,                        \
+    "Unused static private method '%' cannot be accessed at debug time")       \
   T(JsonParseUnexpectedEOS, "Unexpected end of JSON input")                    \
   T(JsonParseUnexpectedToken, "Unexpected token % in JSON at position %")      \
   T(JsonParseUnexpectedTokenNumber, "Unexpected number in JSON at position %") \
@@ -547,6 +552,8 @@ namespace internal {
   T(WasmTrapDataSegmentDropped, "data segment has been dropped")               \
   T(WasmTrapElemSegmentDropped, "element segment has been dropped")            \
   T(WasmTrapTableOutOfBounds, "table access out of bounds")                    \
+  T(WasmTrapBrOnExnNullRef, "br_on_exn on nullref value")                      \
+  T(WasmTrapRethrowNullRef, "rethrowing nullref value")                        \
   T(WasmExceptionError, "wasm exception")                                      \
   /* Asm.js validation related */                                              \
   T(AsmJsInvalid, "Invalid asm.js: %")                                         \
@@ -576,12 +583,12 @@ namespace internal {
   T(WeakRefsUnregisterTokenMustBeObject,                                       \
     "unregisterToken ('%') must be an object")                                 \
   T(WeakRefsCleanupMustBeCallable,                                             \
-    "FinalizationGroup: cleanup must be callable")                             \
+    "FinalizationRegistry: cleanup must be callable")                          \
   T(WeakRefsRegisterTargetMustBeObject,                                        \
-    "FinalizationGroup.prototype.register: target must be an object")          \
+    "FinalizationRegistry.prototype.register: target must be an object")       \
   T(WeakRefsRegisterTargetAndHoldingsMustNotBeSame,                            \
-    "FinalizationGroup.prototype.register: target and holdings must not be "   \
-    "same")                                                                    \
+    "FinalizationRegistry.prototype.register: target and holdings must not "   \
+    "be same")                                                                 \
   T(WeakRefsWeakRefConstructorTargetMustBeObject,                              \
     "WeakRef: target must be an object")                                       \
   T(OptionalChainingNoNew, "Invalid optional chain from new expression")       \

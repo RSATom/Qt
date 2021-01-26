@@ -17,6 +17,7 @@
 #include "dawn_wire/client/Client.h"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -94,6 +95,11 @@ namespace dawn_wire { namespace client {
     {% endfor %}
 
     namespace {
+        WGPUInstance ClientCreateInstance(WGPUInstanceDescriptor const* descriptor) {
+            UNREACHABLE();
+            return nullptr;
+        }
+
         struct ProcEntry {
             WGPUProc proc;
             const char* name;
@@ -121,8 +127,13 @@ namespace dawn_wire { namespace client {
             return entry->proc;
         }
 
+        // Special case the two free-standing functions of the API.
         if (strcmp(procName, "wgpuGetProcAddress") == 0) {
             return reinterpret_cast<WGPUProc>(ClientGetProcAddress);
+        }
+
+        if (strcmp(procName, "wgpuCreateInstance") == 0) {
+            return reinterpret_cast<WGPUProc>(ClientCreateInstance);
         }
 
         return nullptr;
@@ -145,6 +156,7 @@ namespace dawn_wire { namespace client {
     DawnProcTable GetProcs() {
         DawnProcTable table;
         table.getProcAddress = ClientGetProcAddress;
+        table.createInstance = ClientCreateInstance;
         {% for type in by_category["object"] %}
             {% for method in c_methods(type) %}
                 {% set suffix = as_MethodSuffix(type.name, method.name) %}

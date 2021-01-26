@@ -51,9 +51,9 @@ class CounterTrackController extends TrackController<Config, Data> {
         create view ${this.tableName('counter_view')} as
         select
           ts,
-          lead(ts, 1, ts) over (order by ts) - ts as dur,
+          dur,
           value
-        from counter
+        from experimental_counter_dur
         where track_id = ${this.config.trackId};`);
 
       await this.query(`create virtual table ${this.tableName('span')} using
@@ -67,16 +67,16 @@ class CounterTrackController extends TrackController<Config, Data> {
       from (
         select
           ts,
-          lead(ts, 1, ts) over (order by ts) as ts_end,
-        from counter
+          ts + dur as ts_end
+        from experimental_counter_dur
         where track_id = ${this.config.trackId}
       )
       where ts <= ${endNs} and ${startNs} <= ts_end`);
 
     // Only quantize if we have too much data to draw.
     const isQuantized = result[0] > LIMIT;
-    // |resolution| is in s/px we want # ns for 10px window:
-    const bucketSizeNs = Math.round(resolution * 10 * 1e9);
+    // |resolution| is in s/px we want # ns for 1px window:
+    const bucketSizeNs = Math.round(resolution * 1e9);
     let windowStartNs = startNs;
     if (isQuantized) {
       windowStartNs = Math.floor(windowStartNs / bucketSizeNs) * bucketSizeNs;
@@ -89,7 +89,8 @@ class CounterTrackController extends TrackController<Config, Data> {
     quantum=${isQuantized ? bucketSizeNs : 0}`);
 
     let query = `select min(ts) as ts,
-      max(value) as value
+      max(value) as value,
+      -1 as id
       from ${this.tableName('span')}
       group by quantum_ts limit ${LIMIT};`;
 
@@ -101,7 +102,7 @@ class CounterTrackController extends TrackController<Config, Data> {
       query = `
       select *
       from (
-        select ts, value, track_id
+        select ts, value, id
         from counter
         where
           track_id = ${this.config.trackId} and
@@ -112,14 +113,14 @@ class CounterTrackController extends TrackController<Config, Data> {
       union
       select *
       from (
-        select ts, value, track_id
+        select ts, value, id
         from (
           select
             ts,
-            lead(ts, 1, ts) over (order by ts) as ts_end,
+            ts + dur as ts_end,
             value,
-            track_id
-          from counter
+            id
+          from experimental_counter_dur
           where track_id = ${this.config.trackId}
         )
         where ts <= ${endNs} and ${startNs} <= ts_end

@@ -62,6 +62,11 @@
       'V8 Linux64 - debug - header includes': 'debug_x64_header_includes',
       'V8 Linux64 - shared': 'release_x64_shared_verify_heap',
       'V8 Linux64 - verify csa': 'release_x64_verify_csa',
+      # Jumbo.
+      'V8 Linux64 Jumbo': 'release_x64_jumbo',
+      'V8 Linux64 Jumbo - debug': 'debug_x64_jumbo',
+      'V8 Linux64 Jumbo - limited': 'release_x64_jumbo_limited',
+      'V8 Linux64 Jumbo - limited - debug': 'debug_x64_jumbo_limited',
       # Windows.
       'V8 Win32 - builder': 'release_x86_minimal_symbols',
       'V8 Win32 - debug builder': 'debug_x86_minimal_symbols',
@@ -90,8 +95,8 @@
           'release_x64_pointer_compression_without_dchecks',
       'V8 Linux64 - arm64 - sim - pointer compression - builder':
           'release_simulate_arm64_pointer_compression',
-      'V8 Fuchsia': 'release_x64_fuchsia',
-      'V8 Fuchsia - debug': 'debug_x64_fuchsia',
+      'V8 Fuchsia - builder': 'release_x64_fuchsia',
+      'V8 Fuchsia - debug builder': 'debug_x64_fuchsia',
       'V8 Linux64 - cfi': 'release_x64_cfi',
       'V8 Linux64 UBSan': 'release_x64_ubsan',
       'V8 Linux - vtunejit': 'debug_x86_vtunejit',
@@ -232,11 +237,14 @@
       'v8_linux64_msan_rel': 'release_simulate_arm64_msan_minimal_symbols',
       'v8_linux64_sanitizer_coverage_rel':
           'release_x64_asan_minimal_symbols_coverage',
+      'v8_linux64_jumbo_compile_rel': 'release_x64_jumbo_trybot',
+      'v8_linux64_jumbo_limited_compile_rel': 'release_x64_jumbo_limited_trybot',
       'v8_linux64_tsan_rel': 'release_x64_tsan_minimal_symbols',
       'v8_linux64_tsan_isolates_rel_ng':
           'release_x64_tsan_minimal_symbols',
       'v8_linux64_ubsan_rel_ng': 'release_x64_ubsan_minimal_symbols',
       'v8_odroid_arm_rel_ng': 'release_arm',
+      'v8_linux_torque_compare': 'torque_compare',
       # TODO(machenbach): Remove after switching to x64 on infra side.
       'v8_win_dbg': 'debug_x86_trybot',
       'v8_win_compile_dbg': 'debug_x86_trybot',
@@ -457,6 +465,14 @@
       'release_bot', 'x64', 'ios_simulator'],
     'release_x64_internal': [
       'release_bot', 'x64', 'v8_snapshot_internal'],
+    'release_x64_jumbo': [
+      'release_bot', 'x64', 'jumbo'],
+    'release_x64_jumbo_trybot': [
+      'release_trybot', 'x64', 'jumbo'],
+    'release_x64_jumbo_limited': [
+      'release_bot', 'x64', 'jumbo_limited'],
+    'release_x64_jumbo_limited_trybot': [
+      'release_trybot', 'x64', 'jumbo_limited'],
     'release_x64_minimal_symbols': [
       'release_bot', 'x64', 'minimal_symbols'],
     'release_x64_pointer_compression': [
@@ -504,6 +520,10 @@
       'debug_bot', 'x64', 'gcc', 'v8_check_header_includes'],
     'debug_x64_header_includes': [
       'debug_bot', 'x64', 'v8_check_header_includes'],
+    'debug_x64_jumbo': [
+      'debug_bot', 'x64', 'jumbo'],
+    'debug_x64_jumbo_limited': [
+      'debug_bot', 'x64', 'jumbo_limited'],
     'debug_x64_minimal_symbols': [
       'debug_bot', 'x64', 'minimal_symbols'],
     'debug_x64_perfetto': [
@@ -556,6 +576,10 @@
     # Official configs for x86.
     'official_x86': [
         'release_bot', 'x86', 'official'],
+
+    # Torque compare test
+    'torque_compare': [
+        'release_bot', 'verify_torque']
   },
 
   'mixins': {
@@ -644,6 +668,14 @@
 
     'ios_simulator': {
       'gn_args': 'target_cpu="x64" target_os="ios"',
+    },
+
+    'jumbo': {
+      'gn_args': 'use_jumbo_build=true',
+    },
+
+    'jumbo_limited': {
+      'gn_args': 'use_jumbo_build=true jumbo_file_merge_limit=50',
     },
 
     'lsan': {
@@ -792,7 +824,7 @@
     },
 
     'v8_enable_vtunejit': {
-      'gn_args': 'v8_enable_vtunejit=true',
+      'gn_args': 'v8_enable_vtunejit=true v8_enable_vtunetracemark=true',
     },
 
     'v8_full_debug': {
@@ -838,6 +870,10 @@
 
     'x86': {
       'gn_args': 'target_cpu="x86"',
+    },
+
+    'verify_torque': {
+      'gn_args': 'v8_verify_torque_generation_invariance=true',
     },
 
     'sample': {

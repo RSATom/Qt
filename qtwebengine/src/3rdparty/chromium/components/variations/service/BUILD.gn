@@ -4,6 +4,7 @@
 
 import("//build/buildflag_header.gni")
 import("//build/config/chrome_build.gni")
+import("//build/config/features.gni")
 
 declare_args() {
   # Set to true make a build that disables activation of field trial tests
@@ -55,6 +56,15 @@ static_library("service") {
     "//services/network/public/cpp",
     "//ui/base",
   ]
+  if (use_qt) {
+    sources -= [
+      "variations_field_trial_creator.cc",
+      "variations_field_trial_creator.h",
+    ]
+    deps -= [
+      "//components/variations/field_trial_config",
+    ]
+  }
 }
 
 source_set("unit_tests") {

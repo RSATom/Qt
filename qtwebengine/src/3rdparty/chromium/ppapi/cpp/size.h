@@ -279,8 +279,6 @@ class FloatSize {
   PP_FloatSize size_;
 };
 
-}  // namespace pp
-
 /// This function determines whether the width and height values of two sizes
 /// are equal.
 ///
@@ -289,7 +287,7 @@ class FloatSize {
 /// equation.
 ///
 /// @return true if they are equal, false if unequal.
-inline bool operator==(const pp::Size& lhs, const pp::Size& rhs) {
+inline bool operator==(const Size& lhs, const Size& rhs) {
   return lhs.width() == rhs.width() && lhs.height() == rhs.height();
 }
 
@@ -300,7 +298,7 @@ inline bool operator==(const pp::Size& lhs, const pp::Size& rhs) {
 ///
 /// @return true if the <code>Size</code> of lhs are equal to the
 /// <code>Size</code> of rhs, otherwise false.
-inline bool operator!=(const pp::Size& lhs, const pp::Size& rhs) {
+inline bool operator!=(const Size& lhs, const Size& rhs) {
   return !(lhs == rhs);
 }
 
@@ -313,7 +311,7 @@ inline bool operator!=(const pp::Size& lhs, const pp::Size& rhs) {
 /// equation.
 ///
 /// @return true if they are equal, false if unequal.
-inline bool operator==(const pp::FloatSize& lhs, const pp::FloatSize& rhs) {
+inline bool operator==(const FloatSize& lhs, const FloatSize& rhs) {
   return lhs.width() == rhs.width() && lhs.height() == rhs.height();
 }
 
@@ -326,9 +324,11 @@ inline bool operator==(const pp::FloatSize& lhs, const pp::FloatSize& rhs) {
 ///
 /// @return true if the <code>FloatSize</code> of lhs are equal to the
 /// <code>FloatSize</code> of rhs, otherwise false.
-inline bool operator!=(const pp::FloatSize& lhs, const pp::FloatSize& rhs) {
+inline bool operator!=(const FloatSize& lhs, const FloatSize& rhs) {
   return !(lhs == rhs);
 }
+
+}  // namespace pp
 
 #endif  // PPAPI_CPP_SIZE_H_
 

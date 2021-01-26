@@ -18,13 +18,15 @@
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/frame_host/render_frame_host_manager.h"
 #include "content/common/content_export.h"
-#include "content/common/frame_owner_properties.h"
 #include "content/common/frame_replication_state.h"
+#include "services/network/public/mojom/content_security_policy.mojom-forward.h"
 #include "third_party/blink/public/common/frame/frame_owner_element_type.h"
 #include "third_party/blink/public/common/frame/frame_policy.h"
 #include "third_party/blink/public/common/frame/user_activation_state.h"
-#include "third_party/blink/public/common/frame/user_activation_update_type.h"
-#include "third_party/blink/public/platform/web_insecure_request_policy.h"
+#include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom.h"
+#include "third_party/blink/public/mojom/frame/user_activation_update_types.mojom.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-forward.h"
+
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -35,7 +37,6 @@ class NavigationRequest;
 class Navigator;
 class RenderFrameHostImpl;
 class NavigationEntryImpl;
-struct ContentSecurityPolicyHeader;
 
 // When a page contains iframes, its renderer process maintains a tree structure
 // of those frames. We are mirroring this tree in the browser process. This
@@ -70,16 +71,17 @@ class CONTENT_EXPORT FrameTreeNode {
 
   // Callers are are expected to initialize sandbox flags separately after
   // calling the constructor.
-  FrameTreeNode(FrameTree* frame_tree,
-                Navigator* navigator,
-                FrameTreeNode* parent,
-                blink::WebTreeScopeType scope,
-                const std::string& name,
-                const std::string& unique_name,
-                bool is_created_by_script,
-                const base::UnguessableToken& devtools_frame_token,
-                const FrameOwnerProperties& frame_owner_properties,
-                blink::FrameOwnerElementType owner_type);
+  FrameTreeNode(
+      FrameTree* frame_tree,
+      Navigator* navigator,
+      FrameTreeNode* parent,
+      blink::WebTreeScopeType scope,
+      const std::string& name,
+      const std::string& unique_name,
+      bool is_created_by_script,
+      const base::UnguessableToken& devtools_frame_token,
+      const blink::mojom::FrameOwnerProperties& frame_owner_properties,
+      blink::FrameOwnerElementType owner_type);
 
   ~FrameTreeNode();
 
@@ -184,11 +186,11 @@ class CONTENT_EXPORT FrameTreeNode {
 
   // Add CSP headers to replication state, notify proxies about the update.
   void AddContentSecurityPolicies(
-      const std::vector<ContentSecurityPolicyHeader>& headers);
+      std::vector<network::mojom::ContentSecurityPolicyHeaderPtr> headers);
 
   // Sets the current insecure request policy, and notifies proxies about the
   // update.
-  void SetInsecureRequestPolicy(blink::WebInsecureRequestPolicy policy);
+  void SetInsecureRequestPolicy(blink::mojom::InsecureRequestPolicy policy);
 
   // Sets the current set of insecure urls to upgrade, and notifies proxies
   // about the update.
@@ -229,16 +231,16 @@ class CONTENT_EXPORT FrameTreeNode {
     return replication_state_.frame_policy;
   }
 
-  // Set any pending sandbox flags and container policy as active, and return
-  // true if either was changed.
-  bool CommitPendingFramePolicy();
+  // Set the frame_policy provided in function parameter as active frame policy,
+  // while leaving pending_frame_policy_ untouched.
+  bool CommitFramePolicy(const blink::FramePolicy& frame_policy);
 
-  const FrameOwnerProperties& frame_owner_properties() {
+  const blink::mojom::FrameOwnerProperties& frame_owner_properties() {
     return frame_owner_properties_;
   }
 
   void set_frame_owner_properties(
-      const FrameOwnerProperties& frame_owner_properties) {
+      const blink::mojom::FrameOwnerProperties& frame_owner_properties) {
     frame_owner_properties_ = frame_owner_properties;
   }
 
@@ -255,12 +257,12 @@ class CONTENT_EXPORT FrameTreeNode {
     return render_manager_.current_frame_host();
   }
 
-  // Return the node immediately preceding this node in its parent's
-  // |children_|, or nullptr if there is no such node.
+  // Return the node immediately preceding this node in its parent's children,
+  // or nullptr if there is no such node.
   FrameTreeNode* PreviousSibling() const;
 
-  // Return the node immediately following this node in its parent's
-  // |children_|, or nullptr if there is no such node.
+  // Return the node immediately following this node in its parent's children,
+  // or nullptr if there is no such node.
   FrameTreeNode* NextSibling() const;
 
   // Returns true if this node is in a loading state.
@@ -328,9 +330,10 @@ class CONTENT_EXPORT FrameTreeNode {
   // (which initiated the update).  Returns |false| if the update tries to
   // consume an already consumed/expired transient state, |true| otherwise.  See
   // the comment on user_activation_state_ below.
-  bool UpdateUserActivationState(blink::UserActivationUpdateType update_type);
+  bool UpdateUserActivationState(
+      blink::mojom::UserActivationUpdateType update_type);
 
-  void OnSetHasReceivedUserGestureBeforeNavigation(bool value);
+  void OnSetHadStickyUserActivationBeforeNavigation(bool value);
 
   // Returns the sandbox flags currently in effect for this frame. This includes
   // flags inherited from parent frames, the currently active flags from the
@@ -340,7 +343,7 @@ class CONTENT_EXPORT FrameTreeNode {
   // pending_frame_policy() for those. To see the flags which will take effect
   // on navigation (which does not include the CSP-set flags), use
   // effective_frame_policy().
-  blink::WebSandboxFlags active_sandbox_flags() const {
+  blink::mojom::WebSandboxFlags active_sandbox_flags() const {
     return replication_state_.active_sandbox_flags;
   }
 
@@ -351,7 +354,7 @@ class CONTENT_EXPORT FrameTreeNode {
   // will be cleared, and the flags in the pending frame policy will be applied
   // to the frame.
   void UpdateFramePolicyHeaders(
-      blink::WebSandboxFlags sandbox_flags,
+      blink::mojom::WebSandboxFlags sandbox_flags,
       const blink::ParsedFeaturePolicy& parsed_header);
 
   // Returns whether the frame received a user gesture.
@@ -376,7 +379,7 @@ class CONTENT_EXPORT FrameTreeNode {
 
   // Returns the sticky bit of the User Activation v2 state of the
   // |FrameTreeNode|.
-  bool HasBeenActivated() const {
+  bool HasStickyUserActivation() const {
     return user_activation_state_.HasBeenActive();
   }
 
@@ -404,6 +407,20 @@ class CONTENT_EXPORT FrameTreeNode {
   // feature policies.
   void SetOpenerFeaturePolicyState(
       const blink::FeaturePolicy::FeatureState& feature_state);
+
+  // Returns the embedding token for the frame. A frame is embedded if it is the
+  // child to a parent frame that is cross-process. As such, this will return
+  // base::nullopt for:
+  // - The main frame.
+  // - Child frames that are in the same process as their parent.
+  const base::Optional<base::UnguessableToken>& GetEmbeddingToken() const;
+
+  // Called by NavigationImpl::DidNavigate() on completion of a navigation to
+  // update the embedding token for the frame.
+  void SetEmbeddingToken(
+      const base::Optional<base::UnguessableToken>& embedding_token);
+
+  void SetAdFrameType(blink::mojom::AdFrameType ad_frame_type);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(SitePerProcessFeaturePolicyBrowserTest,
@@ -438,10 +455,7 @@ class CONTENT_EXPORT FrameTreeNode {
   // of the frame tree.
   scoped_refptr<Navigator> navigator_;
 
-  // Manages creation and swapping of RenderFrameHosts for this frame.  This
-  // must be declared before |children_| so that it gets deleted after them.
-  // That's currently necessary so that RenderFrameHostImpl's destructor can
-  // call GetProcess.
+  // Manages creation and swapping of RenderFrameHosts for this frame.
   RenderFrameHostManager render_manager_;
 
   // A browser-global identifier for the frame in the page, which stays stable
@@ -507,13 +521,20 @@ class CONTENT_EXPORT FrameTreeNode {
   // to look up the FrameTreeNode instance.
   base::UnguessableToken devtools_frame_token_;
 
+  // A token tracking the embedding relationship between a out-of-process
+  // frames. This is only accessible by the renderer for the active
+  // RenderFrameHost and the renderer for the RenderFrameProxyHost from
+  // RenderFrameProxyHostManager::GetProxyToParent(). Should only be set
+  // if the frame is embedded in a parent frame.
+  base::Optional<base::UnguessableToken> embedding_token_;
+
   // Tracks the scrolling and margin properties for this frame.  These
   // properties affect the child renderer but are stored on its parent's
   // frame element.  When this frame's parent dynamically updates these
   // properties, we update them here too.
   //
   // Note that dynamic updates only take effect on the next frame navigation.
-  FrameOwnerProperties frame_owner_properties_;
+  blink::mojom::FrameOwnerProperties frame_owner_properties_;
 
   // Owns an ongoing NavigationRequest until it is ready to commit. It will then
   // be reset and a RenderFrameHost will be responsible for the navigation.

@@ -35,6 +35,7 @@
 #include "dawn_native/RenderPipeline.h"
 #include "dawn_native/Sampler.h"
 #include "dawn_native/ShaderModule.h"
+#include "dawn_native/Surface.h"
 #include "dawn_native/SwapChain.h"
 #include "dawn_native/Texture.h"
 #include "dawn_native/ValidationUtils_autogen.h"
@@ -94,29 +95,69 @@ namespace dawn_native {
         ASSERT(mCaches->shaderModules.empty());
     }
 
-    void DeviceBase::HandleError(wgpu::ErrorType type, const char* message) {
-        mCurrentErrorScope->HandleError(type, message);
+    void DeviceBase::BaseDestructor() {
+        if (mLossStatus != LossStatus::Alive) {
+            // if device is already lost, we may still have fences and error scopes to clear since
+            // the time the device was lost, clear them now before we destruct the device.
+            mErrorScopeTracker->Tick(GetCompletedCommandSerial());
+            mFenceSignalTracker->Tick(GetCompletedCommandSerial());
+            return;
+        }
+        // Assert that errors are device loss so that we can continue with destruction
+        AssertAndIgnoreDeviceLossError(WaitForIdleForDestruction());
+        Destroy();
+        mLossStatus = LossStatus::AlreadyLost;
+    }
+
+    void DeviceBase::HandleError(InternalErrorType type, const char* message) {
+        // If we receive an internal error, assume the backend can't recover and proceed with
+        // device destruction. We first wait for all previous commands to be completed so that
+        // backend objects can be freed immediately, before handling the loss.
+        if (type == InternalErrorType::Internal) {
+            mLossStatus = LossStatus::BeingLost;
+            // Assert that errors are device loss so that we can continue with destruction.
+            AssertAndIgnoreDeviceLossError(WaitForIdleForDestruction());
+            HandleLoss(message);
+        }
+
+        // The device was lost for real, call the loss handler because all the backend objects are
+        // as if no longer in use.
+        if (type == InternalErrorType::DeviceLost) {
+            HandleLoss(message);
+        }
+
+        // Still forward device loss and internal errors to the error scopes so they all reject.
+        mCurrentErrorScope->HandleError(ToWGPUErrorType(type), message);
     }
 
     void DeviceBase::InjectError(wgpu::ErrorType type, const char* message) {
         if (ConsumedError(ValidateErrorType(type))) {
             return;
         }
-        if (DAWN_UNLIKELY(type == wgpu::ErrorType::NoError)) {
-            HandleError(wgpu::ErrorType::Validation, "Invalid injected error NoError");
+
+        // This method should only be used to make error scope reject. For DeviceLost there is the
+        // LoseForTesting function that can be used instead.
+        if (type != wgpu::ErrorType::Validation && type != wgpu::ErrorType::OutOfMemory) {
+            HandleError(InternalErrorType::Validation,
+                        "Invalid injected error, must be Validation or OutOfMemory");
             return;
         }
-        HandleError(type, message);
+
+        HandleError(FromWGPUErrorType(type), message);
     }
 
-    void DeviceBase::ConsumeError(ErrorData* error) {
+    void DeviceBase::ConsumeError(std::unique_ptr<ErrorData> error) {
         ASSERT(error != nullptr);
         HandleError(error->GetType(), error->GetMessage().c_str());
-        delete error;
     }
 
     void DeviceBase::SetUncapturedErrorCallback(wgpu::ErrorCallback callback, void* userdata) {
         mRootErrorScope->SetCallback(callback, userdata);
+    }
+
+    void DeviceBase::SetDeviceLostCallback(wgpu::DeviceLostCallback callback, void* userdata) {
+        mDeviceLostCallback = callback;
+        mDeviceLostUserdata = userdata;
     }
 
     void DeviceBase::PushErrorScope(wgpu::ErrorFilter filter) {
@@ -150,6 +191,38 @@ namespace dawn_native {
             return DAWN_VALIDATION_ERROR("Object is an error.");
         }
         return {};
+    }
+
+    MaybeError DeviceBase::ValidateIsAlive() const {
+        if (DAWN_LIKELY(mLossStatus == LossStatus::Alive)) {
+            return {};
+        }
+        return DAWN_DEVICE_LOST_ERROR("Device is lost");
+    }
+
+    void DeviceBase::HandleLoss(const char* message) {
+        if (mLossStatus == LossStatus::AlreadyLost) {
+            return;
+        }
+
+        Destroy();
+        mLossStatus = LossStatus::AlreadyLost;
+
+        if (mDeviceLostCallback) {
+            mDeviceLostCallback(message, mDeviceLostUserdata);
+        }
+    }
+
+    void DeviceBase::LoseForTesting() {
+        if (mLossStatus == LossStatus::AlreadyLost) {
+            return;
+        }
+
+        HandleError(InternalErrorType::Internal, "Device lost for testing");
+    }
+
+    bool DeviceBase::IsLost() const {
+        return mLossStatus != LossStatus::Alive;
     }
 
     AdapterBase* DeviceBase::GetAdapter() const {
@@ -432,7 +505,9 @@ namespace dawn_native {
         WGPUCreateBufferMappedResult result = CreateBufferMapped(descriptor);
 
         WGPUBufferMapAsyncStatus status = WGPUBufferMapAsyncStatus_Success;
-        if (result.data == nullptr || result.dataLength != descriptor->size) {
+        if (IsLost()) {
+            status = WGPUBufferMapAsyncStatus_DeviceLost;
+        } else if (result.data == nullptr || result.dataLength != descriptor->size) {
             status = WGPUBufferMapAsyncStatus_Error;
         }
 
@@ -472,10 +547,7 @@ namespace dawn_native {
         QueueBase* result = nullptr;
 
         if (ConsumedError(CreateQueueInternal(&result))) {
-            // If queue creation failure ever becomes possible, we should implement MakeError and
-            // friends for them.
-            UNREACHABLE();
-            return nullptr;
+            return QueueBase::MakeError(this);
         }
 
         return result;
@@ -518,10 +590,11 @@ namespace dawn_native {
 
         return result;
     }
-    SwapChainBase* DeviceBase::CreateSwapChain(const SwapChainDescriptor* descriptor) {
+    SwapChainBase* DeviceBase::CreateSwapChain(Surface* surface,
+                                               const SwapChainDescriptor* descriptor) {
         SwapChainBase* result = nullptr;
 
-        if (ConsumedError(CreateSwapChainInternal(&result, descriptor))) {
+        if (ConsumedError(CreateSwapChainInternal(&result, surface, descriptor))) {
             return SwapChainBase::MakeError(this);
         }
 
@@ -550,15 +623,21 @@ namespace dawn_native {
     // Other Device API methods
 
     void DeviceBase::Tick() {
-        if (ConsumedError(TickImpl()))
-            return;
-
+        // We need to do the deferred callback even if Device is lost since Buffer Map Async will
+        // send callback with device lost status when device is lost.
         {
             auto deferredResults = std::move(mDeferredCreateBufferMappedAsyncResults);
             for (const auto& deferred : deferredResults) {
                 deferred.callback(deferred.status, deferred.result, deferred.userdata);
             }
         }
+        if (ConsumedError(ValidateIsAlive())) {
+            return;
+        }
+        if (ConsumedError(TickImpl())) {
+            return;
+        }
+
         mErrorScopeTracker->Tick(GetCompletedCommandSerial());
         mFenceSignalTracker->Tick(GetCompletedCommandSerial());
     }
@@ -632,12 +711,14 @@ namespace dawn_native {
     void DeviceBase::SetDefaultToggles() {
         // Sets the default-enabled toggles
         mTogglesSet.SetToggle(Toggle::LazyClearResourceOnFirstUse, true);
+        mTogglesSet.SetToggle(Toggle::UseSpvc, false);
     }
 
     // Implementation details of object creation
 
     MaybeError DeviceBase::CreateBindGroupInternal(BindGroupBase** result,
                                                    const BindGroupDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidateBindGroupDescriptor(this, descriptor));
         }
@@ -648,6 +729,7 @@ namespace dawn_native {
     MaybeError DeviceBase::CreateBindGroupLayoutInternal(
         BindGroupLayoutBase** result,
         const BindGroupLayoutDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidateBindGroupLayoutDescriptor(this, descriptor));
         }
@@ -657,6 +739,7 @@ namespace dawn_native {
 
     MaybeError DeviceBase::CreateBufferInternal(BufferBase** result,
                                                 const BufferDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidateBufferDescriptor(this, descriptor));
         }
@@ -667,6 +750,7 @@ namespace dawn_native {
     MaybeError DeviceBase::CreateComputePipelineInternal(
         ComputePipelineBase** result,
         const ComputePipelineDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidateComputePipelineDescriptor(this, descriptor));
         }
@@ -691,6 +775,7 @@ namespace dawn_native {
     MaybeError DeviceBase::CreatePipelineLayoutInternal(
         PipelineLayoutBase** result,
         const PipelineLayoutDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidatePipelineLayoutDescriptor(this, descriptor));
         }
@@ -699,6 +784,7 @@ namespace dawn_native {
     }
 
     MaybeError DeviceBase::CreateQueueInternal(QueueBase** result) {
+        DAWN_TRY(ValidateIsAlive());
         DAWN_TRY_ASSIGN(*result, CreateQueueImpl());
         return {};
     }
@@ -706,6 +792,7 @@ namespace dawn_native {
     MaybeError DeviceBase::CreateRenderBundleEncoderInternal(
         RenderBundleEncoder** result,
         const RenderBundleEncoderDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidateRenderBundleEncoderDescriptor(this, descriptor));
         }
@@ -716,6 +803,7 @@ namespace dawn_native {
     MaybeError DeviceBase::CreateRenderPipelineInternal(
         RenderPipelineBase** result,
         const RenderPipelineDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidateRenderPipelineDescriptor(this, descriptor));
         }
@@ -748,6 +836,7 @@ namespace dawn_native {
 
     MaybeError DeviceBase::CreateSamplerInternal(SamplerBase** result,
                                                  const SamplerDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidateSamplerDescriptor(this, descriptor));
         }
@@ -757,6 +846,7 @@ namespace dawn_native {
 
     MaybeError DeviceBase::CreateShaderModuleInternal(ShaderModuleBase** result,
                                                       const ShaderModuleDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidateShaderModuleDescriptor(this, descriptor));
         }
@@ -765,16 +855,37 @@ namespace dawn_native {
     }
 
     MaybeError DeviceBase::CreateSwapChainInternal(SwapChainBase** result,
+                                                   Surface* surface,
                                                    const SwapChainDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
-            DAWN_TRY(ValidateSwapChainDescriptor(this, descriptor));
+            DAWN_TRY(ValidateSwapChainDescriptor(this, surface, descriptor));
         }
-        DAWN_TRY_ASSIGN(*result, CreateSwapChainImpl(descriptor));
+
+        if (surface == nullptr) {
+            DAWN_TRY_ASSIGN(*result, CreateSwapChainImpl(descriptor));
+        } else {
+            ASSERT(descriptor->implementation == 0);
+
+            NewSwapChainBase* previousSwapChain = surface->GetAttachedSwapChain();
+            NewSwapChainBase* newSwapChain;
+            DAWN_TRY_ASSIGN(newSwapChain,
+                            CreateSwapChainImpl(surface, previousSwapChain, descriptor));
+
+            if (previousSwapChain != nullptr) {
+                ASSERT(!previousSwapChain->IsAttached());
+            }
+            ASSERT(newSwapChain->IsAttached());
+
+            surface->SetAttachedSwapChain(newSwapChain);
+            *result = newSwapChain;
+        }
         return {};
     }
 
     MaybeError DeviceBase::CreateTextureInternal(TextureBase** result,
                                                  const TextureDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         if (IsValidationEnabled()) {
             DAWN_TRY(ValidateTextureDescriptor(this, descriptor));
         }
@@ -785,6 +896,7 @@ namespace dawn_native {
     MaybeError DeviceBase::CreateTextureViewInternal(TextureViewBase** result,
                                                      TextureBase* texture,
                                                      const TextureViewDescriptor* descriptor) {
+        DAWN_TRY(ValidateIsAlive());
         DAWN_TRY(ValidateObject(texture));
         TextureViewDescriptor desc = GetTextureViewDescriptorWithDefaults(texture, descriptor);
         if (IsValidationEnabled()) {

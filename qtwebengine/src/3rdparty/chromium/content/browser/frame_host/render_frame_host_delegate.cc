@@ -8,6 +8,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
@@ -100,6 +101,7 @@ RenderFrameHostDelegate::GetGeolocationContext() {
 
 #if defined(OS_ANDROID)
 void RenderFrameHostDelegate::GetNFC(
+    RenderFrameHost* render_frame_host,
     mojo::PendingReceiver<device::mojom::NFC> receiver) {}
 #endif
 
@@ -181,6 +183,18 @@ RenderFrameHostDelegate::GetRecordAggregateWatchTimeCallback() {
 
 bool RenderFrameHostDelegate::IsFrameLowPriority(
     const RenderFrameHost* render_frame_host) {
+  return false;
+}
+
+void RenderFrameHostDelegate::IsClipboardPasteAllowed(
+    const GURL& url,
+    const ui::ClipboardFormatType& data_type,
+    const std::string& data,
+    IsClipboardPasteAllowedCallback callback) {
+  std::move(callback).Run(ClipboardPasteAllowed(true));
+}
+
+bool RenderFrameHostDelegate::HasSeenRecentScreenOrientationChange() {
   return false;
 }
 

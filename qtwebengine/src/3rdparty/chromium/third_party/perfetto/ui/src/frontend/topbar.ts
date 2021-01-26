@@ -32,6 +32,8 @@ const PLACEHOLDER = {
   [COMMAND]: 'e.g. select * from sched left join thread using(utid) limit 10'
 };
 
+export const DISMISSED_PANNING_HINT_KEY = 'dismissedPanningHint';
+
 let selResult = 0;
 let numResults = 0;
 let mode: Mode = SEARCH;
@@ -229,8 +231,65 @@ class Progress implements m.ClassComponent {
   }
 }
 
+
+class NewVersionNotification implements m.ClassComponent {
+  view() {
+    if (!globals.frontendLocalState.newVersionAvailable) return;
+    return m(
+        '.new-version-toast',
+        'A new version of the UI is available!',
+        m('button.notification-btn.preferred',
+          {
+            onclick: () => {
+              location.reload();
+            }
+          },
+          'Reload'),
+        m('button.notification-btn',
+          {
+            onclick: () => {
+              globals.frontendLocalState.newVersionAvailable = false;
+              globals.rafScheduler.scheduleFullRedraw();
+            }
+          },
+          'Dismiss'),
+    );
+  }
+}
+
+
+class HelpPanningNotification implements m.ClassComponent {
+  view() {
+    const dismissed = localStorage.getItem(DISMISSED_PANNING_HINT_KEY);
+    if (dismissed === 'true' || !globals.frontendLocalState.showPanningHint) {
+      return;
+    }
+    return m(
+        '.helpful-hint',
+        m('.hint-text',
+          'Are you trying to pan? Use the WASD keys or hold shift to click ' +
+              'and drag. Press \'?\' for more help.'),
+        m('button.hint-dismiss-button',
+          {
+            onclick: () => {
+              globals.frontendLocalState.showPanningHint = false;
+              localStorage.setItem(DISMISSED_PANNING_HINT_KEY, 'true');
+              globals.rafScheduler.scheduleFullRedraw();
+            }
+          },
+          'Dismiss'),
+    );
+  }
+}
+
 export class Topbar implements m.ClassComponent {
   view() {
-    return m('.topbar', m(Omnibox), m(Progress));
+    return m(
+        '.topbar',
+        globals.frontendLocalState.newVersionAvailable ?
+            m(NewVersionNotification) :
+            m(Omnibox),
+        m(Progress),
+        m(HelpPanningNotification));
   }
 }

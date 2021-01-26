@@ -138,9 +138,13 @@ template("proto_library") {
       rebase_path(proto_in_dir, root_build_dir),
     ]
     if (generate_cc) {
+      cc_generator_options_ = ""
+      if (defined(invoker.cc_generator_options)) {
+        cc_generator_options_ = invoker.cc_generator_options
+      }
       args += [
         "--cpp_out",
-        rel_cc_out_dir,
+        cc_generator_options_ + rel_cc_out_dir,
       ]
     }
     if (generate_descriptor != "") {
@@ -170,13 +174,9 @@ template("proto_library") {
 
     args += rebase_path(proto_sources, root_build_dir)
 
-    inputs = [
-      protoc_path,
-    ]
+    inputs = [ protoc_path ]
 
-    deps = [
-      protoc_label,
-    ]
+    deps = [ protoc_label ]
 
     # TODO(hjd): Avoid adding to deps here this.
     # When we generate BUILD files we need find the transitive proto,
@@ -226,16 +226,24 @@ template("proto_library") {
         ":$config_name",
       ]
 
+      # By default, propagate the config for |include_dirs| to dependent
+      # targets, so that public imports can be resolved to corresponding header
+      # files. In some cases, the embedder target handles include directory
+      # propagation itself, e.g. via a common config.
+      propagate_imports_configs = !defined(invoker.propagate_imports_configs) ||
+                                  invoker.propagate_imports_configs
+      if (propagate_imports_configs) {
+        public_configs += [ ":$config_name" ]
+      } else {
+        configs += [ ":$config_name" ]
+      }
+
       # Use protobuf_full only for tests.
       if (defined(invoker.use_protobuf_full) &&
           invoker.use_protobuf_full == true) {
-        deps = [
-          "//gn:protobuf_full",
-        ]
+        deps = [ "//gn:protobuf_full" ]
       } else if (generate_cc) {
-        deps = [
-          "//gn:protobuf_lite",
-        ]
+        deps = [ "//gn:protobuf_lite" ]
       } else {
         deps = []
       }

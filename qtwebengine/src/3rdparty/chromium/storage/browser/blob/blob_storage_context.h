@@ -15,6 +15,7 @@
 
 #include "base/callback_forward.h"
 #include "base/component_export.h"
+#include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -31,16 +32,19 @@
 #include "storage/browser/blob/mojom/blob_storage_context.mojom.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom.h"
 
-class GURL;
-
 namespace content {
-class BlobDispatcherHost;
-class BlobDispatcherHostTest;
+
 class ChromeBlobStorageContext;
 class ShareableBlobDataItem;
-}
+
+namespace indexed_db_backing_store_unittest {
+class BlobStorageContextShim;
+}  // namespace indexed_db_backing_store_unittest
+
+}  // namespace content
 
 namespace storage {
+
 class BlobDataBuilder;
 class BlobDataHandle;
 class BlobDataSnapshot;
@@ -58,14 +62,14 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
   // Initializes the context without disk support.
   BlobStorageContext();
   // Disk support is enabled if |file_runner| isn't null.
-  BlobStorageContext(base::FilePath storage_directory,
+  BlobStorageContext(const base::FilePath& profile_directory,
+                     const base::FilePath& blob_storage_directory,
                      scoped_refptr<base::TaskRunner> file_runner);
   ~BlobStorageContext() override;
 
   // The following three methods all lookup a BlobDataHandle based on some
   // input. If no blob matching the input exists these methods return null.
   std::unique_ptr<BlobDataHandle> GetBlobDataFromUUID(const std::string& uuid);
-  mojo::PendingRemote<blink::mojom::Blob> GetBlobFromPublicURL(const GURL& url);
   // If this BlobStorageContext is deleted before this method finishes, the
   // callback will still be called with null.
   void GetBlobDataFromBlobRemote(
@@ -89,11 +93,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
       const std::string& content_type,
       const std::string& content_disposition,
       BlobStatus reason);
-
-  // Useful for coining blob urls from within the browser process.
-  bool RegisterPublicBlobURL(const GURL& url,
-                             mojo::PendingRemote<blink::mojom::Blob> blob);
-  void RevokePublicBlobURL(const GURL& url);
 
   size_t blob_count() const { return registry_.blob_count(); }
 
@@ -169,8 +168,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
   }
 
  protected:
-  friend class content::BlobDispatcherHost;
-  friend class content::BlobDispatcherHostTest;
   friend class content::ChromeBlobStorageContext;
   friend class BlobBuilderFromStream;
   friend class BlobDataHandle;
@@ -178,6 +175,8 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
   friend class BlobRegistryImplTest;
   friend class BlobStorageContextTest;
   friend class BlobURLTokenImpl;
+  friend class content::indexed_db_backing_store_unittest::
+      BlobStorageContextShim;
 
   enum class TransportQuotaType { MEMORY, FILE };
 
@@ -242,14 +241,20 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageContext
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
                     base::trace_event::ProcessMemoryDump* pmd) override;
 
-  // storage::mojom::BlobStorageContext implementation.
+  // mojom::BlobStorageContext implementation.
   void RegisterFromDataItem(mojo::PendingReceiver<blink::mojom::Blob> blob,
                             const std::string& uuid,
                             mojom::BlobDataItemPtr item) override;
   void RegisterFromMemory(mojo::PendingReceiver<::blink::mojom::Blob> blob,
                           const std::string& uuid,
                           mojo_base::BigBuffer data) override;
+  void WriteBlobToFile(mojo::PendingRemote<::blink::mojom::Blob> blob,
+                       const base::FilePath& path,
+                       bool flush_on_write,
+                       base::Optional<base::Time> last_modified,
+                       WriteBlobToFileCallback callback) override;
 
+  base::FilePath profile_directory_;
   BlobStorageRegistry registry_;
   BlobMemoryController memory_controller_;
   mojo::ReceiverSet<mojom::BlobStorageContext> receivers_;

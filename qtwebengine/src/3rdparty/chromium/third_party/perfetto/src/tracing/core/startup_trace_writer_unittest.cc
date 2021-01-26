@@ -28,8 +28,9 @@
 #include "src/tracing/test/fake_producer_endpoint.h"
 #include "test/gtest_and_gmock.h"
 
+#include "protos/perfetto/trace/test_event.gen.h"
 #include "protos/perfetto/trace/test_event.pbzero.h"
-#include "protos/perfetto/trace/trace_packet.pb.h"
+#include "protos/perfetto/trace/trace_packet.gen.h"
 #include "protos/perfetto/trace/trace_packet.pbzero.h"
 
 namespace perfetto {
@@ -146,7 +147,7 @@ class StartupTraceWriterTest : public AlignedBufferTest {
       EXPECT_EQ(static_cast<uid_t>(1),
                 sequence_properties.producer_uid_trusted);
 
-      protos::TracePacket parsed_packet;
+      protos::gen::TracePacket parsed_packet;
       bool res = parsed_packet.ParseFromString(packet.GetRawBytesForTesting());
       EXPECT_TRUE(res);
       if (!res)
@@ -461,7 +462,7 @@ TEST_P(StartupTraceWriterTest, BindAndCommitInBatchesWithSMBExhaustion) {
 
   // Return and free the first chunk, so that there is only a single free chunk.
   PatchList ignored;
-  arbiter_->ReturnCompletedChunk(std::move(chunks[0]), 0, &ignored);
+  arbiter_->ReturnCompletedChunk(std::move(chunks[0]), 42, &ignored);
   chunks[0] =
       arbiter_->shmem_abi_for_testing()->TryAcquireChunkForReading(0, 0);
   ASSERT_TRUE(chunks[0].is_valid());
@@ -483,7 +484,7 @@ TEST_P(StartupTraceWriterTest, BindAndCommitInBatchesWithSMBExhaustion) {
 
   // Free up the other SMB chunks.
   for (size_t i = 1; i < kTotChunks; i++) {
-    arbiter_->ReturnCompletedChunk(std::move(chunks[i]), 0, &ignored);
+    arbiter_->ReturnCompletedChunk(std::move(chunks[i]), 42, &ignored);
     chunks[i] =
         arbiter_->shmem_abi_for_testing()->TryAcquireChunkForReading(i, 0);
     ASSERT_TRUE(chunks[i].is_valid());

@@ -2,12 +2,16 @@
   * [Contributing](contributing.md)
   * [Build instructions](build-instructions.md)
   * [Running tests](testing.md)
+* Instrumenting and tracing
+  * [App instrumentation](app-instrumentation.md)
+  * [Recording traces](recording-traces.md)
 * On-device tracer
   * [Running Perfetto](running.md)
   * [Capturing long traces](long-traces.md)
   * [Advanced trace config](trace-config.md)
   * [Running in detached mode](detached-mode.md)
   * [Native Heap Profiling](heapprofd.md)
+  * [Java Heap Profiling](java-hprof.md)
 * Trace analysis
   * [Trace processor](trace-processor.md)
   * [Trace-based metrics](metrics.md)

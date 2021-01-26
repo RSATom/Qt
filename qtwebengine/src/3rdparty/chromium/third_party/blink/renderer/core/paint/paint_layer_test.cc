@@ -206,9 +206,10 @@ TEST_P(PaintLayerTest, CompositedScrollingNoNeedsRepaint) {
   EXPECT_EQ(kNotComposited, content_layer->GetCompositingState());
   EXPECT_EQ(PhysicalOffset(), content_layer->LocationWithoutPositionOffset());
 
-  scroll_layer->GetScrollableArea()->SetScrollOffset(ScrollOffset(1000, 1000),
-                                                     kProgrammaticScroll);
-  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
+  scroll_layer->GetScrollableArea()->SetScrollOffset(
+      ScrollOffset(1000, 1000), mojom::blink::ScrollType::kProgrammatic);
+  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
+      DocumentUpdateReason::kTest);
   EXPECT_EQ(PhysicalOffset(0, 0),
             content_layer->LocationWithoutPositionOffset());
   EXPECT_EQ(
@@ -240,9 +241,10 @@ TEST_P(PaintLayerTest, NonCompositedScrollingNeedsRepaint) {
   EXPECT_EQ(kNotComposited, scroll_layer->GetCompositingState());
   EXPECT_EQ(PhysicalOffset(), content_layer->LocationWithoutPositionOffset());
 
-  scroll_layer->GetScrollableArea()->SetScrollOffset(ScrollOffset(1000, 1000),
-                                                     kProgrammaticScroll);
-  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
+  scroll_layer->GetScrollableArea()->SetScrollOffset(
+      ScrollOffset(1000, 1000), mojom::blink::ScrollType::kProgrammatic);
+  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
+      DocumentUpdateReason::kTest);
   EXPECT_EQ(PhysicalOffset(0, 0),
             content_layer->LocationWithoutPositionOffset());
   EXPECT_EQ(
@@ -972,7 +974,41 @@ TEST_P(ReorderOverlayOverflowControlsTest,
   EXPECT_FALSE(LayersPaintingOverlayOverflowControlsAfter(child));
 }
 
-TEST_P(PaintLayerTest, SubsequenceCachingStackingContexts) {
+TEST_P(ReorderOverlayOverflowControlsTest,
+       AdjustAccessingOrderForSubtreeHighestLayers) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      div {
+        width: 200px;
+        height: 200px;
+      }
+      div > div {
+        height: 300px;
+      }
+      #ancestor, #child_2 {
+        position: relative;
+      }
+      #child_1 {
+        position: absolute;
+      }
+    </style>
+    <div id='ancestor'>
+      <div id='child_1'></div>
+      <div id='child_2'>
+        <div id='descendant'></div>
+      </div>
+    </div>
+  )HTML");
+
+  InitOverflowStyle("ancestor");
+
+  auto* ancestor = GetPaintLayerByElementId("ancestor");
+  auto* child = GetPaintLayerByElementId("child_2");
+  EXPECT_TRUE(ancestor->NeedsReorderOverlayOverflowControls());
+  EXPECT_TRUE(LayersPaintingOverlayOverflowControlsAfter(child));
+}
+
+TEST_P(PaintLayerTest, SubsequenceCachingStackedLayers) {
   SetBodyInnerHTML(R"HTML(
     <div id='parent' style='position:relative'>
       <div id='child1' style='position: relative'>
@@ -1242,8 +1278,8 @@ TEST_P(PaintLayerTest, PaintInvalidationOnNonCompositedScroll) {
             content_layer->FirstFragment().VisualRect());
   EXPECT_EQ(IntRect(0, 30, 50, 5), content->FirstFragment().VisualRect());
 
-  scroller->GetScrollableArea()->SetScrollOffset(ScrollOffset(0, 20),
-                                                 kProgrammaticScroll);
+  scroller->GetScrollableArea()->SetScrollOffset(
+      ScrollOffset(0, 20), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(IntRect(0, 30, 50, 10),
             content_layer->FirstFragment().VisualRect());
@@ -1271,8 +1307,8 @@ TEST_P(PaintLayerTest, PaintInvalidationOnCompositedScroll) {
             content_layer->FirstFragment().VisualRect());
   EXPECT_EQ(IntRect(0, 30, 50, 5), content->FirstFragment().VisualRect());
 
-  scroller->GetScrollableArea()->SetScrollOffset(ScrollOffset(0, 20),
-                                                 kProgrammaticScroll);
+  scroller->GetScrollableArea()->SetScrollOffset(
+      ScrollOffset(0, 20), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(IntRect(0, 30, 50, 10),
             content_layer->FirstFragment().VisualRect());
@@ -1602,8 +1638,8 @@ TEST_P(PaintLayerTest, FloatLayerUnderInlineLayerScrolled) {
   PaintLayer* floating = GetPaintLayerByElementId("floating");
   PaintLayer* span = GetPaintLayerByElementId("span");
   PaintLayer* container = GetPaintLayerByElementId("container");
-  container->GetScrollableArea()->SetScrollOffset(ScrollOffset(0, 400),
-                                                  kProgrammaticScroll);
+  container->GetScrollableArea()->SetScrollOffset(
+      ScrollOffset(0, 400), mojom::blink::ScrollType::kProgrammatic);
 
   EXPECT_EQ(span, floating->Parent());
   if (RuntimeEnabledFeatures::LayoutNGEnabled()) {
@@ -1883,8 +1919,8 @@ TEST_P(PaintLayerTest, ColumnSpanLayerUnderExtraLayerScrolled) {
   PaintLayer* spanner = GetPaintLayerByElementId("spanner");
   PaintLayer* extra_layer = GetPaintLayerByElementId("extraLayer");
   PaintLayer* columns = GetPaintLayerByElementId("columns");
-  columns->GetScrollableArea()->SetScrollOffset(ScrollOffset(200, 0),
-                                                kProgrammaticScroll);
+  columns->GetScrollableArea()->SetScrollOffset(
+      ScrollOffset(200, 0), mojom::blink::ScrollType::kProgrammatic);
 
   EXPECT_EQ(extra_layer, spanner->Parent());
   EXPECT_EQ(columns, spanner->ContainingLayer());
@@ -1952,7 +1988,8 @@ TEST_P(PaintLayerTest, NeedsRepaintOnSelfPaintingStatusChange) {
   target_element->setAttribute(html_names::kStyleAttr,
                                "overflow: hidden; float: left");
 
-  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
+  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
+      DocumentUpdateReason::kTest);
   // TODO(yosin): Once multicol in LayoutNG, we should remove following
   // assignments. This is because the layout tree maybe reattached. In LayoutNG
   // phase 1, layout tree is reattached because multicol forces legacy layout.
@@ -1989,7 +2026,8 @@ TEST_P(PaintLayerTest, NeedsRepaintOnRemovingStackedLayer) {
 
   body->setAttribute(html_names::kStyleAttr, "margin-top: 0");
   target_element->setAttribute(html_names::kStyleAttr, "top: 0");
-  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
+  GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint(
+      DocumentUpdateReason::kTest);
 
   EXPECT_FALSE(target_object->HasLayer());
   EXPECT_TRUE(body_layer->SelfNeedsRepaint());
@@ -2087,8 +2125,8 @@ TEST_P(PaintLayerTest, SquashingOffsets) {
   EXPECT_EQ(PhysicalOffset(), squashed->ComputeOffsetFromAncestor(
                                   squashed->TransformAncestorOrRoot()));
 
-  GetDocument().View()->LayoutViewport()->ScrollBy(ScrollOffset(0, 25),
-                                                   kUserScroll);
+  GetDocument().View()->LayoutViewport()->ScrollBy(
+      ScrollOffset(0, 25), mojom::blink::ScrollType::kUser);
   UpdateAllLifecyclePhasesForTest();
 
   PaintLayer::MapPointInPaintInvalidationContainerToBacking(

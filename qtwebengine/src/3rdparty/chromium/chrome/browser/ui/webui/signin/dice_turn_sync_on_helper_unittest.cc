@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -274,7 +275,7 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
     syncer::MockSyncService* mock_sync_service = GetMockSyncService();
     EXPECT_CALL(*mock_sync_service, GetSetupInProgressHandle()).Times(1);
     ON_CALL(*mock_sync_service, GetDisableReasons())
-        .WillByDefault(Return(syncer::SyncService::DISABLE_REASON_NONE));
+        .WillByDefault(Return(syncer::SyncService::DisableReasonSet()));
     ON_CALL(*mock_sync_service, GetTransportState())
         .WillByDefault(Return(syncer::SyncService::TransportState::ACTIVE));
   }
@@ -283,7 +284,7 @@ class DiceTurnSyncOnHelperTest : public testing::Test {
     syncer::MockSyncService* mock_sync_service = GetMockSyncService();
     EXPECT_CALL(*mock_sync_service, GetSetupInProgressHandle()).Times(1);
     ON_CALL(*mock_sync_service, GetDisableReasons())
-        .WillByDefault(Return(syncer::SyncService::DISABLE_REASON_NONE));
+        .WillByDefault(Return(syncer::SyncService::DisableReasonSet()));
     ON_CALL(*mock_sync_service, GetTransportState())
         .WillByDefault(
             Return(syncer::SyncService::TransportState::INITIALIZING));

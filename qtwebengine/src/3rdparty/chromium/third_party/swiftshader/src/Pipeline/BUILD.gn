@@ -41,6 +41,7 @@ swiftshader_source_set("Pipeline") {
     "SpirvShader.cpp",
     "SpirvShaderArithmetic.cpp",
     "SpirvShaderControlFlow.cpp",
+    "SpirvShaderDebugger.cpp",
     "SpirvShaderEnumNames.cpp",
     "SpirvShaderGLSLstd450.cpp",
     "SpirvShaderGroup.cpp",
@@ -56,9 +57,11 @@ swiftshader_source_set("Pipeline") {
     "..",
     "../../include",
     "../../third_party/SPIRV-Headers/include",
+    "${swiftshader_spirv_tools_dir}/include",
   ]
 
   deps = [
+    "${swiftshader_spirv_tools_dir}:spvtools_headers",
     "../../third_party/marl:Marl_headers",
     "../Device:Device_headers",
     "../System:System_headers",

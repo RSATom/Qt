@@ -38,7 +38,7 @@
 namespace dawn_native { namespace null {
 
     class Adapter;
-    using BindGroup = BindGroupBase;
+    class BindGroup;
     using BindGroupLayout = BindGroupLayoutBase;
     class Buffer;
     class CommandBuffer;
@@ -125,10 +125,17 @@ namespace dawn_native { namespace null {
             const ShaderModuleDescriptor* descriptor) override;
         ResultOrError<SwapChainBase*> CreateSwapChainImpl(
             const SwapChainDescriptor* descriptor) override;
+        ResultOrError<NewSwapChainBase*> CreateSwapChainImpl(
+            Surface* surface,
+            NewSwapChainBase* previousSwapChain,
+            const SwapChainDescriptor* descriptor) override;
         ResultOrError<TextureBase*> CreateTextureImpl(const TextureDescriptor* descriptor) override;
         ResultOrError<TextureViewBase*> CreateTextureViewImpl(
             TextureBase* texture,
             const TextureViewDescriptor* descriptor) override;
+
+        void Destroy() override;
+        MaybeError WaitForIdleForDestruction() override;
 
         Serial mCompletedSerial = 0;
         Serial mLastSubmittedSerial = 0;
@@ -148,6 +155,24 @@ namespace dawn_native { namespace null {
 
       private:
         ResultOrError<DeviceBase*> CreateDeviceImpl(const DeviceDescriptor* descriptor) override;
+    };
+
+    // Helper class so |BindGroup| can allocate memory for its binding data,
+    // before calling the BindGroupBase base class constructor.
+    class BindGroupDataHolder {
+      protected:
+        explicit BindGroupDataHolder(size_t size);
+        ~BindGroupDataHolder();
+
+        void* mBindingDataAllocation;
+    };
+
+    // We don't have the complexity of placement-allocation of bind group data in
+    // the Null backend. This class, keeps the binding data in a separate allocation for simplicity.
+    class BindGroup : private BindGroupDataHolder, public BindGroupBase {
+      public:
+        BindGroup(DeviceBase* device, const BindGroupDescriptor* descriptor);
+        ~BindGroup() override = default;
     };
 
     class Buffer : public BufferBase {
@@ -194,10 +219,26 @@ namespace dawn_native { namespace null {
         MaybeError SubmitImpl(uint32_t commandCount, CommandBufferBase* const* commands) override;
     };
 
-    class SwapChain : public SwapChainBase {
+    class SwapChain : public NewSwapChainBase {
       public:
-        SwapChain(Device* device, const SwapChainDescriptor* descriptor);
-        ~SwapChain();
+        SwapChain(Device* device,
+                  Surface* surface,
+                  NewSwapChainBase* previousSwapChain,
+                  const SwapChainDescriptor* descriptor);
+        ~SwapChain() override;
+
+      private:
+        Ref<Texture> mTexture;
+
+        MaybeError PresentImpl() override;
+        ResultOrError<TextureViewBase*> GetCurrentTextureViewImpl() override;
+        void DetachFromSurfaceImpl() override;
+    };
+
+    class OldSwapChain : public OldSwapChainBase {
+      public:
+        OldSwapChain(Device* device, const SwapChainDescriptor* descriptor);
+        ~OldSwapChain();
 
       protected:
         TextureBase* GetNextTextureImpl(const TextureDescriptor* descriptor) override;

@@ -60,6 +60,8 @@ namespace Qt3DExtras {
  * \instantiates Qt3DExtras::QExtrudedTextMesh
  * \inqmlmodule Qt3D.Extras
  * \brief A 3D extruded Text mesh.
+ *
+ * The origin of the mesh is the rear left end of the text's baseline.
  */
 
 /*!
@@ -72,6 +74,10 @@ namespace Qt3DExtras {
  * \qmlproperty QFont Qt3DExtras::ExtrudedTextMesh::font
  *
  * Holds the font of the text.
+
+ * The mesh geometry is normalized by the font's pointSize, so a larger pointSize
+ * will result in smoother, rather than larger, text. pixelSize should not
+ * be used.
  */
 
 /*!
@@ -88,6 +94,8 @@ namespace Qt3DExtras {
  * \inherits Qt3DRender::QGeometryRenderer
  *
  * \brief A 3D extruded Text mesh.
+ *
+ * The origin of the mesh is the rear left end of the text's baseline.
  */
 
 /*!
@@ -136,6 +144,10 @@ QString QExtrudedTextMesh::text() const
  * \property QExtrudedTextMesh::font
  *
  * Holds the font of the text.
+ *
+ * The mesh geometry is normalized by the font's pointSize, so a larger pointSize
+ * will result in smoother, rather than larger, text. pixelSize should not
+ * be used.
  */
 QFont QExtrudedTextMesh::font() const
 {

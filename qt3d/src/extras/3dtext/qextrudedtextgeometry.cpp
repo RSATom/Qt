@@ -211,6 +211,8 @@ void QExtrudedTextGeometryPrivate::init()
  *
  * The ExtrudedTextGeometry type is most commonly used internally by the
  * ExtrudedTextMesh type but can also be used in custom GeometryRenderer types.
+ *
+ * The origin of the geometry is the rear left end of the text's baseline.
  */
 
 /*!
@@ -223,6 +225,10 @@ void QExtrudedTextGeometryPrivate::init()
  * \qmlproperty QFont ExtrudedTextGeometry::font
  *
  * Holds the font of the text.
+ *
+ * The geometry is normalized by the font's pointSize, so a larger pointSize
+ * will result in smoother, rather than larger, text. pixelSize should not
+ * be used.
  */
 
 /*!
@@ -261,6 +267,8 @@ void QExtrudedTextGeometryPrivate::init()
  *
  * The QExtrudedTextGeometry class is most commonly used internally by the QText3DMesh
  * but can also be used in custom Qt3DRender::QGeometryRenderer subclasses.
+ *
+ * The origin of the geometry is the rear left end of the text's baseline.
  */
 
 /*!
@@ -448,6 +456,10 @@ QString QExtrudedTextGeometry::text() const
  * \property QExtrudedTextGeometry::font
  *
  * Holds the font of the text.
+ *
+ * The geometry is normalized by the font's pointSize, so a larger pointSize
+ * will result in smoother, rather than larger, text. pixelSize should not
+ * be used.
  */
 QFont QExtrudedTextGeometry::font() const
 {

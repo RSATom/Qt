@@ -1044,8 +1044,15 @@ void Call::UpdateAggregateNetworkState() {
       ((have_video && video_network_state_ == kNetworkUp) ||
        (have_audio && audio_network_state_ == kNetworkUp));
 
-  RTC_LOG(LS_INFO) << "UpdateAggregateNetworkState: aggregate_state="
-                   << (aggregate_network_up ? "up" : "down");
+  if (aggregate_network_up != aggregate_network_up_) {
+    RTC_LOG(LS_INFO)
+        << "UpdateAggregateNetworkState: aggregate_state change to "
+        << (aggregate_network_up ? "up" : "down");
+  } else {
+    RTC_LOG(LS_VERBOSE)
+        << "UpdateAggregateNetworkState: aggregate_state remains at "
+        << (aggregate_network_up ? "up" : "down");
+  }
   aggregate_network_up_ = aggregate_network_up;
 
   transport_send_ptr_->OnNetworkAvailability(aggregate_network_up);
@@ -1344,8 +1351,8 @@ void Call::NotifyBweOfReceivedPacket(const RtpPacketReceived& packet,
   packet.GetHeader(&header);
 
   ReceivedPacket packet_msg;
-  packet_msg.size = DataSize::bytes(packet.payload_size());
-  packet_msg.receive_time = Timestamp::ms(packet.arrival_time_ms());
+  packet_msg.size = DataSize::Bytes(packet.payload_size());
+  packet_msg.receive_time = Timestamp::Millis(packet.arrival_time_ms());
   if (header.extension.hasAbsoluteSendTime) {
     packet_msg.send_time = header.extension.GetAbsoluteSendTimestamp();
   }

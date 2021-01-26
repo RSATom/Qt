@@ -12,6 +12,7 @@
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/logging.h"
+#include "extensions/browser/api/declarative_net_request/indexed_rule.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_matcher.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_source.h"
 #include "extensions/browser/extension_prefs.h"
@@ -30,14 +31,35 @@ RequestAction CreateRequestActionForTesting(RequestAction::Type type,
                                             uint32_t rule_priority,
                                             dnr_api::SourceType source_type,
                                             const ExtensionId& extension_id) {
-  return RequestAction(type, rule_id, rule_priority, source_type, extension_id);
+  dnr_api::RuleActionType action = [type] {
+    switch (type) {
+      case RequestAction::Type::BLOCK:
+      case RequestAction::Type::COLLAPSE:
+        return dnr_api::RULE_ACTION_TYPE_BLOCK;
+      case RequestAction::Type::ALLOW:
+        return dnr_api::RULE_ACTION_TYPE_ALLOW;
+      case RequestAction::Type::REDIRECT:
+        return dnr_api::RULE_ACTION_TYPE_REDIRECT;
+      case RequestAction::Type::UPGRADE:
+        return dnr_api::RULE_ACTION_TYPE_UPGRADESCHEME;
+      case RequestAction::Type::REMOVE_HEADERS:
+        return dnr_api::RULE_ACTION_TYPE_REMOVEHEADERS;
+      case RequestAction::Type::ALLOW_ALL_REQUESTS:
+        return dnr_api::RULE_ACTION_TYPE_ALLOWALLREQUESTS;
+    }
+  }();
+  return RequestAction(type, rule_id,
+                       ComputeIndexedRulePriority(rule_priority, action),
+                       source_type, extension_id);
 }
 
 // Note: This is not declared in the anonymous namespace so that we can use it
 // with gtest. This reuses the logic used to test action equality in
 // TestRequestACtion in test_utils.h.
 bool operator==(const RequestAction& lhs, const RequestAction& rhs) {
-  static_assert(flat::ActionIndex_count == 7,
+  // TODO(crbug.com/947591): Modify this method for
+  // flat::IndexType_modify_headers.
+  static_assert(flat::IndexType_count == 6,
                 "Modify this method to ensure it stays updated as new actions "
                 "are added.");
 
@@ -49,7 +71,7 @@ bool operator==(const RequestAction& lhs, const RequestAction& rhs) {
 
   auto get_members_tuple = [](const RequestAction& action) {
     return std::tie(action.type, action.redirect_url, action.rule_id,
-                    action.rule_priority, action.source_type,
+                    action.index_priority, action.source_type,
                     action.extension_id);
   };
 
@@ -74,8 +96,14 @@ std::ostream& operator<<(std::ostream& output, RequestAction::Type type) {
     case RequestAction::Type::REDIRECT:
       output << "REDIRECT";
       break;
+    case RequestAction::Type::UPGRADE:
+      output << "UPGRADE";
+      break;
     case RequestAction::Type::REMOVE_HEADERS:
       output << "REMOVE_HEADERS";
+      break;
+    case RequestAction::Type::ALLOW_ALL_REQUESTS:
+      output << "ALLOW_ALL_REQUESTS";
       break;
   }
   return output;
@@ -89,7 +117,7 @@ std::ostream& operator<<(std::ostream& output, const RequestAction& action) {
                                  : std::string("nullopt"))
          << "\n";
   output << "|rule_id| " << action.rule_id << "\n";
-  output << "|rule_priority| " << action.rule_priority << "\n";
+  output << "|index_priority| " << action.index_priority << "\n";
   output << "|source_type| "
          << api::declarative_net_request::ToString(action.source_type) << "\n";
   output << "|extension_id| " << action.extension_id << "\n";
@@ -100,28 +128,32 @@ std::ostream& operator<<(std::ostream& output, const RequestAction& action) {
   return output;
 }
 
+std::ostream& operator<<(std::ostream& output,
+                         const base::Optional<RequestAction>& action) {
+  if (!action)
+    return output << "empty Optional<RequestAction>";
+  return output << *action;
+}
+
 std::ostream& operator<<(std::ostream& output, const ParseResult& result) {
   switch (result) {
+    case ParseResult::NONE:
+      output << "NONE";
+      break;
     case ParseResult::SUCCESS:
       output << "SUCCESS";
       break;
     case ParseResult::ERROR_RESOURCE_TYPE_DUPLICATED:
       output << "ERROR_RESOURCE_TYPE_DUPLICATED";
       break;
-    case ParseResult::ERROR_EMPTY_REDIRECT_RULE_PRIORITY:
-      output << "ERROR_EMPTY_REDIRECT_RULE_PRIORITY";
-      break;
-    case ParseResult::ERROR_EMPTY_UPGRADE_RULE_PRIORITY:
-      output << "ERROR_EMPTY_UPGRADE_RULE_PRIORITY";
+    case ParseResult::ERROR_EMPTY_RULE_PRIORITY:
+      output << "ERROR_EMPTY_RULE_PRIORITY";
       break;
     case ParseResult::ERROR_INVALID_RULE_ID:
       output << "ERROR_INVALID_RULE_ID";
       break;
-    case ParseResult::ERROR_INVALID_REDIRECT_RULE_PRIORITY:
-      output << "ERROR_INVALID_REDIRECT_RULE_PRIORITY";
-      break;
-    case ParseResult::ERROR_INVALID_UPGRADE_RULE_PRIORITY:
-      output << "ERROR_INVALID_UPGRADE_RULE_PRIORITY";
+    case ParseResult::ERROR_INVALID_RULE_PRIORITY:
+      output << "ERROR_INVALID_RULE_PRIORITY";
       break;
     case ParseResult::ERROR_NO_APPLICABLE_RESOURCE_TYPES:
       output << "ERROR_NO_APPLICABLE_RESOURCE_TYPES";
@@ -192,6 +224,21 @@ std::ostream& operator<<(std::ostream& output, const ParseResult& result) {
     case ParseResult::ERROR_INVALID_REGEX_FILTER:
       output << "ERROR_INVALID_REGEX_FILTER";
       break;
+    case ParseResult::ERROR_NO_HEADERS_SPECIFIED:
+      output << "ERROR_NO_HEADERS_SPECIFIED";
+      break;
+    case ParseResult::ERROR_EMPTY_REQUEST_HEADERS_LIST:
+      output << "ERROR_EMPTY_REQUEST_HEADERS_LIST";
+      break;
+    case ParseResult::ERROR_EMPTY_RESPONSE_HEADERS_LIST:
+      output << "ERROR_EMPTY_RESPONSE_HEADERS_LIST";
+      break;
+    case ParseResult::ERROR_INVALID_HEADER_NAME:
+      output << "ERROR_INVALID_HEADER_NAME";
+      break;
+    case ParseResult::ERROR_REGEX_TOO_LARGE:
+      output << "ERROR_REGEX_TOO_LARGE";
+      break;
     case ParseResult::ERROR_MULTIPLE_FILTERS_SPECIFIED:
       output << "ERROR_MULTIPLE_FILTERS_SPECIFIED";
       break;
@@ -201,22 +248,35 @@ std::ostream& operator<<(std::ostream& output, const ParseResult& result) {
     case ParseResult::ERROR_INVALID_REGEX_SUBSTITUTION:
       output << "ERROR_INVALID_REGEX_SUBSTITUTION";
       break;
+    case ParseResult::ERROR_INVALID_ALLOW_ALL_REQUESTS_RESOURCE_TYPE:
+      output << "ERROR_INVALID_ALLOW_ALL_REQUESTS_RESOURCE_TYPE";
+      break;
   }
   return output;
 }
 
-bool HasValidIndexedRuleset(const Extension& extension,
-                            content::BrowserContext* browser_context) {
-  int expected_checksum;
-  if (!ExtensionPrefs::Get(browser_context)
-           ->GetDNRRulesetChecksum(extension.id(), &expected_checksum)) {
-    return false;
+bool AreAllIndexedStaticRulesetsValid(
+    const Extension& extension,
+    content::BrowserContext* browser_context) {
+  std::vector<RulesetSource> sources = RulesetSource::CreateStatic(extension);
+
+  for (RulesetSource& source : sources) {
+    int expected_checksum = -1;
+    if (!ExtensionPrefs::Get(browser_context)
+             ->GetDNRStaticRulesetChecksum(extension.id(), source.id(),
+                                           &expected_checksum)) {
+      return false;
+    }
+
+    std::unique_ptr<RulesetMatcher> matcher;
+    if (RulesetMatcher::CreateVerifiedMatcher(std::move(source),
+                                              expected_checksum, &matcher) !=
+        RulesetMatcher::kLoadSuccess) {
+      return false;
+    }
   }
 
-  std::unique_ptr<RulesetMatcher> matcher;
-  return RulesetMatcher::CreateVerifiedMatcher(
-             RulesetSource::CreateStatic(extension), expected_checksum,
-             &matcher) == RulesetMatcher::kLoadSuccess;
+  return true;
 }
 
 bool CreateVerifiedMatcher(const std::vector<TestRule>& rules,
@@ -251,14 +311,29 @@ bool CreateVerifiedMatcher(const std::vector<TestRule>& rules,
 }
 
 RulesetSource CreateTemporarySource(size_t id,
-                                    size_t priority,
                                     dnr_api::SourceType source_type,
                                     size_t rule_count_limit,
                                     ExtensionId extension_id) {
   std::unique_ptr<RulesetSource> source = RulesetSource::CreateTemporarySource(
-      id, priority, source_type, rule_count_limit, std::move(extension_id));
+      id, source_type, rule_count_limit, std::move(extension_id));
   CHECK(source);
   return source->Clone();
+}
+
+dnr_api::ModifyHeaderInfo CreateModifyHeaderInfo(
+    dnr_api::HeaderOperation operation,
+    std::string header) {
+  dnr_api::ModifyHeaderInfo header_info;
+
+  header_info.operation = operation;
+  header_info.header = header;
+
+  return header_info;
+}
+
+bool EqualsForTesting(const dnr_api::ModifyHeaderInfo& lhs,
+                      const dnr_api::ModifyHeaderInfo& rhs) {
+  return lhs.operation == rhs.operation && lhs.header == rhs.header;
 }
 
 }  // namespace declarative_net_request

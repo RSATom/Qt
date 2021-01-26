@@ -4,4 +4,6 @@
 
 import("//build/config/linux/gtk/gtk.gni")
 
-use_pangocairo = use_gtk
+declare_args() {
+  use_pangocairo = use_gtk
+}

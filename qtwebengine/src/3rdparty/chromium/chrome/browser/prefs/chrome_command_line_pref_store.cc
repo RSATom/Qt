@@ -36,6 +36,8 @@
 #include "components/browser_sync/browser_sync_switches.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/core/common/safebrowsing_switches.h"
 #include "components/sync/base/pref_names.h"
 #endif
 
@@ -84,6 +86,10 @@ const CommandLinePrefStore::BooleanSwitchToPreferenceMapEntry
         {switches::kAllowCrossOriginAuthPrompt,
          prefs::kAllowCrossOriginAuthPrompt, true},
         {switches::kDisablePrintPreview, prefs::kPrintPreviewDisabled, true},
+#if !defined(TOOLKIT_QT)
+        {safe_browsing::switches::kSbEnableEnhancedProtection,
+         prefs::kSafeBrowsingEnhanced, true},
+#endif
 #if defined(OS_CHROMEOS)
         {chromeos::switches::kEnableTouchpadThreeFingerClick,
          prefs::kEnableTouchpadThreeFingerClick, true},

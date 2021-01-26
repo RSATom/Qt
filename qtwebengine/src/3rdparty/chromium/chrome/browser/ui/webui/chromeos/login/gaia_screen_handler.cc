@@ -25,6 +25,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
+#include "base/timer/timer.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
@@ -62,10 +64,10 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/installer/util/google_update_settings.h"
+#include "chromeos/components/security_token_pin/constants.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/constants/devicetype.h"
-#include "chromeos/constants/security_token_pin_types.h"
 #include "chromeos/dbus/util/version_loader.h"
 #include "chromeos/login/auth/challenge_response/cert_utils.h"
 #include "chromeos/login/auth/cryptohome_key_constants.h"
@@ -73,6 +75,7 @@
 #include "chromeos/login/auth/user_context.h"
 #include "chromeos/network/onc/certificate_scope.h"
 #include "chromeos/settings/cros_settings_names.h"
+#include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/login/localized_values_builder.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
@@ -120,6 +123,8 @@ enum class ChromeOSSamlApiUsed {
   kSamlApiNotUsed = 2,
   kMaxValue = kSamlApiNotUsed,
 };
+
+constexpr base::TimeDelta kCookieDelay = base::TimeDelta::FromSeconds(20);
 
 void RecordAPILogin(bool is_third_party_idp, bool is_api_used) {
   ChromeOSSamlApiUsed login_type;
@@ -294,9 +299,9 @@ PinDialogManager* GetLoginScreenPinDialogManager() {
 }
 
 base::Value MakeSecurityTokenPinDialogParameters(
-    SecurityTokenPinCodeType code_type,
+    security_token_pin::CodeType code_type,
     bool enable_user_input,
-    SecurityTokenPinErrorLabel error_label,
+    security_token_pin::ErrorLabel error_label,
     int attempts_left) {
   base::Value params(base::Value::Type::DICTIONARY);
   params.SetIntKey("codeType", static_cast<int>(code_type));
@@ -461,9 +466,8 @@ void GaiaScreenHandler::OnSetCookieForLoadGaiaWithPartition(
       &GaiaScreenHandler::LoadGaiaWithPartitionAndVersionAndConsent,
       weak_factory_.GetWeakPtr(), context, partition_name,
       base::Owned(version.release()), base::Owned(consent.release()));
-  base::PostTaskAndReply(
-      FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+  base::ThreadPool::PostTaskAndReply(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       std::move(get_version_and_consent), std::move(load_gaia));
 }
 
@@ -574,6 +578,8 @@ void GaiaScreenHandler::LoadGaiaWithPartitionAndVersionAndConsent(
   }
   public_saml_url_fetcher_.reset();
 
+  was_security_token_pin_canceled_ = false;
+
   frame_state_ = FRAME_STATE_LOADING;
   CallJS("login.GaiaSigninScreen.loadAuthExtension", params);
 }
@@ -671,10 +677,8 @@ void GaiaScreenHandler::DeclareLocalizedValues(
                IDS_SAML_SECURITY_TOKEN_PIN_DIALOG_TRY_AGAIN);
   builder->Add("securityTokenPinDialogAttemptsLeft",
                IDS_REQUEST_PIN_DIALOG_ATTEMPTS_LEFT);
-  builder->Add("securityTokenPinDialogErrorRetry",
-               IDS_REQUEST_PIN_DIALOG_ERROR_RETRY);
-  builder->Add("securityTokenPinDialogErrorRetryAttempts",
-               IDS_REQUEST_PIN_DIALOG_ERROR_RETRY_ATTEMPTS);
+  builder->Add("securityTokenPinDialogErrorAttempts",
+               IDS_REQUEST_PIN_DIALOG_ERROR_ATTEMPTS);
   builder->Add("securityTokenPinDialogUnknownError",
                IDS_REQUEST_PIN_DIALOG_UNKNOWN_ERROR);
   builder->Add("securityTokenPinDialogUnknownInvalidPin",
@@ -719,9 +723,6 @@ void GaiaScreenHandler::RegisterMessages() {
   AddRawCallback("showAddUser", &GaiaScreenHandler::HandleShowAddUser);
   AddCallback("getIsSamlUserPasswordless",
               &GaiaScreenHandler::HandleGetIsSamlUserPasswordless);
-  AddCallback("hideOobeDialog", &GaiaScreenHandler::HandleHideOobeDialog);
-  AddCallback("updateSigninUIState",
-              &GaiaScreenHandler::HandleUpdateSigninUIState);
   AddCallback("showGuestInOobe", &GaiaScreenHandler::HandleShowGuestInOobe);
   AddCallback("samlStateChanged", &GaiaScreenHandler::HandleSamlStateChanged);
   AddCallback("securityTokenPinEntered",
@@ -772,16 +773,24 @@ void GaiaScreenHandler::HandleAuthExtensionLoaded() {
 }
 
 void GaiaScreenHandler::HandleWebviewLoadAborted(int error_code) {
+  if (error_code == net::ERR_INVALID_AUTH_CREDENTIALS) {
+    // Silently ignore this error - it is used as an intermediate state for
+    // committed interstitials (see https://crbug.com/1049349 for details).
+    return;
+  }
   if (error_code == net::ERR_ABORTED) {
     LOG(WARNING) << "Ignoring Gaia webview error: "
                  << net::ErrorToShortString(error_code);
     return;
   }
-  if (error_code == net::ERR_TIMED_OUT &&
-      is_security_token_pin_dialog_running()) {
-    // Timeout errors are expected when the security token PIN is not entered by
-    // the user on time. In that case, return the user back to the first sign-in
-    // step instead of showing the network error screen.
+  if ((was_security_token_pin_canceled_ && error_code == net::ERR_FAILED) ||
+      (is_security_token_pin_dialog_running() &&
+       error_code == net::ERR_TIMED_OUT)) {
+    // Specific errors are expected when the security token PIN is aborted
+    // (either with a generic failure if the user canceled the dialog, or with a
+    // timeout error if the user didn't enter it on time). In that case, return
+    // the user back to the first sign-in step instead of showing the network
+    // error screen.
     ReloadGaia(/*force_reload=*/true);
     return;
   }
@@ -838,7 +847,6 @@ void GaiaScreenHandler::DoAdAuth(
       break;
     }
     case authpolicy::ERROR_PASSWORD_EXPIRED:
-      DCHECK(active_directory_password_change_screen_handler_);
       active_directory_password_change_screen_handler_->ShowScreen(username);
       break;
     case authpolicy::ERROR_PARSE_UPN_FAILED:
@@ -930,6 +938,11 @@ void GaiaScreenHandler::ContinueAuthenticationWhenCookiesAvailable() {
     cookie_manager->AddCookieChangeListener(
         GaiaUrls::GetInstance()->gaia_url(), kOAUTHCodeCookie,
         oauth_code_listener_.BindNewPipeAndPassRemote());
+    cookie_waiting_timer_ = std::make_unique<base::OneShotTimer>();
+    cookie_waiting_timer_->Start(
+        FROM_HERE, kCookieDelay,
+        base::BindOnce(&GaiaScreenHandler::OnCookieWaitTimeout,
+                       weak_factory_.GetWeakPtr()));
   }
 
   const net::CookieOptions cookie_options =
@@ -961,12 +974,24 @@ void GaiaScreenHandler::OnGetCookiesForCompleteAuthentication(
   UserContext user_context = *pending_user_context_;
   pending_user_context_.reset();
   oauth_code_listener_.reset();
+  cookie_waiting_timer_.reset();
 
   user_context.SetAuthCode(auth_code);
   if (!gaps_cookie.empty())
     user_context.SetGAPSCookie(gaps_cookie);
 
   LoginDisplayHost::default_host()->CompleteLogin(user_context);
+}
+
+void GaiaScreenHandler::OnCookieWaitTimeout() {
+  DCHECK(pending_user_context_);
+  pending_user_context_.reset();
+  oauth_code_listener_.reset();
+  cookie_waiting_timer_.reset();
+  LoadAuthExtension(true /* force */, false /* offline */);
+  core_oobe_view_->ShowSignInError(
+      0, l10n_util::GetStringUTF8(IDS_LOGIN_FATAL_ERROR_NO_AUTH_TOKEN),
+      std::string(), HelpAppLauncher::HELP_CANT_ACCESS_ACCOUNT);
 }
 
 void GaiaScreenHandler::HandleCompleteLogin(const std::string& gaia_id,
@@ -1035,16 +1060,10 @@ void GaiaScreenHandler::HandleGaiaUIReady() {
   }
 }
 
-void GaiaScreenHandler::HandleHideOobeDialog() {
-  if (LoginDisplayHost::default_host())
-    LoginDisplayHost::default_host()->HideOobeDialog();
-}
-
 void GaiaScreenHandler::HandleShowAddUser(const base::ListValue* args) {
   // TODO(xiaoyinh): Add trace event for gaia webui in views login screen.
-  TRACE_EVENT_ASYNC_STEP_INTO0("ui", "ShowLoginWebUI",
-                               LoginDisplayHostWebUI::kShowLoginWebUIid,
-                               "ShowAddUser");
+  TRACE_EVENT_NESTABLE_ASYNC_INSTANT0("ui", "ShowAddUser",
+                                      LoginDisplayHostWebUI::kShowLoginWebUIid);
 
   std::string email;
   // |args| can be null if it's OOBE.
@@ -1065,13 +1084,6 @@ void GaiaScreenHandler::HandleGetIsSamlUserPasswordless(
       extension_provided_client_cert_usage_observer_->ClientCertsWereUsed();
   ResolveJavascriptCallback(base::Value(callback_id),
                             base::Value(is_saml_user_passwordless));
-}
-
-void GaiaScreenHandler::HandleUpdateSigninUIState(int state) {
-  if (LoginDisplayHost::default_host()) {
-    auto dialog_state = static_cast<ash::OobeDialogState>(state);
-    LoginDisplayHost::default_host()->UpdateOobeDialogState(dialog_state);
-  }
 }
 
 void GaiaScreenHandler::HandleShowGuestInOobe(bool show) {
@@ -1108,6 +1120,7 @@ void GaiaScreenHandler::HandleSecurityTokenPinEntered(
     return;
   }
 
+  was_security_token_pin_canceled_ = user_input.empty();
   if (user_input.empty()) {
     security_token_pin_entered_callback_.Reset();
     std::move(security_token_pin_dialog_closed_callback_).Run();
@@ -1298,9 +1311,9 @@ void GaiaScreenHandler::ShowSigninScreenForTest(const std::string& username,
 
 void GaiaScreenHandler::ShowSecurityTokenPinDialog(
     const std::string& /*caller_extension_name*/,
-    SecurityTokenPinCodeType code_type,
+    security_token_pin::CodeType code_type,
     bool enable_user_input,
-    SecurityTokenPinErrorLabel error_label,
+    security_token_pin::ErrorLabel error_label,
     int attempts_left,
     const base::Optional<AccountId>& /*authenticating_user_account_id*/,
     SecurityTokenPinEnteredCallback pin_entered_callback,
@@ -1530,8 +1543,9 @@ bool GaiaScreenHandler::BuildUserContextForGaiaSignIn(
       extension_provided_client_cert_usage_observer_->ClientCertsWereUsed()) {
     scoped_refptr<net::X509Certificate> saml_client_cert;
     std::vector<ChallengeResponseKey::SignatureAlgorithm> signature_algorithms;
+    std::string extension_id;
     if (!extension_provided_client_cert_usage_observer_->GetOnlyUsedClientCert(
-            &saml_client_cert, &signature_algorithms)) {
+            &saml_client_cert, &signature_algorithms, &extension_id)) {
       *error_message = l10n_util::GetStringUTF8(
           IDS_CHALLENGE_RESPONSE_AUTH_MULTIPLE_CLIENT_CERTS_ERROR);
       return false;
@@ -1543,6 +1557,7 @@ bool GaiaScreenHandler::BuildUserContextForGaiaSignIn(
           IDS_CHALLENGE_RESPONSE_AUTH_INVALID_CLIENT_CERT_ERROR);
       return false;
     }
+    challenge_response_key.set_extension_id(extension_id);
     user_context->GetMutableChallengeResponseKeys()->push_back(
         challenge_response_key);
   } else {

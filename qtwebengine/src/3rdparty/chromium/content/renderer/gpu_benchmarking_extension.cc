@@ -19,6 +19,7 @@
 #include "base/files/file_util.h"
 #include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "build/build_config.h"
 #include "cc/layers/layer.h"
 #include "cc/paint/skia_paint_canvas.h"
@@ -46,9 +47,10 @@
 #include "gpu/ipc/common/gpu_messages.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/common/input/web_mouse_event.h"
 #include "third_party/blink/public/common/page/page_visibility_state.h"
-#include "third_party/blink/public/platform/web_mouse_event.h"
 #include "third_party/blink/public/web/blink.h"
+#include "third_party/blink/public/web/web_frame_widget.h"
 #include "third_party/blink/public/web/web_image_cache.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_print_params.h"
@@ -296,8 +298,11 @@ bool BeginSmoothScroll(GpuBenchmarkingContext* context,
                        float fling_velocity,
                        bool precise_scrolling_deltas,
                        bool scroll_by_page,
-                       bool cursor_visible) {
+                       bool cursor_visible,
+                       bool scroll_by_percentage) {
   DCHECK(!(precise_scrolling_deltas && scroll_by_page));
+  DCHECK(!(precise_scrolling_deltas && scroll_by_percentage));
+  DCHECK(!(scroll_by_page && scroll_by_percentage));
   if (ThrowIfPointOutOfBounds(context, args, gfx::Point(start_x, start_y),
                               "Start point not in bounds")) {
     return false;
@@ -335,16 +340,14 @@ bool BeginSmoothScroll(GpuBenchmarkingContext* context,
   gesture_params.speed_in_pixels_s = speed_in_pixels_s;
   gesture_params.prevent_fling = prevent_fling;
 
-  if (scroll_by_page) {
-    gesture_params.granularity =
-        ui::input_types::ScrollGranularity::kScrollByPage;
-  } else if (precise_scrolling_deltas) {
-    gesture_params.granularity =
-        ui::input_types::ScrollGranularity::kScrollByPrecisePixel;
-  } else {
-    gesture_params.granularity =
-        ui::input_types::ScrollGranularity::kScrollByPixel;
-  }
+  if (scroll_by_page)
+    gesture_params.granularity = ui::ScrollGranularity::kScrollByPage;
+  else if (precise_scrolling_deltas)
+    gesture_params.granularity = ui::ScrollGranularity::kScrollByPrecisePixel;
+  else if (scroll_by_percentage)
+    gesture_params.granularity = ui::ScrollGranularity::kScrollByPercentage;
+  else
+    gesture_params.granularity = ui::ScrollGranularity::kScrollByPixel;
 
   gesture_params.anchor.SetPoint(start_x, start_y);
 
@@ -486,7 +489,7 @@ static void PrintDocumentTofile(v8::Isolate* isolate,
 }
 
 void OnSwapCompletedHelper(CallbackAndContext* callback_and_context,
-                           blink::WebWidgetClient::SwapResult,
+                           blink::WebSwapResult,
                            base::TimeTicks) {
   RunCallbackHelper(callback_and_context);
 }
@@ -691,6 +694,7 @@ bool GpuBenchmarking::SmoothScrollBy(gin::Arguments* args) {
   bool precise_scrolling_deltas = true;
   bool scroll_by_page = false;
   bool cursor_visible = true;
+  bool scroll_by_percentage = false;
 
   if (!GetOptionalArg(args, &pixels_to_scroll) ||
       !GetOptionalArg(args, &callback) || !GetOptionalArg(args, &start_x) ||
@@ -700,7 +704,8 @@ bool GpuBenchmarking::SmoothScrollBy(gin::Arguments* args) {
       !GetOptionalArg(args, &speed_in_pixels_s) ||
       !GetOptionalArg(args, &precise_scrolling_deltas) ||
       !GetOptionalArg(args, &scroll_by_page) ||
-      !GetOptionalArg(args, &cursor_visible)) {
+      !GetOptionalArg(args, &cursor_visible) ||
+      !GetOptionalArg(args, &scroll_by_percentage)) {
     return false;
   }
 
@@ -710,12 +715,16 @@ bool GpuBenchmarking::SmoothScrollBy(gin::Arguments* args) {
   // Scroll by page only for mouse inputs.
   DCHECK(!scroll_by_page ||
          gesture_source_type == SyntheticGestureParams::MOUSE_INPUT);
+  // Scroll by percentage only for mouse inputs.
+  DCHECK(!scroll_by_percentage ||
+         gesture_source_type == SyntheticGestureParams::MOUSE_INPUT);
 
   EnsureRemoteInterface();
-  return BeginSmoothScroll(
-      &context, args, input_injector_, pixels_to_scroll, callback,
-      gesture_source_type, direction, speed_in_pixels_s, true, start_x, start_y,
-      0, precise_scrolling_deltas, scroll_by_page, cursor_visible);
+  return BeginSmoothScroll(&context, args, input_injector_, pixels_to_scroll,
+                           callback, gesture_source_type, direction,
+                           speed_in_pixels_s, true, start_x, start_y, 0,
+                           precise_scrolling_deltas, scroll_by_page,
+                           cursor_visible, scroll_by_percentage);
 }
 
 bool GpuBenchmarking::SmoothDrag(gin::Arguments* args) {
@@ -777,7 +786,8 @@ bool GpuBenchmarking::Swipe(gin::Arguments* args) {
       &context, args, input_injector_, -pixels_to_scroll, callback,
       gesture_source_type, direction, speed_in_pixels_s, false, start_x,
       start_y, fling_velocity, true /* precise_scrolling_deltas */,
-      false /* scroll_by_page */, true /* cursor_visible */);
+      false /* scroll_by_page */, true /* cursor_visible */,
+      false /* scroll_by_percentage */);
 }
 
 bool GpuBenchmarking::ScrollBounce(gin::Arguments* args) {
@@ -930,7 +940,7 @@ void GpuBenchmarking::SetBrowserControlsShown(bool show) {
 
 float GpuBenchmarking::VisualViewportY() {
   GpuBenchmarkingContext context(render_frame_.get());
-  float y = context.web_view()->VisualViewportOffset().y;
+  float y = context.web_view()->VisualViewportOffset().y();
   blink::WebRect rect(0, y, 0, 0);
   context.render_widget()->ConvertViewportToWindow(&rect);
   return rect.y;
@@ -938,7 +948,7 @@ float GpuBenchmarking::VisualViewportY() {
 
 float GpuBenchmarking::VisualViewportX() {
   GpuBenchmarkingContext context(render_frame_.get());
-  float x = context.web_view()->VisualViewportOffset().x;
+  float x = context.web_view()->VisualViewportOffset().x();
   blink::WebRect rect(x, 0, 0, 0);
   context.render_widget()->ConvertViewportToWindow(&rect);
   return rect.x;
@@ -946,7 +956,7 @@ float GpuBenchmarking::VisualViewportX() {
 
 float GpuBenchmarking::VisualViewportHeight() {
   GpuBenchmarkingContext context(render_frame_.get());
-  float height = context.web_view()->VisualViewportSize().height;
+  float height = context.web_view()->VisualViewportSize().height();
   blink::WebRect rect(0, 0, 0, height);
   context.render_widget()->ConvertViewportToWindow(&rect);
   return rect.height;
@@ -954,7 +964,7 @@ float GpuBenchmarking::VisualViewportHeight() {
 
 float GpuBenchmarking::VisualViewportWidth() {
   GpuBenchmarkingContext context(render_frame_.get());
-  float width = context.web_view()->VisualViewportSize().width;
+  float width = context.web_view()->VisualViewportSize().width();
   blink::WebRect rect(0, 0, width, 0);
   context.render_widget()->ConvertViewportToWindow(&rect);
   return rect.width;
@@ -1189,8 +1199,10 @@ bool GpuBenchmarking::AddSwapCompletionEventListener(gin::Arguments* args) {
 
   auto callback_and_context = base::MakeRefCounted<CallbackAndContext>(
       args->isolate(), callback, context.web_frame()->MainWorldScriptContext());
-  context.render_widget()->NotifySwapTime(base::BindOnce(
-      &OnSwapCompletedHelper, base::RetainedRef(callback_and_context)));
+  context.web_frame()->FrameWidget()->NotifySwapAndPresentationTime(
+      base::NullCallback(),
+      base::BindOnce(&OnSwapCompletedHelper,
+                     base::RetainedRef(callback_and_context)));
   return true;
 }
 

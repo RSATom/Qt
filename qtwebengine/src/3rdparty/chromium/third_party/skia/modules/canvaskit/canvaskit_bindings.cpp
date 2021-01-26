@@ -16,12 +16,10 @@
 #include "include/core/SkDrawable.h"
 #include "include/core/SkEncodedImageFormat.h"
 #include "include/core/SkFilterQuality.h"
-#include "include/core/SkFont.h"
-#include "include/core/SkFontMgr.h"
-#include "include/core/SkFontTypes.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageFilter.h"
 #include "include/core/SkImageInfo.h"
+#include "include/core/SkM44.h"
 #include "include/core/SkMaskFilter.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
@@ -45,23 +43,23 @@
 #include "include/effects/SkDiscretePathEffect.h"
 #include "include/effects/SkGradientShader.h"
 #include "include/effects/SkImageFilters.h"
+#include "include/effects/SkRuntimeEffect.h"
 #include "include/effects/SkTrimPathEffect.h"
-#include "include/pathops/SkPathOps.h"
 #include "include/utils/SkParsePath.h"
 #include "include/utils/SkShadowUtils.h"
 #include "modules/skshaper/include/SkShaper.h"
 #include "src/core/SkFontMgrPriv.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkResourceCache.h"
+#include "src/sksl/SkSLCompiler.h"
 
 #include <iostream>
 #include <string>
 
-#include "modules/canvaskit/WasmAliases.h"
+#include "modules/canvaskit/WasmCommon.h"
 #include <emscripten.h>
 #include <emscripten/bind.h>
 
-#if SK_SUPPORT_GPU
+#ifdef SK_GL
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrContext.h"
 #include "include/gpu/gl/GrGLInterface.h"
@@ -71,18 +69,25 @@
 #include <emscripten/html5.h>
 #endif
 
+#ifndef SK_NO_FONTS
+#include "include/core/SkFont.h"
+#include "include/core/SkFontMgr.h"
+#include "include/core/SkFontTypes.h"
+#endif
+
 #ifdef SK_INCLUDE_PARAGRAPH
 #include "modules/skparagraph/include/Paragraph.h"
 #endif
-// Aliases for less typing
-using BoneIndices = SkVertices::BoneIndices;
-using BoneWeights = SkVertices::BoneWeights;
-using Bone        = SkVertices::Bone;
+
+#ifdef SK_INCLUDE_PATHOPS
+#include "include/pathops/SkPathOps.h"
+#endif
 
 #ifndef SK_NO_FONTS
 sk_sp<SkFontMgr> SkFontMgr_New_Custom_Data(const uint8_t** datas, const size_t* sizes, int n);
 #endif
 
+// 3x3 Matrices
 struct SimpleMatrix {
     SkScalar scaleX, skewX,  transX;
     SkScalar skewY,  scaleY, transY;
@@ -102,6 +107,41 @@ SimpleMatrix toSimpleSkMatrix(const SkMatrix& sm) {
     return m;
 }
 
+// Experimental 4x4 matrices, also represented in JS with arrays.
+struct SimpleM44 {
+    SkScalar m0,  m1,  m2,  m3;
+    SkScalar m4,  m5,  m6,  m7;
+    SkScalar m8,  m9,  m10, m11;
+    SkScalar m12, m13, m14, m15;
+};
+
+SkM44 toSkM44(const SimpleM44& sm) {
+    SkM44 result(
+      sm.m0,  sm.m1,  sm.m2,  sm.m3,
+      sm.m4,  sm.m5,  sm.m6,  sm.m7,
+      sm.m8,  sm.m9,  sm.m10, sm.m11,
+      sm.m12, sm.m13, sm.m14, sm.m15);
+    return result;
+}
+
+SimpleM44 toSimpleM44(const SkM44& sm) {
+    SimpleM44 m {
+        sm.rc(0,0), sm.rc(0,1),  sm.rc(0,2),  sm.rc(0,3),
+        sm.rc(1,0), sm.rc(1,1),  sm.rc(1,2),  sm.rc(1,3),
+        sm.rc(2,0), sm.rc(2,1),  sm.rc(2,2),  sm.rc(2,3),
+        sm.rc(3,0), sm.rc(3,1),  sm.rc(3,2),  sm.rc(3,3),
+    };
+    return m;
+}
+
+SimpleColor4f toSimpleColor4f(const SkColor4f c) {
+    SimpleColor4f color {
+        c.fR, c.fG, c.fB, c.fA,
+    };
+    return color;
+}
+
+// Surface creation structs and helpers
 struct SimpleImageInfo {
     int width;
     int height;
@@ -114,7 +154,7 @@ SkImageInfo toSkImageInfo(const SimpleImageInfo& sii) {
     return SkImageInfo::Make(sii.width, sii.height, sii.colorType, sii.alphaType);
 }
 
-#if SK_SUPPORT_GPU
+#ifdef SK_GL
 sk_sp<GrContext> MakeGrContext(EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context)
 {
     EMSCRIPTEN_RESULT r = emscripten_webgl_make_context_current(context);
@@ -313,21 +353,31 @@ void ApplyTransform(SkPath& orig,
     orig.transform(m);
 }
 
-bool EMSCRIPTEN_KEEPALIVE ApplySimplify(SkPath& path) {
+#ifdef SK_INCLUDE_PATHOPS
+bool ApplySimplify(SkPath& path) {
     return Simplify(path, &path);
 }
 
-bool EMSCRIPTEN_KEEPALIVE ApplyPathOp(SkPath& pathOne, const SkPath& pathTwo, SkPathOp op) {
+bool ApplyPathOp(SkPath& pathOne, const SkPath& pathTwo, SkPathOp op) {
     return Op(pathOne, pathTwo, op, &pathOne);
 }
 
-JSString EMSCRIPTEN_KEEPALIVE ToSVGString(const SkPath& path) {
+SkPathOrNull MakePathFromOp(const SkPath& pathOne, const SkPath& pathTwo, SkPathOp op) {
+    SkPath out;
+    if (Op(pathOne, pathTwo, op, &out)) {
+        return emscripten::val(out);
+    }
+    return emscripten::val::null();
+}
+#endif
+
+JSString ToSVGString(const SkPath& path) {
     SkString s;
     SkParsePath::ToSVGString(path, &s);
     return emscripten::val(s.c_str());
 }
 
-SkPathOrNull EMSCRIPTEN_KEEPALIVE MakePathFromSVGString(std::string str) {
+SkPathOrNull MakePathFromSVGString(std::string str) {
     SkPath path;
     if (SkParsePath::FromSVGString(str.c_str(), &path)) {
         return emscripten::val(path);
@@ -335,20 +385,12 @@ SkPathOrNull EMSCRIPTEN_KEEPALIVE MakePathFromSVGString(std::string str) {
     return emscripten::val::null();
 }
 
-SkPathOrNull EMSCRIPTEN_KEEPALIVE MakePathFromOp(const SkPath& pathOne, const SkPath& pathTwo, SkPathOp op) {
-    SkPath out;
-    if (Op(pathOne, pathTwo, op, &out)) {
-        return emscripten::val(out);
-    }
-    return emscripten::val::null();
-}
-
-SkPath EMSCRIPTEN_KEEPALIVE CopyPath(const SkPath& a) {
+SkPath CopyPath(const SkPath& a) {
     SkPath copy(a);
     return copy;
 }
 
-bool EMSCRIPTEN_KEEPALIVE Equals(const SkPath& a, const SkPath& b) {
+bool Equals(const SkPath& a, const SkPath& b) {
     return a == b;
 }
 
@@ -373,7 +415,7 @@ void VisitPath(const SkPath& p, VisitFunc&& f) {
     }
 }
 
-JSArray EMSCRIPTEN_KEEPALIVE ToCmds(const SkPath& path) {
+JSArray ToCmds(const SkPath& path) {
     JSArray cmds = emscripten::val::array();
 
     VisitPath(path, [&cmds](SkPath::Verb verb, const SkPoint pts[4], SkPath::RawIter iter) {
@@ -421,7 +463,7 @@ JSArray EMSCRIPTEN_KEEPALIVE ToCmds(const SkPath& path) {
 // in our function type signatures. (this gives an error message like "Cannot call foo due to unbound
 // types Pi, Pf").  But, we can just pretend they are numbers and cast them to be pointers and
 // the compiler is happy.
-SkPathOrNull EMSCRIPTEN_KEEPALIVE MakePathFromCmds(uintptr_t /* float* */ cptr, int numCmds) {
+SkPathOrNull MakePathFromCmds(uintptr_t /* float* */ cptr, int numCmds) {
     const auto* cmds = reinterpret_cast<const float*>(cptr);
     SkPath path;
     float x1, y1, x2, y2, x3, y3;
@@ -542,6 +584,7 @@ Uint8Array getSkDataBytes(const SkData *data) {
 
 // Text Shaping abstraction
 
+#ifndef SK_NO_FONTS
 struct ShapedTextOpts {
     SkFont font;
     bool leftToRight;
@@ -564,7 +607,7 @@ static sk_sp<SkTextBlob> do_shaping(const ShapedTextOpts& opts, SkPoint* pt) {
 }
 
 class ShapedText {
-public:
+ public:
     ShapedText(ShapedTextOpts opts) : fOpts(opts) {}
 
     SkRect getBounds() {
@@ -576,7 +619,7 @@ public:
         this->init();
         return fBlob.get();
     }
-private:
+ private:
     const ShapedTextOpts fOpts;
     SkPoint fPoint;
     sk_sp<SkTextBlob> fBlob;
@@ -592,6 +635,7 @@ void drawShapedText(SkCanvas& canvas, ShapedText st, SkScalar x,
                     SkScalar y, SkPaint paint) {
     canvas.drawTextBlob(st.blob(), x, y, paint);
 }
+#endif //SK_NO_FONTS
 
 int saveLayerRec(SkCanvas& canvas, const SkPaint* paint,
                  const SkImageFilter* backdrop, SkCanvas::SaveLayerFlags flags) {
@@ -631,14 +675,17 @@ SkRRect toRRect(const SimpleRRect& r) {
 }
 
 struct TonalColors {
-    SkColor ambientColor;
-    SkColor spotColor;
+    SimpleColor4f ambientColor;
+    SimpleColor4f spotColor;
 };
 
-TonalColors computeTonalColors(const TonalColors& in) {
+TonalColors computeTonalColors(const TonalColors& in) {SkColor resultAmbient, resultSpot;
+    SkShadowUtils::ComputeTonalColors(
+        in.ambientColor.toSkColor(), in.spotColor.toSkColor(),
+        &resultAmbient, &resultSpot);
     TonalColors out;
-    SkShadowUtils::ComputeTonalColors(in.ambientColor, in.spotColor,
-        &out.ambientColor, &out.spotColor);
+    out.ambientColor = toSimpleColor4f(SkColor4f::FromColor(resultAmbient));
+    out.spotColor = toSimpleColor4f(SkColor4f::FromColor(resultSpot));
     return out;
 }
 
@@ -685,7 +732,7 @@ namespace emscripten {
 // types Pi, Pf").  But, we can just pretend they are numbers and cast them to be pointers and
 // the compiler is happy.
 EMSCRIPTEN_BINDINGS(Skia) {
-#if SK_SUPPORT_GPU
+#ifdef SK_GL
     function("currentContext", &emscripten_webgl_get_current_context);
     function("setCurrentContext", &emscripten_webgl_make_context_current);
     function("MakeGrContext", &MakeGrContext);
@@ -728,7 +775,9 @@ EMSCRIPTEN_BINDINGS(Skia) {
     }), allow_raw_pointers());
 
     function("getSkDataBytes", &getSkDataBytes, allow_raw_pointers());
+    // Deprecated: use Canvaskit.SkPathEffect.MakeCorner
     function("MakeSkCornerPathEffect", &SkCornerPathEffect::Make, allow_raw_pointers());
+    // Deprecated: use Canvaskit.SkPathEffect.MakeDiscrete
     function("MakeSkDiscretePathEffect", &SkDiscretePathEffect::Make, allow_raw_pointers());
     // Deprecated: use Canvaskit.SkMaskFilter.MakeBlur
     function("MakeBlurMaskFilter", optional_override([](SkBlurStyle style, SkScalar sigma, bool respectCTM)->sk_sp<SkMaskFilter> {
@@ -736,15 +785,12 @@ EMSCRIPTEN_BINDINGS(Skia) {
         return SkMaskFilter::MakeBlur(style, sigma, respectCTM);
     }), allow_raw_pointers());
     function("_MakePathFromCmds", &MakePathFromCmds);
+#ifdef SK_INCLUDE_PATHOPS
     function("MakePathFromOp", &MakePathFromOp);
+#endif
     function("MakePathFromSVGString", &MakePathFromSVGString);
 
-    // These won't be called directly, there's a JS helper to deal with typed arrays.
-    function("_MakeSkDashPathEffect", optional_override([](uintptr_t /* float* */ cptr, int count, SkScalar phase)->sk_sp<SkPathEffect> {
-        // See comment above for uintptr_t explanation
-        const float* intervals = reinterpret_cast<const float*>(cptr);
-        return SkDashPathEffect::Make(intervals, count, phase);
-    }), allow_raw_pointers());
+    // These won't be called directly, there are corresponding JS helpers to deal with arrays.
     function("_MakeImage", optional_override([](SimpleImageInfo ii,
                                                 uintptr_t /* uint8_t*  */ pPtr, int plen,
                                                 size_t rowBytes)->sk_sp<SkImage> {
@@ -756,82 +802,129 @@ EMSCRIPTEN_BINDINGS(Skia) {
         return SkImage::MakeRasterData(info, pixelData, rowBytes);
     }), allow_raw_pointers());
     function("_MakeLinearGradientShader", optional_override([](SkPoint start, SkPoint end,
-                                uintptr_t /* SkColor*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
+                                uintptr_t /* SkColor4f*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
                                 int count, SkTileMode mode, uint32_t flags)->sk_sp<SkShader> {
         SkPoint points[] = { start, end };
         // See comment above for uintptr_t explanation
-        const SkColor*  colors    = reinterpret_cast<const SkColor*> (cPtr);
-        const SkScalar* positions = reinterpret_cast<const SkScalar*>(pPtr);
+        const SkColor4f* colors    = reinterpret_cast<const SkColor4f*>(cPtr);
+        const SkScalar*  positions = reinterpret_cast<const SkScalar*>(pPtr);
 
-        return SkGradientShader::MakeLinear(points, colors, positions, count,
+        // TODO(nifong): do not assume color space. Support and test wide gamut color gradients
+        return SkGradientShader::MakeLinear(points, colors, SkColorSpace::MakeSRGB(), positions, count,
                                             mode, flags, nullptr);
     }), allow_raw_pointers());
     function("_MakeLinearGradientShader", optional_override([](SkPoint start, SkPoint end,
-                                uintptr_t /* SkColor*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
+                                uintptr_t /* SkColor4f*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
                                 int count, SkTileMode mode, uint32_t flags,
                                 const SimpleMatrix& lm)->sk_sp<SkShader> {
         SkPoint points[] = { start, end };
         // See comment above for uintptr_t explanation
-        const SkColor*  colors    = reinterpret_cast<const SkColor*> (cPtr);
+        const SkColor4f*  colors  = reinterpret_cast<const SkColor4f*> (cPtr);
         const SkScalar* positions = reinterpret_cast<const SkScalar*>(pPtr);
 
         SkMatrix localMatrix = toSkMatrix(lm);
 
-        return SkGradientShader::MakeLinear(points, colors, positions, count,
+        return SkGradientShader::MakeLinear(points, colors, SkColorSpace::MakeSRGB(), positions, count,
                                             mode, flags, &localMatrix);
     }), allow_raw_pointers());
+#ifdef SK_SERIALIZE_SKP
+    function("_MakeSkPicture", optional_override([](uintptr_t /* unint8_t* */ dPtr,
+                                                    size_t bytes)->sk_sp<SkPicture> {
+        // See comment above for uintptr_t explanation
+        uint8_t* d = reinterpret_cast<uint8_t*>(dPtr);
+        sk_sp<SkData> data = SkData::MakeFromMalloc(d, bytes);
+
+        return SkPicture::MakeFromData(data.get(), nullptr);
+    }), allow_raw_pointers());
+#endif
     function("_MakeRadialGradientShader", optional_override([](SkPoint center, SkScalar radius,
-                                uintptr_t /* SkColor*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
+                                uintptr_t /* SkColor4f*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
                                 int count, SkTileMode mode, uint32_t flags)->sk_sp<SkShader> {
         // See comment above for uintptr_t explanation
-        const SkColor*  colors    = reinterpret_cast<const SkColor*> (cPtr);
+        const SkColor4f*  colors  = reinterpret_cast<const SkColor4f*> (cPtr);
         const SkScalar* positions = reinterpret_cast<const SkScalar*>(pPtr);
 
-        return SkGradientShader::MakeRadial(center, radius, colors, positions, count,
+        return SkGradientShader::MakeRadial(center, radius, colors, SkColorSpace::MakeSRGB(), positions, count,
                                             mode, flags, nullptr);
     }), allow_raw_pointers());
     function("_MakeRadialGradientShader", optional_override([](SkPoint center, SkScalar radius,
-                                uintptr_t /* SkColor*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
+                                uintptr_t /* SkColor4f*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
                                 int count, SkTileMode mode, uint32_t flags,
                                 const SimpleMatrix& lm)->sk_sp<SkShader> {
         // See comment above for uintptr_t explanation
-        const SkColor*  colors    = reinterpret_cast<const SkColor*> (cPtr);
+        const SkColor4f*  colors  = reinterpret_cast<const SkColor4f*> (cPtr);
         const SkScalar* positions = reinterpret_cast<const SkScalar*>(pPtr);
 
         SkMatrix localMatrix = toSkMatrix(lm);
-        return SkGradientShader::MakeRadial(center, radius, colors, positions, count,
+        return SkGradientShader::MakeRadial(center, radius, colors, SkColorSpace::MakeSRGB(), positions, count,
                                             mode, flags, &localMatrix);
+    }), allow_raw_pointers());
+    function("_MakeSweepGradientShader", optional_override([](SkScalar cx, SkScalar cy,
+                                uintptr_t /* SkColor4f*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
+                                int count, SkTileMode mode,
+                                SkScalar startAngle, SkScalar endAngle,
+                                uint32_t flags,
+                                const SimpleMatrix& lm)->sk_sp<SkShader> {
+        // See comment above for uintptr_t explanation
+        const SkColor4f*  colors  = reinterpret_cast<const SkColor4f*> (cPtr);
+        const SkScalar* positions = reinterpret_cast<const SkScalar*>(pPtr);
+
+        SkMatrix localMatrix = toSkMatrix(lm);
+        return SkGradientShader::MakeSweep(cx, cy, colors, SkColorSpace::MakeSRGB(), positions, count,
+                                           mode, startAngle, endAngle, flags,
+                                           &localMatrix);
+    }), allow_raw_pointers());
+    function("_MakeSweepGradientShader", optional_override([](SkScalar cx, SkScalar cy,
+                                uintptr_t /* SkColor4f*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
+                                int count, uint32_t flags,
+                                const SimpleMatrix& lm)->sk_sp<SkShader> {
+        // See comment above for uintptr_t explanation
+        const SkColor4f*  colors  = reinterpret_cast<const SkColor4f*> (cPtr);
+        const SkScalar* positions = reinterpret_cast<const SkScalar*>(pPtr);
+
+        SkMatrix localMatrix = toSkMatrix(lm);
+        return SkGradientShader::MakeSweep(cx, cy, colors, SkColorSpace::MakeSRGB(), positions, count,
+                                           flags, &localMatrix);
+    }), allow_raw_pointers());
+    function("_MakeSweepGradientShader", optional_override([](SkScalar cx, SkScalar cy,
+                                uintptr_t /* SkColor4f*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
+                                int count)->sk_sp<SkShader> {
+        // See comment above for uintptr_t explanation
+        const SkColor4f*  colors  = reinterpret_cast<const SkColor4f*> (cPtr);
+        const SkScalar* positions = reinterpret_cast<const SkScalar*>(pPtr);
+
+        return SkGradientShader::MakeSweep(cx, cy, colors, SkColorSpace::MakeSRGB(), positions, count);
     }), allow_raw_pointers());
     function("_MakeTwoPointConicalGradientShader", optional_override([](
                 SkPoint start, SkScalar startRadius,
                 SkPoint end, SkScalar endRadius,
-                uintptr_t /* SkColor*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
+                uintptr_t /* SkColor4f*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
                 int count, SkTileMode mode, uint32_t flags)->sk_sp<SkShader> {
         // See comment above for uintptr_t explanation
-        const SkColor*  colors    = reinterpret_cast<const SkColor*> (cPtr);
+        const SkColor4f*  colors  = reinterpret_cast<const SkColor4f*> (cPtr);
         const SkScalar* positions = reinterpret_cast<const SkScalar*>(pPtr);
 
         return SkGradientShader::MakeTwoPointConical(start, startRadius, end, endRadius,
-                                                     colors, positions, count, mode,
+                                                     colors, SkColorSpace::MakeSRGB(), positions, count, mode,
                                                      flags, nullptr);
     }), allow_raw_pointers());
     function("_MakeTwoPointConicalGradientShader", optional_override([](
                 SkPoint start, SkScalar startRadius,
                 SkPoint end, SkScalar endRadius,
-                uintptr_t /* SkColor*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
+                uintptr_t /* SkColor4f*  */ cPtr, uintptr_t /* SkScalar*  */ pPtr,
                 int count, SkTileMode mode, uint32_t flags,
                 const SimpleMatrix& lm)->sk_sp<SkShader> {
         // See comment above for uintptr_t explanation
-        const SkColor*  colors    = reinterpret_cast<const SkColor*> (cPtr);
+        const SkColor4f*  colors  = reinterpret_cast<const SkColor4f*> (cPtr);
         const SkScalar* positions = reinterpret_cast<const SkScalar*>(pPtr);
 
         SkMatrix localMatrix = toSkMatrix(lm);
         return SkGradientShader::MakeTwoPointConical(start, startRadius, end, endRadius,
-                                                     colors, positions, count, mode,
+                                                     colors, SkColorSpace::MakeSRGB(), positions, count, mode,
                                                      flags, &localMatrix);
     }), allow_raw_pointers());
 
-#if SK_SUPPORT_GPU
+#ifdef SK_GL
     class_<GrContext>("GrContext")
         .smart_ptr<sk_sp<GrContext>>("sk_sp<GrContext>")
         .function("getResourceCacheLimitBytes", optional_override([](GrContext& self)->size_t {
@@ -846,6 +939,7 @@ EMSCRIPTEN_BINDINGS(Skia) {
             self.getResourceCacheUsage(&usedResources, &currUsage);
             return currUsage;
         }))
+        .function("releaseResourcesAndAbandonContext", &GrContext::releaseResourcesAndAbandonContext)
         .function("setResourceCacheLimitBytes", optional_override([](GrContext& self, size_t maxResourceBytes)->void {
             int maxResources = 0;
             size_t currMax = 0; // ignored
@@ -857,6 +951,7 @@ EMSCRIPTEN_BINDINGS(Skia) {
     class_<SkAnimatedImage>("SkAnimatedImage")
         .smart_ptr<sk_sp<SkAnimatedImage>>("sk_sp<SkAnimatedImage>")
         .function("decodeNextFrame", &SkAnimatedImage::decodeNextFrame)
+        .function("getCurrentFrame", &SkAnimatedImage::getCurrentFrame)
         .function("getFrameCount", &SkAnimatedImage::getFrameCount)
         .function("getRepetitionCount", &SkAnimatedImage::getRepetitionCount)
         .function("height",  optional_override([](SkAnimatedImage& self)->int32_t {
@@ -869,7 +964,9 @@ EMSCRIPTEN_BINDINGS(Skia) {
 
     class_<SkCanvas>("SkCanvas")
         .constructor<>()
-        .function("clear", &SkCanvas::clear)
+        .function("clear", optional_override([](SkCanvas& self, SimpleColor4f c) {
+            self.clear(c.toSkColor());
+        }))
         .function("clipPath", select_overload<void (const SkPath&, SkClipOp, bool)>(&SkCanvas::clipPath))
         .function("clipRRect", optional_override([](SkCanvas& self, const SimpleRRect& r, SkClipOp op, bool doAntiAlias) {
             self.clipRRect(toRRect(r), op, doAntiAlias);
@@ -879,6 +976,9 @@ EMSCRIPTEN_BINDINGS(Skia) {
             self.concat(toSkMatrix(m));
         }))
         .function("drawArc", &SkCanvas::drawArc)
+        // _drawAtlas takes an SkColor, unlike most private functions handling color.
+        // This is because it takes an array of colors. Converting it on the Javascript side allows
+        // an allocation to be avoided here.
         .function("_drawAtlas", optional_override([](SkCanvas& self,
                 const sk_sp<SkImage>& atlas, uintptr_t /* SkRSXform* */ xptr,
                 uintptr_t /* SkRect* */ rptr, uintptr_t /* SkColor* */ cptr, int count,
@@ -893,7 +993,12 @@ EMSCRIPTEN_BINDINGS(Skia) {
             self.drawAtlas(atlas, dstXforms, srcRects, colors, count, mode, nullptr, paint);
         }), allow_raw_pointers())
         .function("drawCircle", select_overload<void (SkScalar, SkScalar, SkScalar, const SkPaint& paint)>(&SkCanvas::drawCircle))
-        .function("drawColor", &SkCanvas::drawColor)
+        .function("drawColor", optional_override([](SkCanvas& self, SimpleColor4f c) {
+            self.drawColor(c.toSkColor());
+        }))
+        .function("drawColor", optional_override([](SkCanvas& self, SimpleColor4f c, SkBlendMode mode) {
+            self.drawColor(c.toSkColor(), mode);
+        }))
         .function("drawDRRect",optional_override([](SkCanvas& self, const SimpleRRect& o, const SimpleRRect& i, const SkPaint& paint) {
             self.drawDRRect(toRRect(o), toRRect(i), paint);
         }))
@@ -942,10 +1047,10 @@ EMSCRIPTEN_BINDINGS(Skia) {
         .function("drawShadow", optional_override([](SkCanvas& self, const SkPath& path,
                                                      const SkPoint3& zPlaneParams,
                                                      const SkPoint3& lightPos, SkScalar lightRadius,
-                                                     SkColor ambientColor, SkColor spotColor,
+                                                     SimpleColor4f ambientColor, SimpleColor4f spotColor,
                                                      uint32_t flags) {
             SkShadowUtils::DrawShadow(&self, path, zPlaneParams, lightPos, lightRadius,
-                                      ambientColor, spotColor, flags);
+                                      ambientColor.toSkColor(), spotColor.toSkColor(), flags);
         }))
 #ifndef SK_NO_FONTS
         .function("_drawShapedText", &drawShapedText)
@@ -981,6 +1086,10 @@ EMSCRIPTEN_BINDINGS(Skia) {
         .function("restoreToCount", &SkCanvas::restoreToCount)
         .function("rotate", select_overload<void (SkScalar, SkScalar, SkScalar)>(&SkCanvas::rotate))
         .function("save", &SkCanvas::save)
+         // 1 param (only the paint)
+        .function("saveLayer", optional_override([](SkCanvas& self, const SkPaint* p) {
+            return self.saveLayer(nullptr, p);
+        }), allow_raw_pointers())
          // 2 params
         .function("saveLayer", select_overload<int (const SkRect&, const SkPaint*)>(&SkCanvas::saveLayer),
                                allow_raw_pointers())
@@ -999,11 +1108,33 @@ EMSCRIPTEN_BINDINGS(Skia) {
             SkImageInfo dstInfo = toSkImageInfo(di);
 
             return self.writePixels(dstInfo, pixels, srcRowBytes, dstX, dstY);
+        }))
+        // 4x4 matrix functions
+        .function("saveCamera", optional_override([](SkCanvas& self,
+            const SimpleM44& projection, const SimpleM44& camera) {
+            self.experimental_saveCamera(toSkM44(projection), toSkM44(camera));
+        }))
+        .function("concat44", optional_override([](SkCanvas& self, const SimpleM44& m) {
+            self.concat44(toSkM44(m));
+        }))
+        .function("getLocalToDevice", optional_override([](const SkCanvas& self)->SimpleM44 {
+            SkM44 m = self.getLocalToDevice();
+            return toSimpleM44(m);
+        }))
+        .function("getLocalToWorld", optional_override([](const SkCanvas& self)->SimpleM44 {
+            SkM44 m = self.experimental_getLocalToWorld();
+            return toSimpleM44(m);
+        }))
+        .function("getLocalToCamera", optional_override([](const SkCanvas& self)->SimpleM44 {
+            SkM44 m = self.experimental_getLocalToCamera();
+            return toSimpleM44(m);
         }));
 
     class_<SkColorFilter>("SkColorFilter")
         .smart_ptr<sk_sp<SkColorFilter>>("sk_sp<SkColorFilter>>")
-        .class_function("MakeBlend", &SkColorFilters::Blend)
+        .class_function("MakeBlend", optional_override([](SimpleColor4f c, SkBlendMode mode)->sk_sp<SkColorFilter> {
+            return SkColorFilters::Blend(c.toSkColor(), mode);
+        }))
         .class_function("MakeCompose", &SkColorFilters::Compose)
         .class_function("MakeLerp", &SkColorFilters::Lerp)
         .class_function("MakeLinearToSRGBGamma", &SkColorFilters::LinearToSRGBGamma)
@@ -1082,9 +1213,12 @@ EMSCRIPTEN_BINDINGS(Skia) {
             // Otherwise, go with std::wstring and set UTF-32 encoding.
             return self.measureText(text.c_str(), text.length(), SkTextEncoding::kUTF8);
         }))
+        .function("setHinting", &SkFont::setHinting)
+        .function("setLinearMetrics", &SkFont::setLinearMetrics)
         .function("setScaleX", &SkFont::setScaleX)
         .function("setSize", &SkFont::setSize)
         .function("setSkewX", &SkFont::setSkewX)
+        .function("setSubpixel", &SkFont::setSubpixel)
         .function("setTypeface", &SkFont::setTypeface, allow_raw_pointers());
 
     class_<ShapedText>("ShapedText")
@@ -1103,6 +1237,15 @@ EMSCRIPTEN_BINDINGS(Skia) {
             return SkFontMgr_New_Custom_Data(datas, sizes, numFonts);
         }), allow_raw_pointers())
         .class_function("RefDefault", &SkFontMgr::RefDefault)
+        .function("countFamilies", &SkFontMgr::countFamilies)
+        .function("getFamilyName", optional_override([](SkFontMgr& self, int index)->JSString {
+            if (index < 0 || index >= self.countFamilies()) {
+                return emscripten::val::null();
+            }
+            SkString s;
+            self.getFamilyName(index, &s);
+            return emscripten::val(s.c_str());
+        }))
 #ifdef SK_DEBUG
         .function("dumpFamilies", optional_override([](SkFontMgr& self) {
             int numFam = self.countFamilies();
@@ -1114,7 +1257,6 @@ EMSCRIPTEN_BINDINGS(Skia) {
             }
         }))
 #endif
-        .function("countFamilies", &SkFontMgr::countFamilies)
         .function("_makeTypefaceFromData", optional_override([](SkFontMgr& self,
                                                 uintptr_t /* uint8_t*  */ fPtr,
                                                 int flen)->sk_sp<SkTypeface> {
@@ -1186,20 +1328,21 @@ EMSCRIPTEN_BINDINGS(Skia) {
             return p;
         }))
         .function("getBlendMode", &SkPaint::getBlendMode)
-        .function("getColor", &SkPaint::getColor)
+        .function("getColor", optional_override([](SkPaint& self)->Float32Array {
+            const SimpleColor4f& c = toSimpleColor4f(self.getColor4f());
+            const float array[4] = {c.r, c.g, c.b, c.a};
+            return Float32Array(typed_memory_view(4, array));
+        }))
         .function("getFilterQuality", &SkPaint::getFilterQuality)
         .function("getStrokeCap", &SkPaint::getStrokeCap)
         .function("getStrokeJoin", &SkPaint::getStrokeJoin)
         .function("getStrokeMiter", &SkPaint::getStrokeMiter)
         .function("getStrokeWidth", &SkPaint::getStrokeWidth)
         .function("setAntiAlias", &SkPaint::setAntiAlias)
+        .function("setAlphaf", &SkPaint::setAlphaf)
         .function("setBlendMode", &SkPaint::setBlendMode)
-        .function("setColor", optional_override([](SkPaint& self, SkColor c) {
-            self.setColor(c);
-        }))
-        .function("setColorf", optional_override([](SkPaint& self,
-                                                    float r, float g, float b, float a) {
-            self.setColor({r, g, b, a});
+        .function("setColor", optional_override([](SkPaint& self, SimpleColor4f c) {
+            self.setColor({c.r, c.g, c.b, c.a});
         }))
         .function("setColorFilter", &SkPaint::setColorFilter)
         .function("setFilterQuality", &SkPaint::setFilterQuality)
@@ -1214,7 +1357,15 @@ EMSCRIPTEN_BINDINGS(Skia) {
         .function("setStyle", &SkPaint::setStyle);
 
     class_<SkPathEffect>("SkPathEffect")
-        .smart_ptr<sk_sp<SkPathEffect>>("sk_sp<SkPathEffect>");
+        .smart_ptr<sk_sp<SkPathEffect>>("sk_sp<SkPathEffect>")
+        .class_function("MakeCorner", &SkCornerPathEffect::Make)
+        .class_function("_MakeDash", optional_override([](uintptr_t /* float* */ cptr, int count,
+                                                          SkScalar phase)->sk_sp<SkPathEffect> {
+            // See comment above for uintptr_t explanation
+            const float* intervals = reinterpret_cast<const float*>(cptr);
+            return SkDashPathEffect::Make(intervals, count, phase);
+        }), allow_raw_pointers())
+        .class_function("MakeDiscrete", &SkDiscretePathEffect::Make);
 
     class_<SkPath>("SkPath")
         .constructor<>()
@@ -1264,10 +1415,11 @@ EMSCRIPTEN_BINDINGS(Skia) {
         .function("_trim", &ApplyTrim)
         .function("_stroke", &ApplyStroke)
 
+#ifdef SK_INCLUDE_PATHOPS
         // PathOps
         .function("_simplify", &ApplySimplify)
         .function("_op", &ApplyPathOp)
-
+#endif
         // Exporting
         .function("toSVGString", &ToSVGString)
         .function("toCmds", &ToCmds)
@@ -1321,18 +1473,89 @@ EMSCRIPTEN_BINDINGS(Skia) {
 
     class_<SkPicture>("SkPicture")
         .smart_ptr<sk_sp<SkPicture>>("sk_sp<SkPicture>")
+#ifdef SK_SERIALIZE_SKP
         // The serialized format of an SkPicture (informally called an "skp"), is not something
-        // that clients should ever rely on. It is useful when filing bug reports, but that's
-        // about it. The format may change at anytime and no promises are made for backwards
-        // or forward compatibility.
-        .function("DEBUGONLY_serialize", optional_override([](SkPicture& self) -> sk_sp<SkData> {
+        // that clients should ever rely on.  The format may change at anytime and no promises
+        // are made for backwards or forward compatibility.
+        .function("serialize", optional_override([](SkPicture& self) -> sk_sp<SkData> {
             // Emscripten doesn't play well with optional arguments, which we don't
             // want to expose anyway.
             return self.serialize();
-        }), allow_raw_pointers());
+        }), allow_raw_pointers())
+#endif
+    ;
 
     class_<SkShader>("SkShader")
-        .smart_ptr<sk_sp<SkShader>>("sk_sp<SkShader>");
+        .smart_ptr<sk_sp<SkShader>>("sk_sp<SkShader>")
+        .class_function("Blend", select_overload<sk_sp<SkShader>(SkBlendMode, sk_sp<SkShader>, sk_sp<SkShader>)>(&SkShaders::Blend))
+        .class_function("Color",
+            optional_override([](SimpleColor4f c)->sk_sp<SkShader> {
+                return SkShaders::Color(c.toSkColor4f(), SkColorSpace::MakeSRGB());
+            })
+        )
+        .class_function("Lerp", select_overload<sk_sp<SkShader>(float, sk_sp<SkShader>, sk_sp<SkShader>)>(&SkShaders::Lerp));
+
+#ifdef SK_INCLUDE_RUNTIME_EFFECT
+    class_<SkRuntimeEffect>("SkRuntimeEffect")
+        .smart_ptr<sk_sp<SkRuntimeEffect>>("sk_sp<SkRuntimeEffect>")
+        .class_function("Make", optional_override([](std::string sksl)->sk_sp<SkRuntimeEffect> {
+            SkString s(sksl.c_str(), sksl.length());
+            auto [effect, errorText] = SkRuntimeEffect::Make(s);
+            if (!effect) {
+                SkDebugf("Runtime effect failed to compile:\n%s\n", errorText.c_str());
+                return nullptr;
+            }
+            return effect;
+        }))
+        .function("_makeShader", optional_override([](SkRuntimeEffect& self, uintptr_t fPtr, size_t fLen, bool isOpaque)->sk_sp<SkShader> {
+            // See comment above for uintptr_t explanation
+            void* inputData = reinterpret_cast<void*>(fPtr);
+            sk_sp<SkData> inputs = SkData::MakeFromMalloc(inputData, fLen);
+            return self.makeShader(inputs, nullptr, 0, nullptr, isOpaque);
+        }))
+        .function("_makeShader", optional_override([](SkRuntimeEffect& self, uintptr_t fPtr, size_t fLen, bool isOpaque, SimpleMatrix sm)->sk_sp<SkShader> {
+            // See comment above for uintptr_t explanation
+            void* inputData = reinterpret_cast<void*>(fPtr);
+            sk_sp<SkData> inputs = SkData::MakeFromMalloc(inputData, fLen);
+            auto m = toSkMatrix(sm);
+            return self.makeShader(inputs, nullptr, 0, &m, isOpaque);
+        }))
+        .function("_makeShaderWithChildren", optional_override([](SkRuntimeEffect& self, uintptr_t fPtr, size_t fLen, bool isOpaque,
+                                                                  uintptr_t /** SkShader*[] */cPtrs, size_t cLen)->sk_sp<SkShader> {
+            // See comment above for uintptr_t explanation
+            void* inputData = reinterpret_cast<void*>(fPtr);
+            sk_sp<SkData> inputs = SkData::MakeFromMalloc(inputData, fLen);
+
+            sk_sp<SkShader>* children = new sk_sp<SkShader>[cLen];
+            SkShader** childrenPtrs = reinterpret_cast<SkShader**>(cPtrs);
+            for (size_t i = 0; i < cLen; i++) {
+                // This bare pointer was already part of an sk_sp (owned outside of here),
+                // so we want to ref the new sk_sp so makeShader doesn't clean it up.
+                children[i] = sk_ref_sp<SkShader>(childrenPtrs[i]);
+            }
+            auto s = self.makeShader(inputs, children, cLen, nullptr, isOpaque);
+            delete[] children;
+            return s;
+        }))
+        .function("_makeShaderWithChildren", optional_override([](SkRuntimeEffect& self, uintptr_t fPtr, size_t fLen, bool isOpaque,
+                                                                  uintptr_t /** SkShader*[] */cPtrs, size_t cLen, SimpleMatrix sm)->sk_sp<SkShader> {
+            // See comment above for uintptr_t explanation
+            void* inputData = reinterpret_cast<void*>(fPtr);
+            sk_sp<SkData> inputs = SkData::MakeFromMalloc(inputData, fLen);
+
+            sk_sp<SkShader>* children = new sk_sp<SkShader>[cLen];
+            SkShader** childrenPtrs = reinterpret_cast<SkShader**>(cPtrs);
+            for (size_t i = 0; i < cLen; i++) {
+                // This bare pointer was already part of an sk_sp (owned outside of here),
+                // so we want to ref the new sk_sp so makeShader doesn't clean it up.
+                children[i] = sk_ref_sp<SkShader>(childrenPtrs[i]);
+            }
+            auto m = toSkMatrix(sm);
+            auto s = self.makeShader(inputs, children, cLen, &m, isOpaque);
+            delete[] children;
+            return s;
+        }));
+#endif
 
     class_<SkSurface>("SkSurface")
         .smart_ptr<sk_sp<SkSurface>>("sk_sp<SkSurface>")
@@ -1352,20 +1575,18 @@ EMSCRIPTEN_BINDINGS(Skia) {
         .class_function("_MakeFromRSXform", optional_override([](uintptr_t /* char* */ sptr,
                                                               size_t strBtyes,
                                                               uintptr_t /* SkRSXform* */ xptr,
-                                                              const SkFont& font,
-                                                              SkTextEncoding encoding)->sk_sp<SkTextBlob> {
+                                                              const SkFont& font)->sk_sp<SkTextBlob> {
             // See comment above for uintptr_t explanation
             const char* str = reinterpret_cast<const char*>(sptr);
             const SkRSXform* xforms = reinterpret_cast<const SkRSXform*>(xptr);
 
-            return SkTextBlob::MakeFromRSXform(str, strBtyes, xforms, font, encoding);
+            return SkTextBlob::MakeFromRSXform(str, strBtyes, xforms, font, SkTextEncoding::kUTF8);
         }), allow_raw_pointers())
         .class_function("_MakeFromText", optional_override([](uintptr_t /* char* */ sptr,
-                                                              size_t len, const SkFont& font,
-                                                              SkTextEncoding encoding)->sk_sp<SkTextBlob> {
+                                                              size_t len, const SkFont& font)->sk_sp<SkTextBlob> {
             // See comment above for uintptr_t explanation
             const char* str = reinterpret_cast<const char*>(sptr);
-            return SkTextBlob::MakeFromText(str, len, font, encoding);
+            return SkTextBlob::MakeFromText(str, len, font, SkTextEncoding::kUTF8);
         }), allow_raw_pointers());
 
     class_<SkTypeface>("SkTypeface")
@@ -1374,35 +1595,12 @@ EMSCRIPTEN_BINDINGS(Skia) {
 
     class_<SkVertices>("SkVertices")
         .smart_ptr<sk_sp<SkVertices>>("sk_sp<SkVertices>")
-        .function("_applyBones", optional_override([](SkVertices& self, uintptr_t /* Bone* */ bptr, int boneCount)->sk_sp<SkVertices> {
-            // See comment above for uintptr_t explanation
-            const Bone* bones = reinterpret_cast<const Bone*>(bptr);
-            return self.applyBones(bones, boneCount);
-        }))
         .function("bounds", &SkVertices::bounds)
-        .function("mode", &SkVertices::mode)
-        .function("uniqueID", &SkVertices::uniqueID)
-#ifdef SK_DEBUG
-        .function("dumpPositions", optional_override([](SkVertices& self)->void {
-            auto pos = self.positions();
-            for(int i = 0; i< self.vertexCount(); i++) {
-                SkDebugf("position[%d] = (%f, %f)\n", i, pos[i].x(), pos[i].y());
-            }
-        }))
-#endif
-        .function("vertexCount", &SkVertices::vertexCount);
+        .function("uniqueID", &SkVertices::uniqueID);
 
     // Not intended to be called directly by clients
     class_<SkVertices::Builder>("_SkVerticesBuilder")
         .constructor<SkVertices::VertexMode, int, int, uint32_t>()
-        .function("boneIndices", optional_override([](SkVertices::Builder& self)->uintptr_t /* BoneIndices* */{
-            // Emscripten won't let us return bare pointers, but we can return ints just fine.
-            return reinterpret_cast<uintptr_t>(self.boneIndices());
-        }))
-        .function("boneWeights", optional_override([](SkVertices::Builder& self)->uintptr_t /* BoneWeights* */{
-            // Emscripten won't let us return bare pointers, but we can return ints just fine.
-            return reinterpret_cast<uintptr_t>(self.boneWeights());
-        }))
         .function("colors", optional_override([](SkVertices::Builder& self)->uintptr_t /* SkColor* */{
             // Emscripten won't let us return bare pointers, but we can return ints just fine.
             return reinterpret_cast<uintptr_t>(self.colors());
@@ -1488,9 +1686,7 @@ EMSCRIPTEN_BINDINGS(Skia) {
 
     enum_<SkPathFillType>("FillType")
         .value("Winding",           SkPathFillType::kWinding)
-        .value("EvenOdd",           SkPathFillType::kEvenOdd)
-        .value("InverseWinding",    SkPathFillType::kInverseWinding)
-        .value("InverseEvenOdd",    SkPathFillType::kInverseEvenOdd);
+        .value("EvenOdd",           SkPathFillType::kEvenOdd);
 
     enum_<SkFilterQuality>("FilterQuality")
         .value("None",   SkFilterQuality::kNone_SkFilterQuality)
@@ -1498,21 +1694,25 @@ EMSCRIPTEN_BINDINGS(Skia) {
         .value("Medium", SkFilterQuality::kMedium_SkFilterQuality)
         .value("High",   SkFilterQuality::kHigh_SkFilterQuality);
 
+    // Only used to control the encode function.
+    // TODO(kjlubick): compile these out when the appropriate encoder is disabled.
     enum_<SkEncodedImageFormat>("ImageFormat")
         .value("PNG",  SkEncodedImageFormat::kPNG)
-        .value("JPEG", SkEncodedImageFormat::kJPEG);
+        .value("JPEG",  SkEncodedImageFormat::kJPEG)
+        .value("WEBP",  SkEncodedImageFormat::kWEBP);
 
     enum_<SkPaint::Style>("PaintStyle")
         .value("Fill",            SkPaint::Style::kFill_Style)
-        .value("Stroke",          SkPaint::Style::kStroke_Style)
-        .value("StrokeAndFill",   SkPaint::Style::kStrokeAndFill_Style);
+        .value("Stroke",          SkPaint::Style::kStroke_Style);
 
+#ifdef SK_INCLUDE_PATHOPS
     enum_<SkPathOp>("PathOp")
         .value("Difference",         SkPathOp::kDifference_SkPathOp)
         .value("Intersect",          SkPathOp::kIntersect_SkPathOp)
         .value("Union",              SkPathOp::kUnion_SkPathOp)
         .value("XOR",                SkPathOp::kXOR_SkPathOp)
         .value("ReverseDifference",  SkPathOp::kReverseDifference_SkPathOp);
+#endif
 
     enum_<SkCanvas::PointMode>("PointMode")
         .value("Points",   SkCanvas::PointMode::kPoints_PointMode)
@@ -1529,11 +1729,13 @@ EMSCRIPTEN_BINDINGS(Skia) {
         .value("Round", SkPaint::Join::kRound_Join)
         .value("Bevel", SkPaint::Join::kBevel_Join);
 
-    enum_<SkTextEncoding>("TextEncoding")
-        .value("UTF8",    SkTextEncoding::kUTF8)
-        .value("UTF16",   SkTextEncoding::kUTF16)
-        .value("UTF32",   SkTextEncoding::kUTF32)
-        .value("GlyphID", SkTextEncoding::kGlyphID);
+#ifndef SK_NO_FONTS
+    enum_<SkFontHinting>("FontHinting")
+        .value("None",   SkFontHinting::kNone)
+        .value("Slight", SkFontHinting::kSlight)
+        .value("Normal", SkFontHinting::kNormal)
+        .value("Full",   SkFontHinting::kFull);
+#endif
 
     enum_<SkTileMode>("TileMode")
         .value("Clamp",    SkTileMode::kClamp)
@@ -1549,13 +1751,15 @@ EMSCRIPTEN_BINDINGS(Skia) {
 
     // A value object is much simpler than a class - it is returned as a JS
     // object and does not require delete().
-    // https://kripken.github.io/emscripten-site/docs/porting/connecting_cpp_and_javascript/embind.html#value-types
+    // https://emscripten.org/docs/porting/connecting_cpp_and_javascript/embind.html#value-types
+
+#ifndef SK_NO_FONTS
     value_object<ShapedTextOpts>("ShapedTextOpts")
         .field("font",        &ShapedTextOpts::font)
         .field("leftToRight", &ShapedTextOpts::leftToRight)
         .field("text",        &ShapedTextOpts::text)
         .field("width",       &ShapedTextOpts::width);
-
+#endif
     value_object<SkRect>("SkRect")
         .field("fLeft",   &SkRect::fLeft)
         .field("fTop",    &SkRect::fTop)
@@ -1641,14 +1845,18 @@ EMSCRIPTEN_BINDINGS(Skia) {
         .element(&SimpleMatrix::pers1)
         .element(&SimpleMatrix::pers2);
 
-    constant("TRANSPARENT", SK_ColorTRANSPARENT);
-    constant("RED",         SK_ColorRED);
-    constant("BLUE",        SK_ColorBLUE);
-    constant("YELLOW",      SK_ColorYELLOW);
-    constant("CYAN",        SK_ColorCYAN);
-    constant("BLACK",       SK_ColorBLACK);
-    constant("WHITE",       SK_ColorWHITE);
-    // TODO(?)
+    value_array<SimpleM44>("SkM44")
+        .element(&SimpleM44::m0).element(&SimpleM44::m1).element(&SimpleM44::m2).element(&SimpleM44::m3)
+        .element(&SimpleM44::m4).element(&SimpleM44::m5).element(&SimpleM44::m6).element(&SimpleM44::m7)
+        .element(&SimpleM44::m8).element(&SimpleM44::m9).element(&SimpleM44::m10).element(&SimpleM44::m11)
+        .element(&SimpleM44::m12).element(&SimpleM44::m13).element(&SimpleM44::m14).element(&SimpleM44::m15);
+
+    value_array<SimpleColor4f>("SkColor4f")
+        .element(&SimpleColor4f::r)
+        .element(&SimpleColor4f::g)
+        .element(&SimpleColor4f::b)
+        .element(&SimpleColor4f::a);
+
 
     constant("MOVE_VERB",  MOVE);
     constant("LINE_VERB",  LINE);
@@ -1657,7 +1865,7 @@ EMSCRIPTEN_BINDINGS(Skia) {
     constant("CUBIC_VERB", CUBIC);
     constant("CLOSE_VERB", CLOSE);
 
-    constant("SaveLayerInitWithPrevious", SkCanvas::SaveLayerFlagsSet::kInitWithPrevious_SaveLayerFlag);
-    constant("SaveLayerF16ColorType",     SkCanvas::SaveLayerFlagsSet::kF16ColorType);
+    constant("SaveLayerInitWithPrevious", (int)SkCanvas::SaveLayerFlagsSet::kInitWithPrevious_SaveLayerFlag);
+    constant("SaveLayerF16ColorType",     (int)SkCanvas::SaveLayerFlagsSet::kF16ColorType);
 
 }

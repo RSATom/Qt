@@ -182,7 +182,7 @@ QPlaceSearchReply *QPlaceManagerEngineOsm::search(const QPlaceSearchRequest &req
     requestUrl.setQuery(queryItems);
 
     QNetworkRequest rq(requestUrl);
-    rq.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
+    rq.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *networkReply = m_networkManager->get(rq);
 
     QPlaceSearchReplyOsm *reply = new QPlaceSearchReplyOsm(request, networkReply, this);

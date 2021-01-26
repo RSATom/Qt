@@ -27,7 +27,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 """Compute global interface information for individual IDL files.
 
 Auxiliary module for compute_interfaces_info_overall, which consolidates
@@ -59,7 +58,6 @@ from utilities import read_pickle_file
 from utilities import write_pickle_file
 from utilities import abs
 
-
 module_path = os.path.dirname(__file__)
 source_path = os.path.normpath(os.path.join(module_path, os.pardir, os.pardir))
 gen_path = os.path.join('gen', 'blink')
@@ -75,21 +73,28 @@ def parse_options():
     parser = optparse.OptionParser(usage=usage)
     parser.add_option('--cache-directory', help='cache directory')
     parser.add_option('--idl-files-list', help='file listing IDL files')
-    parser.add_option('--interfaces-info-file', help='interface info pickle file')
-    parser.add_option('--component-info-file', help='component wide info pickle file')
-    parser.add_option('--runtime-enabled-features-file', help='runtime-enabled features pickle file')
+    parser.add_option(
+        '--interfaces-info-file', help='interface info pickle file')
+    parser.add_option(
+        '--component-info-file', help='component wide info pickle file')
+    parser.add_option(
+        '--runtime-enabled-features-file',
+        help='runtime-enabled features pickle file')
 
     options, args = parser.parse_args()
     if options.interfaces_info_file is None:
-        parser.error('Must specify an output file using --interfaces-info-file.')
+        parser.error(
+            'Must specify an output file using --interfaces-info-file.')
     if options.idl_files_list is None:
-        parser.error('Must specify a file listing IDL files using --idl-files-list.')
+        parser.error(
+            'Must specify a file listing IDL files using --idl-files-list.')
     return options, args
 
 
 ################################################################################
 # Computations
 ################################################################################
+
 
 def relative_dir_posix(idl_filename, base_path):
     """Returns relative path to the directory of idl_file in POSIX format."""
@@ -117,7 +122,8 @@ def include_path(idl_filename, implemented_as=None):
         relative_dir = relative_dir.replace(os.path.sep, posixpath.sep)
 
     # IDL file basename is used even if only a partial interface file
-    output_file_basename = implemented_as or idl_filename_to_basename(idl_filename)
+    output_file_basename = implemented_as or idl_filename_to_basename(
+        idl_filename)
     output_file_basename = to_snake_case(output_file_basename)
     return posixpath.join(relative_dir, output_file_basename + '.h')
 
@@ -141,9 +147,9 @@ def get_includes_from_definitions(definitions, definition_name):
 
 
 def get_put_forward_interfaces_from_definition(definition):
-    return sorted(set(attribute.idl_type.base_type
-                      for attribute in definition.attributes
-                      if 'PutForwards' in attribute.extended_attributes))
+    return sorted(
+        set(attribute.idl_type.base_type for attribute in definition.attributes
+            if 'PutForwards' in attribute.extended_attributes))
 
 
 def get_unforgeable_attributes_from_definition(definition):
@@ -153,6 +159,7 @@ def get_unforgeable_attributes_from_definition(definition):
 
 def collect_union_types_from_definitions(definitions):
     """Traverse definitions and collect all union types."""
+
     class UnionTypeCollector(Visitor):
         def collect(self, definitions):
             self._union_types = set()
@@ -173,13 +180,14 @@ def collect_union_types_from_definitions(definitions):
 
 class InterfaceInfoCollector(object):
     """A class that collects interface information from idl files."""
+
     def __init__(self, cache_directory=None):
-        self.reader = IdlReader(interfaces_info=None, outputdir=cache_directory)
+        self.reader = IdlReader(
+            interfaces_info=None, outputdir=cache_directory)
         self.interfaces_info = {}
         self.partial_interface_files = defaultdict(lambda: {
             'full_paths': [],
-            'include_paths': [],
-        })
+            'include_paths': [], })
         self.enumerations = {}
         self.union_types = set()
         self.typedefs = {}
@@ -204,6 +212,7 @@ class InterfaceInfoCollector(object):
     def collect_info(self, idl_filename):
         """Reads an idl file and collects information which is required by the
         binding code generation."""
+
         def collect_unforgeable_attributes(definition, idl_filename):
             """Collects [Unforgeable] attributes so that we can define them on
             sub-interfaces later.  The resulting structure is as follows.
@@ -213,17 +222,21 @@ class InterfaceInfoCollector(object):
                 }
             """
             interface_info = {}
-            unforgeable_attributes = get_unforgeable_attributes_from_definition(definition)
+            unforgeable_attributes = get_unforgeable_attributes_from_definition(
+                definition)
             if not unforgeable_attributes:
                 return interface_info
 
             if definition.is_partial:
-                interface_basename = idl_filename_to_interface_name(idl_filename)
+                interface_basename = idl_filename_to_interface_name(
+                    idl_filename)
                 # TODO(yukishiino): [PartialInterfaceImplementedAs] is treated
                 # in interface_dependency_resolver.transfer_extended_attributes.
                 # Come up with a better way to keep them consistent.
                 for attr in unforgeable_attributes:
-                    attr.extended_attributes['PartialInterfaceImplementedAs'] = definition.extended_attributes.get('ImplementedAs', interface_basename)
+                    attr.extended_attributes[
+                        'PartialInterfaceImplementedAs'] = definition.extended_attributes.get(
+                            'ImplementedAs', interface_basename)
             interface_info['unforgeable_attributes'] = unforgeable_attributes
             return interface_info
 
@@ -232,7 +245,8 @@ class InterfaceInfoCollector(object):
         this_union_types = collect_union_types_from_definitions(definitions)
         self.union_types.update(this_union_types)
         self.typedefs.update(definitions.typedefs)
-        for callback_function_name, callback_function in definitions.callback_functions.iteritems():
+        for callback_function_name, callback_function in \
+                definitions.callback_functions.items():
             # Set 'component_dir' to specify a directory that callback function files belong to
             self.callback_functions[callback_function_name] = {
                 'callback_function': callback_function,
@@ -247,10 +261,12 @@ class InterfaceInfoCollector(object):
         self.enumerations.update(definitions.enumerations)
 
         if definitions.interfaces:
-            definition = next(definitions.interfaces.itervalues())
+            definition = next(iter(definitions.interfaces.values()))
             interface_info = {
-                'is_callback_interface': definition.is_callback,
-                'is_dictionary': False,
+                'is_callback_interface':
+                definition.is_callback,
+                'is_dictionary':
+                False,
                 # Interfaces that are referenced (used as types) and that we
                 # introspect during code generation (beyond interface-level
                 # data ([ImplementedAs], is_callback_interface, ancestors, and
@@ -258,10 +274,11 @@ class InterfaceInfoCollector(object):
                 # These cause rebuilds of referrers, due to the dependency,
                 # so these should be minimized; currently only targets of
                 # [PutForwards].
-                'referenced_interfaces': get_put_forward_interfaces_from_definition(definition),
+                'referenced_interfaces':
+                get_put_forward_interfaces_from_definition(definition),
             }
         elif definitions.dictionaries:
-            definition = next(definitions.dictionaries.itervalues())
+            definition = next(iter(definitions.dictionaries.values()))
             interface_info = {
                 'is_callback_interface': False,
                 'is_dictionary': True,
@@ -275,8 +292,9 @@ class InterfaceInfoCollector(object):
 
         # Remember [Unforgeable] attributes.
         if definitions.interfaces:
-            merge_dict_recursively(self.interfaces_info[definition.name],
-                                   collect_unforgeable_attributes(definition, idl_filename))
+            merge_dict_recursively(
+                self.interfaces_info[definition.name],
+                collect_unforgeable_attributes(definition, idl_filename))
 
         component = idl_filename_to_component(idl_filename)
         extended_attributes = definition.extended_attributes
@@ -292,7 +310,8 @@ class InterfaceInfoCollector(object):
             partial_include_paths = []
             if this_include_path:
                 partial_include_paths.append(this_include_path)
-            self.add_paths_to_partials_dict(definition.name, full_path, partial_include_paths)
+            self.add_paths_to_partials_dict(definition.name, full_path,
+                                            partial_include_paths)
             # Collects C++ header paths which should be included from generated
             # .cpp files.  The resulting structure is as follows.
             #   interfaces_info[interface_name] = {
@@ -305,7 +324,9 @@ class InterfaceInfoCollector(object):
             if this_include_path:
                 merge_dict_recursively(
                     self.interfaces_info[definition.name],
-                    {'cpp_includes': {component: set([this_include_path])}})
+                    {'cpp_includes': {
+                        component: set([this_include_path])
+                    }})
             return
 
         # 'includes' statements can be included in either the file for the
@@ -315,20 +336,31 @@ class InterfaceInfoCollector(object):
             definitions, definition.name)
 
         interface_info.update({
-            'extended_attributes': extended_attributes,
-            'full_path': full_path,
-            'union_types': this_union_types,
-            'implemented_as': implemented_as,
-            'included_by_interfaces': includes_interfaces,
-            'including_mixins': includes_mixins,
-            'include_path': this_include_path,
-            # FIXME: temporary private field, while removing old treatement of
-            # 'implements': http://crbug.com/360435
-            'is_legacy_treat_as_partial_interface': 'LegacyTreatAsPartialInterface' in extended_attributes,
-            'parent': definition.parent,
-            'relative_dir': relative_dir_posix(idl_filename, source_path),
+            'extended_attributes':
+            extended_attributes,
+            'full_path':
+            full_path,
+            'union_types':
+            this_union_types,
+            'implemented_as':
+            implemented_as,
+            'included_by_interfaces':
+            includes_interfaces,
+            'including_mixins':
+            includes_mixins,
+            'include_path':
+            this_include_path,
+            # FIXME: temporary private field, while removing old
+            # treatement of 'implements': http://crbug.com/360435
+            'is_legacy_treat_as_partial_interface':
+            'LegacyTreatAsPartialInterface' in extended_attributes,
+            'parent':
+            definition.parent,
+            'relative_dir':
+            relative_dir_posix(idl_filename, source_path),
         })
-        merge_dict_recursively(self.interfaces_info[definition.name], interface_info)
+        merge_dict_recursively(self.interfaces_info[definition.name],
+                               interface_info)
 
     def get_info_as_dict(self):
         """Returns info packaged as a dict."""
@@ -342,16 +374,22 @@ class InterfaceInfoCollector(object):
     def get_component_info_as_dict(self, runtime_enabled_features):
         """Returns component wide information as a dict."""
         return {
-            'callback_functions': self.callback_functions,
-            'enumerations': dict((enum.name, enum.values)
-                                 for enum in self.enumerations.values()),
-            'runtime_enabled_features': runtime_enabled_features,
-            'typedefs': self.typedefs,
-            'union_types': self.union_types,
+            'callback_functions':
+            self.callback_functions,
+            'enumerations':
+            dict((enum.name, enum.values)
+                 for enum in self.enumerations.values()),
+            'runtime_enabled_features':
+            runtime_enabled_features,
+            'typedefs':
+            self.typedefs,
+            'union_types':
+            self.union_types,
         }
 
 
 ################################################################################
+
 
 def main():
     options, _ = parse_options()
@@ -368,9 +406,12 @@ def main():
 
     write_pickle_file(options.interfaces_info_file,
                       info_collector.get_info_as_dict())
-    runtime_enabled_features = read_pickle_file(options.runtime_enabled_features_file)
-    write_pickle_file(options.component_info_file,
-                      info_collector.get_component_info_as_dict(runtime_enabled_features))
+    runtime_enabled_features = read_pickle_file(
+        options.runtime_enabled_features_file)
+    write_pickle_file(
+        options.component_info_file,
+        info_collector.get_component_info_as_dict(runtime_enabled_features))
+
 
 if __name__ == '__main__':
     sys.exit(main())

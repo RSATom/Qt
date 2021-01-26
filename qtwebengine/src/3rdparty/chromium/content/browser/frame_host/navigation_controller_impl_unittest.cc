@@ -31,7 +31,6 @@
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/frame_messages.h"
-#include "content/common/frame_owner_properties.h"
 #include "content/common/view_messages.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -41,7 +40,6 @@
 #include "content/public/common/page_type.h"
 #include "content/public/common/previews_state.h"
 #include "content/public/common/url_constants.h"
-#include "content/public/test/browser_side_navigation_test_utils.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_navigation_ui_data.h"
@@ -54,6 +52,8 @@
 #include "skia/ext/platform_canvas.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/frame/frame_policy.h"
+#include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom.h"
+#include "third_party/blink/public/mojom/frame/user_activation_update_types.mojom.h"
 
 using base::Time;
 
@@ -441,7 +441,7 @@ TEST_F(NavigationControllerTest, LoadURL) {
   // Simulate a user gesture so that the above entry is not marked to be skipped
   // on back.
   main_test_rfh()->frame_tree_node()->UpdateUserActivationState(
-      blink::UserActivationUpdateType::kNotifyActivation);
+      blink::mojom::UserActivationUpdateType::kNotifyActivation);
 
   // Load another...
   controller.LoadURL(url2, Referrer(), ui::PAGE_TRANSITION_TYPED,
@@ -870,7 +870,7 @@ TEST_F(NavigationControllerTest, LoadURL_ExistingPending) {
   // Simulate a user gesture so that the above entry is not marked to be skipped
   // on back.
   main_test_rfh()->frame_tree_node()->UpdateUserActivationState(
-      blink::UserActivationUpdateType::kNotifyActivation);
+      blink::mojom::UserActivationUpdateType::kNotifyActivation);
 
   const GURL kExistingURL2("http://foo/bee");
   NavigationSimulator::NavigateAndCommitFromBrowser(contents(), kExistingURL2);
@@ -925,7 +925,7 @@ TEST_F(NavigationControllerTest, LoadURL_PrivilegedPending) {
   // Simulate a user gesture so that the above entry is not marked to be skipped
   // on back.
   main_test_rfh()->frame_tree_node()->UpdateUserActivationState(
-      blink::UserActivationUpdateType::kNotifyActivation);
+      blink::mojom::UserActivationUpdateType::kNotifyActivation);
 
   // Navigate cross-process to a second URL.
   const GURL kExistingURL2("http://foo/eh");
@@ -1614,7 +1614,7 @@ TEST_F(NavigationControllerTest, Back_NewPending) {
   // Simulate a user gesture so that the above entry is not marked to be skipped
   // on back.
   main_test_rfh()->frame_tree_node()->UpdateUserActivationState(
-      blink::UserActivationUpdateType::kNotifyActivation);
+      blink::mojom::UserActivationUpdateType::kNotifyActivation);
 
   // controller.LoadURL(kUrl2, ui::PAGE_TRANSITION_TYPED);
   NavigationSimulator::NavigateAndCommitFromDocument(kUrl2, main_test_rfh());
@@ -1990,7 +1990,7 @@ TEST_F(NavigationControllerTest, AutoSubframe) {
       TestRenderFrameHost::CreateStubBrowserInterfaceBrokerReceiver(),
       blink::WebTreeScopeType::kDocument, std::string(), unique_name0, false,
       base::UnguessableToken::Create(), blink::FramePolicy(),
-      FrameOwnerProperties(), kOwnerType);
+      blink::mojom::FrameOwnerProperties(), kOwnerType);
   TestRenderFrameHost* subframe = static_cast<TestRenderFrameHost*>(
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host());
   const GURL url2("http://foo/2");
@@ -2028,7 +2028,7 @@ TEST_F(NavigationControllerTest, AutoSubframe) {
       TestRenderFrameHost::CreateStubBrowserInterfaceBrokerReceiver(),
       blink::WebTreeScopeType::kDocument, std::string(), unique_name1, false,
       base::UnguessableToken::Create(), blink::FramePolicy(),
-      FrameOwnerProperties(), kOwnerType);
+      blink::mojom::FrameOwnerProperties(), kOwnerType);
   TestRenderFrameHost* subframe2 = static_cast<TestRenderFrameHost*>(
       contents()->GetFrameTree()->root()->child_at(1)->current_frame_host());
   const GURL url3("http://foo/3");
@@ -2066,7 +2066,7 @@ TEST_F(NavigationControllerTest, AutoSubframe) {
       TestRenderFrameHost::CreateStubBrowserInterfaceBrokerReceiver(),
       blink::WebTreeScopeType::kDocument, std::string(), unique_name2, false,
       base::UnguessableToken::Create(), blink::FramePolicy(),
-      FrameOwnerProperties(), kOwnerType);
+      blink::mojom::FrameOwnerProperties(), kOwnerType);
   TestRenderFrameHost* subframe3 =
       static_cast<TestRenderFrameHost*>(contents()
                                             ->GetFrameTree()
@@ -2122,7 +2122,8 @@ TEST_F(NavigationControllerTest, BackSubframe) {
       TestRenderFrameHost::CreateStubBrowserInterfaceBrokerReceiver(),
       blink::WebTreeScopeType::kDocument, std::string(), unique_name, false,
       base::UnguessableToken::Create(), blink::FramePolicy(),
-      FrameOwnerProperties(), blink::FrameOwnerElementType::kIframe);
+      blink::mojom::FrameOwnerProperties(),
+      blink::FrameOwnerElementType::kIframe);
   FrameTreeNode* subframe = contents()->GetFrameTree()->root()->child_at(0);
   TestRenderFrameHost* subframe_rfh =
       static_cast<TestRenderFrameHost*>(subframe->current_frame_host());
@@ -2212,7 +2213,7 @@ TEST_F(NavigationControllerTest, LinkClick) {
 
   // Simulate a user gesture.
   main_test_rfh()->frame_tree_node()->UpdateUserActivationState(
-      blink::UserActivationUpdateType::kNotifyActivation);
+      blink::mojom::UserActivationUpdateType::kNotifyActivation);
 
   NavigationSimulator::NavigateAndCommitFromDocument(url2, main_test_rfh());
   EXPECT_EQ(1U, navigation_entry_committed_counter_);
@@ -3018,7 +3019,7 @@ TEST_F(NavigationControllerTest, ShowRendererURLInNewTabUntilModified) {
 
   // If something else modifies the contents of the about:blank page, then
   // we must revert to showing about:blank to avoid a URL spoof.
-  main_test_rfh()->OnMessageReceived(FrameHostMsg_DidAccessInitialDocument(0));
+  main_test_rfh()->DidAccessInitialDocument();
   EXPECT_TRUE(contents()->HasAccessedInitialDocument());
   EXPECT_FALSE(controller.GetVisibleEntry());
   EXPECT_EQ(url, controller.GetPendingEntry()->GetURL());
@@ -3062,7 +3063,7 @@ TEST_F(NavigationControllerTest, ShowBrowserURLAfterFailUntilModified) {
 
   // If something else later modifies the contents of the about:blank page, then
   // we must revert to showing about:blank to avoid a URL spoof.
-  main_test_rfh()->OnMessageReceived(FrameHostMsg_DidAccessInitialDocument(0));
+  main_test_rfh()->DidAccessInitialDocument();
   EXPECT_TRUE(contents()->HasAccessedInitialDocument());
   EXPECT_FALSE(controller.GetVisibleEntry());
   EXPECT_FALSE(controller.GetPendingEntry());
@@ -3100,7 +3101,7 @@ TEST_F(NavigationControllerTest, ShowRendererURLAfterFailUntilModified) {
 
   // If something else later modifies the contents of the about:blank page, then
   // we must revert to showing about:blank to avoid a URL spoof.
-  main_test_rfh()->OnMessageReceived(FrameHostMsg_DidAccessInitialDocument(0));
+  main_test_rfh()->DidAccessInitialDocument();
   EXPECT_TRUE(contents()->HasAccessedInitialDocument());
   EXPECT_FALSE(controller.GetVisibleEntry());
   EXPECT_EQ(url, controller.GetPendingEntry()->GetURL());
@@ -3140,7 +3141,7 @@ TEST_F(NavigationControllerTest, ShowRendererURLAfterCancelUntilModified) {
   // we must revert to showing about:blank to avoid a URL spoof.
   // Pending entry should also be discarded, because renderer doesn't want to
   // show this page anymore.
-  main_test_rfh()->OnMessageReceived(FrameHostMsg_DidAccessInitialDocument(0));
+  main_test_rfh()->DidAccessInitialDocument();
   EXPECT_TRUE(contents()->HasAccessedInitialDocument());
   EXPECT_FALSE(controller.GetVisibleEntry());
   EXPECT_FALSE(controller.GetPendingEntry());
@@ -3356,7 +3357,8 @@ TEST_F(NavigationControllerTest, SameSubframe) {
       TestRenderFrameHost::CreateStubBrowserInterfaceBrokerReceiver(),
       blink::WebTreeScopeType::kDocument, std::string(), unique_name, false,
       base::UnguessableToken::Create(), blink::FramePolicy(),
-      FrameOwnerProperties(), blink::FrameOwnerElementType::kIframe);
+      blink::mojom::FrameOwnerProperties(),
+      blink::FrameOwnerElementType::kIframe);
   TestRenderFrameHost* subframe = static_cast<TestRenderFrameHost*>(
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host());
   const GURL subframe_url("http://www.google.com/#");
@@ -3523,7 +3525,8 @@ TEST_F(NavigationControllerTest, SubframeWhilePending) {
       TestRenderFrameHost::CreateStubBrowserInterfaceBrokerReceiver(),
       blink::WebTreeScopeType::kDocument, std::string(), unique_name, false,
       base::UnguessableToken::Create(), blink::FramePolicy(),
-      FrameOwnerProperties(), blink::FrameOwnerElementType::kIframe);
+      blink::mojom::FrameOwnerProperties(),
+      blink::FrameOwnerElementType::kIframe);
   TestRenderFrameHost* subframe = static_cast<TestRenderFrameHost*>(
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host());
   const GURL url1_sub("http://foo/subframe");
@@ -4783,7 +4786,8 @@ TEST_F(NavigationControllerTest, SubFrameNavigationUIData) {
       TestRenderFrameHost::CreateStubBrowserInterfaceBrokerReceiver(),
       blink::WebTreeScopeType::kDocument, std::string(), unique_name, false,
       base::UnguessableToken::Create(), blink::FramePolicy(),
-      FrameOwnerProperties(), blink::FrameOwnerElementType::kIframe);
+      blink::mojom::FrameOwnerProperties(),
+      blink::FrameOwnerElementType::kIframe);
   TestRenderFrameHost* subframe = static_cast<TestRenderFrameHost*>(
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host());
   const GURL subframe_url("http://foo1/subframe");

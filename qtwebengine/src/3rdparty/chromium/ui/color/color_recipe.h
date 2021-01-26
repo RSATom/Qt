@@ -27,8 +27,8 @@ class COMPONENT_EXPORT(COLOR) ColorRecipe {
   ColorRecipe(const ColorTransform& transform);
   ColorRecipe(const ColorRecipe&);
   ColorRecipe& operator=(const ColorRecipe&);
-  ColorRecipe(ColorRecipe&&) noexcept;
-  ColorRecipe& operator=(ColorRecipe&&) noexcept;
+  ColorRecipe(ColorRecipe&&);
+  ColorRecipe& operator=(ColorRecipe&&);
   ~ColorRecipe();
 
   ColorRecipe& operator+=(const ColorTransform& transform);

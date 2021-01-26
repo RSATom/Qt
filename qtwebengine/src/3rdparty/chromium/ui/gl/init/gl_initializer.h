@@ -26,9 +26,6 @@ bool usingSoftwareDynamicGL();
 // Initializes a particular GL implementation.
 bool InitializeStaticGLBindings(GLImplementation implementation);
 
-// Initializes debug logging wrappers for GL bindings.
-void InitializeLogGLBindings();
-
 // Clears GL bindings for all implementations supported by platform.
 void ShutdownGLPlatform();
 

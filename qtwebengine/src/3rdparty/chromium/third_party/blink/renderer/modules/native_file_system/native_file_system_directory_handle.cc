@@ -11,15 +11,16 @@
 #include "third_party/blink/public/mojom/native_file_system/native_file_system_manager.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_file_system_get_directory_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_file_system_get_file_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_file_system_remove_options.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/core/fileapi/file_error.h"
-#include "third_party/blink/renderer/modules/native_file_system/file_system_get_directory_options.h"
-#include "third_party/blink/renderer/modules/native_file_system/file_system_get_file_options.h"
-#include "third_party/blink/renderer/modules/native_file_system/file_system_remove_options.h"
 #include "third_party/blink/renderer/modules/native_file_system/native_file_system_directory_iterator.h"
 #include "third_party/blink/renderer/modules/native_file_system/native_file_system_error.h"
 #include "third_party/blink/renderer/modules/native_file_system/native_file_system_file_handle.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
@@ -156,24 +157,54 @@ ScriptPromise NativeFileSystemDirectoryHandle::removeEntry(
   return result;
 }
 
+ScriptPromise NativeFileSystemDirectoryHandle::resolve(
+    ScriptState* script_state,
+    NativeFileSystemHandle* possible_child) {
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  ScriptPromise result = resolver->Promise();
+
+  if (!mojo_ptr_) {
+    resolver->Reject(MakeGarbageCollected<DOMException>(
+        DOMExceptionCode::kInvalidStateError));
+    return result;
+  }
+
+  mojo_ptr_->Resolve(
+      possible_child->Transfer(),
+      WTF::Bind(
+          [](ScriptPromiseResolver* resolver, NativeFileSystemErrorPtr result,
+             const base::Optional<Vector<String>>& path) {
+            if (result->status != mojom::blink::NativeFileSystemStatus::kOk) {
+              native_file_system_error::Reject(resolver, *result);
+              return;
+            }
+            if (!path.has_value()) {
+              resolver->Resolve(static_cast<ScriptWrappable*>(nullptr));
+              return;
+            }
+            resolver->Resolve(*path);
+          },
+          WrapPersistent(resolver)));
+
+  return result;
+}
+
 // static
 ScriptPromise NativeFileSystemDirectoryHandle::getSystemDirectory(
     ScriptState* script_state,
-    const GetSystemDirectoryOptions* options) {
+    const GetSystemDirectoryOptions* options,
+    ExceptionState& exception_state) {
   ExecutionContext* context = ExecutionContext::From(script_state);
   if (!context->GetSecurityOrigin()->CanAccessNativeFileSystem()) {
-    if (context->GetSecurityContext().IsSandboxed(WebSandboxFlags::kOrigin)) {
-      return ScriptPromise::RejectWithDOMException(
-          script_state,
-          MakeGarbageCollected<DOMException>(
-              DOMExceptionCode::kSecurityError,
-              "System directory access is denied because the context is "
-              "sandboxed and lacks the 'allow-same-origin' flag."));
+    if (context->GetSecurityContext().IsSandboxed(
+            mojom::blink::WebSandboxFlags::kOrigin)) {
+      exception_state.ThrowSecurityError(
+          "System directory access is denied because the context is "
+          "sandboxed and lacks the 'allow-same-origin' flag.");
+      return ScriptPromise();
     } else {
-      return ScriptPromise::RejectWithDOMException(
-          script_state, MakeGarbageCollected<DOMException>(
-                            DOMExceptionCode::kSecurityError,
-                            "System directory access is denied."));
+      exception_state.ThrowSecurityError("System directory access is denied.");
+      return ScriptPromise();
     }
   }
 
@@ -244,7 +275,33 @@ void NativeFileSystemDirectoryHandle::RequestPermissionImpl(
   mojo_ptr_->RequestPermission(writable, std::move(callback));
 }
 
-void NativeFileSystemDirectoryHandle::ContextDestroyed(ExecutionContext*) {
+void NativeFileSystemDirectoryHandle::IsSameEntryImpl(
+    mojo::PendingRemote<mojom::blink::NativeFileSystemTransferToken> other,
+    base::OnceCallback<void(mojom::blink::NativeFileSystemErrorPtr, bool)>
+        callback) {
+  if (!mojo_ptr_) {
+    std::move(callback).Run(
+        mojom::blink::NativeFileSystemError::New(
+            mojom::blink::NativeFileSystemStatus::kInvalidState,
+            base::File::Error::FILE_ERROR_FAILED, "Context Destroyed"),
+        false);
+    return;
+  }
+
+  mojo_ptr_->Resolve(
+      std::move(other),
+      WTF::Bind(
+          [](base::OnceCallback<void(mojom::blink::NativeFileSystemErrorPtr,
+                                     bool)> callback,
+             NativeFileSystemErrorPtr result,
+             const base::Optional<Vector<String>>& path) {
+            std::move(callback).Run(std::move(result),
+                                    path.has_value() && path->IsEmpty());
+          },
+          std::move(callback)));
+}
+
+void NativeFileSystemDirectoryHandle::ContextDestroyed() {
   mojo_ptr_.reset();
 }
 

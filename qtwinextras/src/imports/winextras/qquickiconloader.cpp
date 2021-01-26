@@ -40,14 +40,16 @@
 
 #include "qquickiconloader_p.h"
 
-#include <QQmlEngine>
-#include <QNetworkAccessManager>
-#include <QFileInfo>
-#include <QNetworkRequest>
-#include <QNetworkReply>
-#include <QQuickImageProvider>
-#include <QQmlFile>
-#include <qt_windows.h>
+#include <QtQuick/QQuickImageProvider>
+#include <QtQml/QQmlEngine>
+#include <QtQml/QQmlFile>
+#if QT_CONFIG(qml_network)
+#  include <QtNetwork/QNetworkAccessManager>
+#  include <QtNetwork/QNetworkRequest>
+#  include <QtNetwork/QNetworkReply>
+#endif
+#include <QtCore/QFileInfo>
+#include <QtCore/qt_windows.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,10 +70,12 @@ QVariant QQuickIconLoader::loadFromFile(const QUrl &url, QVariant::Type type)
     return QVariant();
 }
 
+#if QT_CONFIG(qml_network)
 QNetworkReply *QQuickIconLoader::loadFromNetwork(const QUrl &url, const QQmlEngine *engine)
 {
     return engine->networkAccessManager()->get(QNetworkRequest(url));
 }
+#endif // qml_network
 
 QVariant QQuickIconLoader::loadFromImageProvider(const QUrl &url, const QQmlEngine *engine,
                                                   QVariant::Type type, QSize requestedSize)
@@ -113,6 +117,7 @@ QVariant QQuickIconLoader::loadFromImageProvider(const QUrl &url, const QQmlEngi
     return QVariant();
 }
 
+#if QT_CONFIG(qml_network)
 QQuickIconLoaderNetworkReplyHandler::QQuickIconLoaderNetworkReplyHandler(QNetworkReply *reply, QVariant::Type type)
     : QObject(reply)
     , m_type(type)
@@ -145,5 +150,6 @@ void QQuickIconLoaderNetworkReplyHandler::onRequestFinished()
     }
     reply->deleteLater();
 }
+#endif // qml_network
 
 QT_END_NAMESPACE

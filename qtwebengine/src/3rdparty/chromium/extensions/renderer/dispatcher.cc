@@ -33,6 +33,7 @@
 #include "extensions/common/api/messaging/message.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/cors_util.h"
+#include "extensions/common/extension.h"
 #include "extensions/common/extension_api.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/extension_urls.h"
@@ -120,6 +121,11 @@ using blink::WebView;
 using content::RenderThread;
 
 namespace extensions {
+
+// Constant to define the default profile id for the renderer to 0.
+// Since each renderer is associated with a single context, we don't need
+// separate ids for the profile.
+const int kRendererProfileId = 0;
 
 namespace {
 
@@ -353,6 +359,10 @@ void Dispatcher::DidCreateScriptContext(
     case Feature::WEBUI_CONTEXT:
       UMA_HISTOGRAM_TIMES("Extensions.DidCreateScriptContext_WebUI", elapsed);
       break;
+    case Feature::WEBUI_UNTRUSTED_CONTEXT:
+      // Extension APIs in untrusted WebUIs are temporary so don't bother
+      // recording metrics for them.
+      break;
     case Feature::LOCK_SCREEN_EXTENSION_CONTEXT:
       UMA_HISTOGRAM_TIMES(
           "Extensions.DidCreateScriptContext_LockScreenExtension", elapsed);
@@ -451,7 +461,7 @@ void Dispatcher::WillEvaluateServiceWorkerOnWorkerThread(
     std::unique_ptr<IPCMessageSender> ipc_sender =
         IPCMessageSender::CreateWorkerThreadIPCMessageSender(
             worker_dispatcher, service_worker_version_id);
-    int worker_activation_sequence =
+    ActivationSequence worker_activation_sequence =
         *RendererExtensionRegistry::Get()->GetWorkerActivationSequence(
             extension->id());
     worker_dispatcher->AddWorkerData(
@@ -743,6 +753,7 @@ std::vector<Dispatcher::JsResourceInfo> Dispatcher::GetJsResources() {
       {"automation", IDR_AUTOMATION_CUSTOM_BINDINGS_JS},
       {"automationEvent", IDR_AUTOMATION_EVENT_JS},
       {"automationNode", IDR_AUTOMATION_NODE_JS},
+      {"automationTreeCache", IDR_AUTOMATION_TREE_CACHE_JS},
       {"app.runtime", IDR_APP_RUNTIME_CUSTOM_BINDINGS_JS},
       {"app.window", IDR_APP_WINDOW_CUSTOM_BINDINGS_JS},
       {"declarativeWebRequest", IDR_DECLARATIVE_WEBREQUEST_CUSTOM_BINDINGS_JS},
@@ -955,17 +966,12 @@ void Dispatcher::OnDispatchOnDisconnect(int worker_thread_id,
       NULL);  // All render frames.
 }
 
-void ResumeEvaluationOnWorkerThread(
-    blink::WebServiceWorkerContextProxy* context_proxy) {
-  DCHECK(context_proxy);
-  context_proxy->ResumeEvaluation();
-}
-
 void Dispatcher::OnLoaded(
     const std::vector<ExtensionMsg_Loaded_Params>& loaded_extensions) {
   for (const auto& param : loaded_extensions) {
     std::string error;
-    scoped_refptr<const Extension> extension = param.ConvertToExtension(&error);
+    scoped_refptr<const Extension> extension =
+        param.ConvertToExtension(kRendererProfileId, &error);
     if (!extension.get()) {
       NOTREACHED() << error;
       // Note: in tests |param.id| has been observed to be empty (see comment
@@ -994,7 +1000,8 @@ void Dispatcher::OnLoaded(
           extension, *param.worker_activation_sequence);
     }
     if (param.uses_default_policy_blocked_allowed_hosts) {
-      extension->permissions_data()->SetUsesDefaultHostRestrictions();
+      extension->permissions_data()->SetUsesDefaultHostRestrictions(
+          kRendererProfileId);
     } else {
       extension->permissions_data()->SetPolicyHostRestrictions(
           param.policy_blocked_hosts, param.policy_allowed_hosts);
@@ -1010,12 +1017,11 @@ void Dispatcher::OnLoaded(
       if (it != service_workers_paused_for_on_loaded_message_.end()) {
         scoped_refptr<base::SingleThreadTaskRunner> task_runner =
             std::move(it->second->task_runner);
-        blink::WebServiceWorkerContextProxy* context_proxy =
-            it->second->context_proxy;
-        service_workers_paused_for_on_loaded_message_.erase(it);
+        // Using base::Unretained() should be fine as this won't get destructed.
         task_runner->PostTask(
             FROM_HERE,
-            base::BindOnce(&ResumeEvaluationOnWorkerThread, context_proxy));
+            base::BindOnce(&Dispatcher::ResumeEvaluationOnWorkerThread,
+                           base::Unretained(this), extension->id()));
       }
     }
   }
@@ -1040,10 +1046,6 @@ void Dispatcher::OnDispatchEvent(
   content::RenderFrame* background_frame =
       ExtensionFrameHelper::GetBackgroundPageFrame(params.extension_id);
 
-  // Required for |web_user_gesture|.
-  std::unique_ptr<HandleScopeHelper> v8_handle_scope;
-
-  std::unique_ptr<InteractionProvider::Scope> web_user_gesture;
   // Synthesize a user gesture if this was in response to user action; this is
   // necessary if the gesture was e.g. by clicking on the extension toolbar
   // icon, context menu entry, etc.
@@ -1058,9 +1060,7 @@ void Dispatcher::OnDispatchEvent(
         ScriptContextSet::GetMainWorldContextForFrame(background_frame);
     if (background_context && bindings_system_->HasEventListenerInContext(
                                   params.event_name, background_context)) {
-      v8_handle_scope = std::make_unique<HandleScopeHelper>(background_context);
-      web_user_gesture = ExtensionInteractionProvider::Scope::ForFrame(
-          background_frame->GetWebFrame());
+      background_frame->GetWebFrame()->NotifyUserActivation();
     }
   }
 
@@ -1185,7 +1185,8 @@ void Dispatcher::OnUnloaded(const std::string& id) {
 void Dispatcher::OnUpdateDefaultPolicyHostRestrictions(
     const ExtensionMsg_UpdateDefaultPolicyHostRestrictions_Params& params) {
   PermissionsData::SetDefaultPolicyHostRestrictions(
-      params.default_policy_blocked_hosts, params.default_policy_allowed_hosts);
+      kRendererProfileId, params.default_policy_blocked_hosts,
+      params.default_policy_allowed_hosts);
   // Update blink host permission allowlist exceptions for all loaded
   // extensions.
   for (const std::string& extension_id :
@@ -1207,7 +1208,8 @@ void Dispatcher::OnUpdatePermissions(
     return;
 
   if (params.uses_default_policy_host_restrictions) {
-    extension->permissions_data()->SetUsesDefaultHostRestrictions();
+    extension->permissions_data()->SetUsesDefaultHostRestrictions(
+        kRendererProfileId);
   } else {
     extension->permissions_data()->SetPolicyHostRestrictions(
         params.policy_blocked_hosts, params.policy_allowed_hosts);
@@ -1447,6 +1449,18 @@ std::unique_ptr<NativeExtensionBindingsSystem> Dispatcher::CreateBindingsSystem(
       std::make_unique<NativeExtensionBindingsSystem>(std::move(ipc_sender));
   delegate_->InitializeBindingsSystem(this, bindings_system.get());
   return bindings_system;
+}
+
+void Dispatcher::ResumeEvaluationOnWorkerThread(
+    const ExtensionId& extension_id) {
+  base::AutoLock lock(service_workers_paused_for_on_loaded_message_lock_);
+  auto it = service_workers_paused_for_on_loaded_message_.find(extension_id);
+  if (it != service_workers_paused_for_on_loaded_message_.end()) {
+    blink::WebServiceWorkerContextProxy* context_proxy =
+        it->second->context_proxy;
+    context_proxy->ResumeEvaluation();
+    service_workers_paused_for_on_loaded_message_.erase(it);
+  }
 }
 
 }  // namespace extensions

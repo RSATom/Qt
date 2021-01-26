@@ -24,6 +24,7 @@
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
+#include "net/proxy_resolution/proxy_resolution_request.h"
 #include "net/spdy/spdy_session.h"
 #include "url/url_constants.h"
 
@@ -343,7 +344,7 @@ void HttpStreamFactory::JobController::OnStreamFailed(
     return;
   }
   delegate_->OnStreamFailed(status, *job->net_error_details(), used_ssl_config,
-                            job->proxy_info());
+                            job->proxy_info(), job->resolve_error_info());
 }
 
 void HttpStreamFactory::JobController::OnFailedOnDefaultNetwork(Job* job) {
@@ -923,7 +924,7 @@ void HttpStreamFactory::JobController::NotifyRequestFailed(int rv) {
   if (!request_)
     return;
   delegate_->OnStreamFailed(rv, NetErrorDetails(), server_ssl_config_,
-                            ProxyInfo());
+                            ProxyInfo(), ResolveErrorInfo());
 }
 
 GURL HttpStreamFactory::JobController::ApplyHostMappingRules(

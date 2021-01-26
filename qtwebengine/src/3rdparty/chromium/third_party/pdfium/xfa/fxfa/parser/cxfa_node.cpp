@@ -40,7 +40,6 @@
 #include "xfa/fxfa/cxfa_ffapp.h"
 #include "xfa/fxfa/cxfa_ffdocview.h"
 #include "xfa/fxfa/cxfa_ffnotify.h"
-#include "xfa/fxfa/cxfa_ffwidget.h"
 #include "xfa/fxfa/cxfa_fontmgr.h"
 #include "xfa/fxfa/cxfa_textprovider.h"
 #include "xfa/fxfa/parser/cxfa_accessiblecontent.h"
@@ -492,8 +491,8 @@ RetainPtr<CFX_DIBitmap> XFA_LoadImageData(CXFA_FFDoc* pDoc,
     }
   } else {
     WideString wsURL = wsHref;
-    if (!(wsURL.Left(7).EqualsASCII("http://") ||
-          wsURL.Left(6).EqualsASCII("ftp://"))) {
+    if (!(wsURL.First(7).EqualsASCII("http://") ||
+          wsURL.First(6).EqualsASCII("ftp://"))) {
       RetainPtr<CFX_DIBitmap> pBitmap =
           pDoc->GetPDFNamedImage(wsURL.AsStringView(), iImageXDpi, iImageYDpi);
       if (pBitmap) {
@@ -526,14 +525,14 @@ bool SplitDateTime(const WideString& wsDateTime,
   if (!nSplitIndex.has_value())
     return false;
 
-  wsDate = wsDateTime.Left(nSplitIndex.value());
+  wsDate = wsDateTime.First(nSplitIndex.value());
   if (!wsDate.IsEmpty()) {
     if (!std::any_of(wsDate.begin(), wsDate.end(),
                      [](wchar_t c) { return FXSYS_IsDecimalDigit(c); })) {
       return false;
     }
   }
-  wsTime = wsDateTime.Right(wsDateTime.GetLength() - nSplitIndex.value() - 1);
+  wsTime = wsDateTime.Last(wsDateTime.GetLength() - nSplitIndex.value() - 1);
   if (!wsTime.IsEmpty()) {
     if (!std::any_of(wsTime.begin(), wsTime.end(),
                      [](wchar_t c) { return FXSYS_IsDecimalDigit(c); })) {
@@ -675,7 +674,7 @@ WideString FormatNumStr(const WideString& wsValue, LocaleIface* pLocale) {
   }
   if (dot_index.value() < wsSrcNum.GetLength()) {
     wsOutput += pLocale->GetDecimalSymbol();
-    wsOutput += wsSrcNum.Right(wsSrcNum.GetLength() - dot_index.value() - 1);
+    wsOutput += wsSrcNum.Last(wsSrcNum.GetLength() - dot_index.value() - 1);
   }
   if (bNeg)
     return pLocale->GetMinusSymbol() + wsOutput;
@@ -1063,6 +1062,56 @@ bool CXFA_Node::HasPropertyFlags(XFA_Element property, uint8_t flags) const {
 uint8_t CXFA_Node::PropertyOccuranceCount(XFA_Element property) const {
   const PropertyData* data = GetPropertyData(property);
   return data ? data->occurance_count : 0;
+}
+
+std::pair<CXFA_Node*, int32_t> CXFA_Node::GetProperty(
+    int32_t index,
+    XFA_Element eProperty) const {
+  if (index < 0 || index >= PropertyOccuranceCount(eProperty))
+    return {nullptr, 0};
+
+  int32_t iCount = 0;
+  for (CXFA_Node* pNode = GetFirstChild(); pNode;
+       pNode = pNode->GetNextSibling()) {
+    if (pNode->GetElementType() == eProperty) {
+      iCount++;
+      if (iCount > index)
+        return {pNode, iCount};
+    }
+  }
+  return {nullptr, iCount};
+}
+
+CXFA_Node* CXFA_Node::GetOrCreateProperty(int32_t index,
+                                          XFA_Element eProperty) {
+  if (index < 0 || index >= PropertyOccuranceCount(eProperty))
+    return nullptr;
+
+  int32_t iCount = 0;
+  CXFA_Node* node;
+  std::tie(node, iCount) = GetProperty(index, eProperty);
+  if (node)
+    return node;
+
+  if (HasPropertyFlags(eProperty, XFA_PROPERTYFLAG_OneOf)) {
+    for (CXFA_Node* pNode = GetFirstChild(); pNode;
+         pNode = pNode->GetNextSibling()) {
+      if (HasPropertyFlags(pNode->GetElementType(), XFA_PROPERTYFLAG_OneOf)) {
+        return nullptr;
+      }
+    }
+  }
+
+  CXFA_Node* pNewNode = nullptr;
+  for (; iCount <= index; ++iCount) {
+    pNewNode = GetDocument()->CreateNode(GetPacketType(), eProperty);
+    if (!pNewNode)
+      return nullptr;
+
+    InsertChildAndNotify(pNewNode, nullptr);
+    pNewNode->SetFlagAndNotify(XFA_NodeFlag_Initialized);
+  }
+  return pNewNode;
 }
 
 Optional<XFA_Element> CXFA_Node::GetFirstPropertyWithFlag(uint8_t flag) const {
@@ -1678,7 +1727,7 @@ CXFA_Node* CXFA_Node::GetInstanceMgrOfSubform() {
         WideString wsInstName =
             pNode->JSObject()->GetCData(XFA_Attribute::Name);
         if (wsInstName.GetLength() > 0 && wsInstName[0] == '_' &&
-            wsInstName.Right(wsInstName.GetLength() - 1) == wsName) {
+            wsInstName.Last(wsInstName.GetLength() - 1) == wsName) {
           pInstanceMgr = pNode;
         }
         break;
@@ -1768,7 +1817,7 @@ CXFA_Node* CXFA_Node::GetItemIfExists(int32_t iIndex) {
       WideString wsName = pNode->JSObject()->GetCData(XFA_Attribute::Name);
       WideString wsInstName = JSObject()->GetCData(XFA_Attribute::Name);
       if (wsInstName.GetLength() < 1 || wsInstName[0] != '_' ||
-          wsInstName.Right(wsInstName.GetLength() - 1) != wsName) {
+          wsInstName.Last(wsInstName.GetLength() - 1) != wsName) {
         return nullptr;
       }
       dwNameHash = pNode->GetNameHash();
@@ -1799,7 +1848,7 @@ int32_t CXFA_Node::GetCount() {
       WideString wsName = pNode->JSObject()->GetCData(XFA_Attribute::Name);
       WideString wsInstName = JSObject()->GetCData(XFA_Attribute::Name);
       if (wsInstName.GetLength() < 1 || wsInstName[0] != '_' ||
-          wsInstName.Right(wsInstName.GetLength() - 1) != wsName) {
+          wsInstName.Last(wsInstName.GetLength() - 1) != wsName) {
         return iCount;
       }
       dwNameHash = pNode->GetNameHash();
@@ -2398,7 +2447,7 @@ XFA_EventError CXFA_Node::ProcessCalculate(CXFA_FFDocView* pDocView) {
 
   if (GetRawValue() != EventParam.m_wsResult) {
     SetValue(XFA_VALUEPICTURE_Raw, EventParam.m_wsResult);
-    UpdateUIDisplay(pDocView, nullptr);
+    pDocView->UpdateUIDisplay(this, nullptr);
   }
   return XFA_EventError::kSuccess;
 }
@@ -2735,7 +2784,7 @@ std::pair<XFA_EventError, bool> CXFA_Node::ExecuteBoolScript(
   pContext->SetNodesOfRunScript(nullptr);
   pContext->SetEventParam(nullptr);
 
-  return {iRet, pTmpRetValue->IsBoolean() ? pTmpRetValue->ToBoolean() : false};
+  return {iRet, pTmpRetValue->IsBoolean() && pTmpRetValue->ToBoolean()};
 }
 
 std::pair<XFA_FFWidgetType, CXFA_Ui*>
@@ -3070,24 +3119,6 @@ void CXFA_Node::SetImageEdit(const WideString& wsContentType,
   pElement->SetAttribute(L"href", wsHref);
 }
 
-CXFA_FFWidget* CXFA_Node::GetNextWidget(CXFA_FFWidget* pWidget) {
-  return GetFFWidget(pWidget->GetLayoutItem()->GetNext());
-}
-
-void CXFA_Node::UpdateUIDisplay(CXFA_FFDocView* pDocView,
-                                CXFA_FFWidget* pExcept) {
-  CXFA_FFWidget* pWidget = pDocView->GetWidgetForNode(this);
-  for (; pWidget; pWidget = GetNextWidget(pWidget)) {
-    if (pWidget == pExcept || !pWidget->IsLoaded() ||
-        (GetFFWidgetType() != XFA_FFWidgetType::kCheckButton &&
-         pWidget->IsFocused())) {
-      continue;
-    }
-    pWidget->UpdateFWLData();
-    pWidget->InvalidateRect();
-  }
-}
-
 void CXFA_Node::CalcCaptionSize(CXFA_FFDoc* doc, CFX_SizeF* pszCap) {
   CXFA_Caption* caption = GetCaptionIfExists();
   if (!caption || !caption->IsVisible())
@@ -3225,10 +3256,8 @@ void CXFA_Node::CalculateTextContentSize(CXFA_FFDoc* doc, CFX_SizeF* pSize) {
     return;
   }
 
-  wchar_t wcEnter = '\n';
-  wchar_t wsLast = wsText[wsText.GetLength() - 1];
-  if (wsLast == wcEnter)
-    wsText = wsText + wcEnter;
+  if (wsText.Back() == L'\n')
+    wsText += L'\n';
 
   CXFA_FieldLayoutData* layoutData = m_pLayoutData->AsFieldLayoutData();
   if (!layoutData->m_pTextOut) {

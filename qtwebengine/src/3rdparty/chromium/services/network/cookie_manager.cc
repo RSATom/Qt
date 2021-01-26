@@ -209,7 +209,7 @@ void CookieManager::SetRemoteFilter(
   filter_.reset_on_disconnect();
 }
 
-void CookieManager::AllowedByFilter(const GURL& url, const GURL& site_for_cookies,
+void CookieManager::AllowedByFilter(const GURL& url, const net::SiteForCookies& site_for_cookies,
                                     base::OnceCallback<void(bool)> callback) const
 {
     if (!filter_.is_bound())
@@ -266,6 +266,15 @@ void CookieManager::BlockThirdPartyCookies(bool block) {
 void CookieManager::SetContentSettingsForLegacyCookieAccess(
     const ContentSettingsForOneType& settings) {
   cookie_settings_.set_content_settings_for_legacy_cookie_access(settings);
+}
+
+void CookieManager::SetStorageAccessGrantSettings(
+    const ContentSettingsForOneType& settings,
+    SetStorageAccessGrantSettingsCallback callback) {
+  cookie_settings_.set_storage_access_grants(settings);
+
+  // Signal our storage update is complete.
+  std::move(callback).Run();
 }
 
 // static

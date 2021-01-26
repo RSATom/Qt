@@ -54,7 +54,8 @@ CGContextRef currentCGContext()
 }
 
 /*!
-    \fn void QtMac::setApplicationIconBadgeNumber(int number)
+    \fn void setApplicationIconBadgeNumber(int number)
+    \obsolete Use \c {UIApplication.sharedApplication.applicationIconBadgeNumber} instead.
 
     Sets the value shown on the application icon a.k.a badge to \a number.
 
@@ -68,7 +69,8 @@ void setApplicationIconBadgeNumber(int number)
 }
 
 /*!
-    \fn int QtMac::applicationIconBadgeNumber()
+    \fn int applicationIconBadgeNumber()
+    \obsolete Use \c {UIApplication.sharedApplication.applicationIconBadgeNumber} instead.
 
     Returns the value of the application icon a.k.a badge.
 

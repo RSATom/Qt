@@ -366,8 +366,8 @@ bool QFontEngine::supportsScript(QChar::Script script) const
     if (qt_useHarfbuzzNG()) {
 #if defined(Q_OS_DARWIN)
         // in AAT fonts, 'gsub' table is effectively replaced by 'mort'/'morx' table
-        uint len;
-        if (getSfntTableData(MAKE_TAG('m','o','r','t'), 0, &len) || getSfntTableData(MAKE_TAG('m','o','r','x'), 0, &len))
+        uint lenMort = 0, lenMorx = 0;
+        if (getSfntTableData(MAKE_TAG('m','o','r','t'), 0, &lenMort) || getSfntTableData(MAKE_TAG('m','o','r','x'), 0, &lenMorx))
             return true;
 #endif
 
@@ -1600,7 +1600,7 @@ QFontEngineBox::~QFontEngineBox()
 glyph_t QFontEngineBox::glyphIndex(uint ucs4) const
 {
     Q_UNUSED(ucs4)
-    return 0;
+    return 1;
 }
 
 bool QFontEngineBox::stringToCMap(const QChar *str, int len, QGlyphLayout *glyphs, int *nglyphs, QFontEngine::ShaperFlags flags) const
@@ -1615,7 +1615,7 @@ bool QFontEngineBox::stringToCMap(const QChar *str, int len, QGlyphLayout *glyph
     QStringIterator it(str, str + len);
     while (it.hasNext()) {
         it.advance();
-        glyphs->glyphs[ucs4Length++] = 0;
+        glyphs->glyphs[ucs4Length++] = 1;
     }
 
     *nglyphs = ucs4Length;

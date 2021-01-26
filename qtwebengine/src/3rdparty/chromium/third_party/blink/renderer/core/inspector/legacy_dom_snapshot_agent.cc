@@ -124,7 +124,8 @@ Response LegacyDOMSnapshotAgent::GetSnapshot(
 
   // Look up the CSSPropertyIDs for each entry in |style_filter|.
   for (const String& entry : *style_filter) {
-    CSSPropertyID property_id = cssPropertyID(entry);
+    CSSPropertyID property_id =
+        cssPropertyID(document->GetExecutionContext(), entry);
     if (property_id == CSSPropertyID::kInvalid)
       continue;
     css_property_filter_->emplace_back(entry, property_id);
@@ -144,7 +145,7 @@ Response LegacyDOMSnapshotAgent::GetSnapshot(
   computed_styles_map_.reset();
   css_property_filter_.reset();
   paint_order_map_.reset();
-  return Response::OK();
+  return Response::Success();
 }
 
 int LegacyDOMSnapshotAgent::VisitNode(Node* node,
@@ -256,16 +257,12 @@ int LegacyDOMSnapshotAgent::VisitNode(Node* node,
       value->setOptionSelected(option_element->Selected());
 
     if (element->GetPseudoId()) {
-      protocol::DOM::PseudoType pseudo_type;
-      if (InspectorDOMAgent::GetPseudoElementType(element->GetPseudoId(),
-                                                  &pseudo_type)) {
-        value->setPseudoType(pseudo_type);
-      }
-    } else {
-      value->setPseudoElementIndexes(
-          VisitPseudoElements(element, index, include_event_listeners,
-                              include_user_agent_shadow_tree));
+      value->setPseudoType(
+          InspectorDOMAgent::ProtocolPseudoElementType(element->GetPseudoId()));
     }
+    value->setPseudoElementIndexes(
+        VisitPseudoElements(element, index, include_event_listeners,
+                            include_user_agent_shadow_tree));
 
     auto* image_element = DynamicTo<HTMLImageElement>(node);
     if (image_element)

@@ -43,7 +43,7 @@ TString ArrayHelperFunctionName(const char *prefix, const TType &type)
     fnName << prefix << "_";
     if (type.isArray())
     {
-        for (unsigned int arraySize : *type.getArraySizes())
+        for (unsigned int arraySize : type.getArraySizes())
         {
             fnName << arraySize << "_";
         }
@@ -344,7 +344,8 @@ OutputHLSL::OutputHLSL(sh::GLenum shaderType,
 
     unsigned int firstUniformRegister =
         ((compileOptions & SH_SKIP_D3D_CONSTANT_REGISTER_ZERO) != 0) ? 1u : 0u;
-    mResourcesHLSL = new ResourcesHLSL(mStructureHLSL, outputType, uniforms, firstUniformRegister);
+    mResourcesHLSL = new ResourcesHLSL(mStructureHLSL, outputType, compileOptions, uniforms,
+                                       firstUniformRegister);
 
     if (mOutputType == SH_HLSL_3_0_OUTPUT)
     {
@@ -429,6 +430,11 @@ const std::map<std::string, unsigned int> &OutputHLSL::getShaderStorageBlockRegi
 const std::map<std::string, unsigned int> &OutputHLSL::getUniformBlockRegisterMap() const
 {
     return mResourcesHLSL->getUniformBlockRegisterMap();
+}
+
+const std::map<std::string, bool> &OutputHLSL::getUniformBlockUseStructuredBufferMap() const
+{
+    return mResourcesHLSL->getUniformBlockUseStructuredBufferMap();
 }
 
 const std::map<std::string, unsigned int> &OutputHLSL::getUniformRegisterMap() const
@@ -2492,6 +2498,9 @@ bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
             break;
         case EOpSmoothstep:
             outputTriplet(out, visit, "smoothstep(", ", ", ")");
+            break;
+        case EOpFma:
+            outputTriplet(out, visit, "mad(", ", ", ")");
             break;
         case EOpFrexp:
         case EOpLdexp:

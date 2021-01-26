@@ -267,7 +267,7 @@ void JsonParser<Char>::ReportUnexpectedToken(JsonToken token) {
 
   Handle<Script> script(factory->NewScript(original_source_));
   if (isolate()->NeedsSourcePositionsForProfiling()) {
-    Script::InitLineEnds(script);
+    Script::InitLineEnds(isolate(), script);
   }
   // We should sent compile error event because we compile JSON object in
   // separated source file.
@@ -840,6 +840,9 @@ MaybeHandle<Object> JsonParser<Char>::ParseJsonValue() {
             // from the transition tree.
             if (!maybe_feedback.GetBackPointer().IsUndefined(isolate_)) {
               feedback = handle(maybe_feedback, isolate_);
+              if (feedback->is_deprecated()) {
+                feedback = Map::Update(isolate_, feedback);
+              }
             }
           }
           value = BuildJsonObject(cont, property_stack, feedback);

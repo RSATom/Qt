@@ -16,8 +16,8 @@ import time
 
 
 _SHUTDOWN_CMD = ['dm', 'poweroff']
-_ATTACH_MAX_RETRIES = 10
 _ATTACH_RETRY_INTERVAL = 1
+_ATTACH_RETRY_SECONDS = 60
 
 # Amount of time to wait for Amber to complete package installation, as a
 # mitigation against hangs due to amber/network-related failures.
@@ -206,11 +206,12 @@ class Target(object):
   def _AssertIsStarted(self):
     assert self.IsStarted()
 
-  def _WaitUntilReady(self, retries=_ATTACH_MAX_RETRIES):
+  def _WaitUntilReady(self):
     logging.info('Connecting to Fuchsia using SSH.')
 
-    for retry in xrange(retries + 1):
-      host, port = self._GetEndpoint()
+    host, port = self._GetEndpoint()
+    end_time = time.time() + _ATTACH_RETRY_SECONDS
+    while time.time() < end_time:
       runner = remote_cmd.CommandRunner(self._GetSshConfigPath(), host, port)
       if runner.RunCommand(['true'], True) == 0:
         logging.info('Connected!')
@@ -235,8 +236,12 @@ class Target(object):
       return 'x86_64'
     raise Exception('Unknown target_cpu %s:' % self._target_cpu)
 
-  def _GetAmberRepo(self):
-    """Returns an AmberRepo instance which serves packages for this Target."""
+  def GetAmberRepo(self):
+    """Returns an AmberRepo instance which serves packages for this Target.
+    Callers should typically call GetAmberRepo() in a |with| statement, and
+    install and execute commands inside the |with| block, so that the returned
+    AmberRepo can teardown correctly, if necessary.
+    """
     pass
 
   def InstallPackage(self, package_paths):
@@ -245,7 +250,7 @@ class Target(object):
 
     package_paths: Paths to the .far files to install."""
 
-    with self._GetAmberRepo() as amber_repo:
+    with self.GetAmberRepo() as amber_repo:
       # Publish all packages to the serving TUF repository under |tuf_root|.
       for next_package_path in package_paths:
         amber_repo.PublishPackage(next_package_path)
@@ -262,4 +267,3 @@ class Target(object):
                                        timeout_secs=_INSTALL_TIMEOUT_SECS)
         if return_code != 0:
           raise Exception('Error while installing %s.' % install_package_name)
-

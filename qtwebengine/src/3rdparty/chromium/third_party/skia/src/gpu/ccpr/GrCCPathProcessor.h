@@ -13,7 +13,6 @@
 #include "src/gpu/GrCaps.h"
 #include "src/gpu/GrGeometryProcessor.h"
 #include "src/gpu/GrPipeline.h"
-#include "src/gpu/ccpr/GrCCAtlas.h"
 #include "src/gpu/ccpr/GrOctoBounds.h"
 
 class GrCCPathCacheEntry;
@@ -44,7 +43,7 @@ public:
         void set(const GrCCPathCacheEntry&, const SkIVector& shift, uint64_t, GrFillRule);
     };
 
-    GR_STATIC_ASSERT(4 * 12 == sizeof(Instance));
+    static_assert(4 * 12 == sizeof(Instance), "");
 
     static sk_sp<const GrGpuBuffer> FindVertexBuffer(GrOnFlushResourceProvider*);
     static sk_sp<const GrGpuBuffer> FindIndexBuffer(GrOnFlushResourceProvider*);
@@ -54,16 +53,14 @@ public:
         kLiteral
     };
 
-    static CoverageMode GetCoverageMode(GrCCAtlas::CoverageType coverageType) {
-        return (GrCCAtlas::CoverageType::kFP16_CoverageCount == coverageType)
-                ? CoverageMode::kCoverageCount
-                : CoverageMode::kLiteral;
+    static GrColorType GetColorTypeFromCoverageMode(CoverageMode mode) {
+        return mode == CoverageMode::kCoverageCount ? GrColorType::kAlpha_F16
+            : GrColorType::kAlpha_8;
     }
 
-    GrCCPathProcessor(
-            CoverageMode, const GrTexture* atlasTexture, const GrSwizzle&,
-            GrSurfaceOrigin atlasOrigin,
-            const SkMatrix& viewMatrixIfUsingLocalCoords = SkMatrix::I());
+    GrCCPathProcessor(CoverageMode, const GrTexture* atlasTexture, const GrSwizzle&,
+                      GrSurfaceOrigin atlasOrigin,
+                      const SkMatrix& viewMatrixIfUsingLocalCoords = SkMatrix::I());
 
     const char* name() const override { return "GrCCPathProcessor"; }
     void getGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder* b) const override {
@@ -71,7 +68,7 @@ public:
     }
     GrGLSLPrimitiveProcessor* createGLSLInstance(const GrShaderCaps&) const override;
 
-    void drawPaths(GrOpFlushState*, const GrPipeline&, const GrPipeline::FixedDynamicState*,
+    void drawPaths(GrOpFlushState*, const GrPipeline&, const GrSurfaceProxy& atlasProxy,
                    const GrCCPerFlushResources&, int baseInstance, int endInstance,
                    const SkRect& bounds) const;
 

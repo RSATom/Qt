@@ -5,6 +5,7 @@
 import("//build/buildflag_header.gni")
 import("//build/config/chrome_build.gni")  # For branding_file_path.
 import("//build/util/process_version.gni")
+import("//chrome/browser/downgrade/buildflags.gni")
 import("//chrome/common/features.gni")
 import("//components/nacl/features.gni")
 import("//components/offline_pages/buildflags/features.gni")
@@ -39,8 +40,8 @@ buildflag_header("buildflags") {
     "ENABLE_BACKGROUND_MODE=$enable_background_mode",
     "ENABLE_BACKGROUND_CONTENTS=$enable_background_contents",
     "ENABLE_BASIC_PRINT_DIALOG=$enable_basic_print_dialog",
-    "ENABLE_CAPTIVE_PORTAL_DETECTION=$enable_captive_portal_detection",
     "ENABLE_CLICK_TO_CALL=$enable_click_to_call",
+    "ENABLE_DOWNGRADE_PROCESSING=$enable_downgrade_processing",
     "ENABLE_HANGOUT_SERVICES_EXTENSION=$enable_hangout_services_extension",
     "ENABLE_ONE_CLICK_SIGNIN=$enable_one_click_signin",
     "ENABLE_NATIVE_NOTIFICATIONS=$enable_native_notifications",
@@ -67,9 +68,7 @@ source_set("channel_info") {
     sources += [ "channel_info_posix.cc" ]
   }
 
-  deps = [
-    "//build:branding_buildflags",
-  ]
+  deps = [ "//build:branding_buildflags" ]
 
   public_deps = [
     "//base",
@@ -89,9 +88,7 @@ source_set("ini_parser") {
     "ini_parser.cc",
     "ini_parser.h",
   ]
-  deps = [
-    "//base",
-  ]
+  deps = [ "//base" ]
 }
 
 # Use a static library here because many test binaries depend on this but don't
@@ -110,6 +107,8 @@ static_library("common") {
     "chrome_descriptors.h",
     "chrome_isolated_world_ids.h",
     "chrome_result_codes.h",
+    "chrome_ui_features_prefs.cc",
+    "chrome_ui_features_prefs.h",
     "client_hints/client_hints.cc",
     "client_hints/client_hints.h",
     "common_message_generator.cc",
@@ -136,8 +135,6 @@ static_library("common") {
     "mac/launchd.mm",
     "mac/service_management.h",
     "mac/service_management.mm",
-    "mac/staging_watcher.h",
-    "mac/staging_watcher.mm",
     "media/media_resource_provider.cc",
     "media/media_resource_provider.h",
     "media_galleries/metadata_types.h",
@@ -200,6 +197,7 @@ static_library("common") {
     "//chrome/common:constants",
     "//chrome/common/net",
     "//chrome/common/profiler",
+    "//chrome/common/qr_code_generator",
     "//chrome/installer/util:with_no_strings",
     "//components/cast_certificate",
     "//components/cdm/common",
@@ -229,7 +227,7 @@ static_library("common") {
     "//components/policy/core/common",
     "//components/prefs",
     "//components/safe_browsing:buildflags",
-    "//components/safe_browsing/web_ui:constants",
+    "//components/safe_browsing/core/web_ui:constants",
     "//components/services/heap_profiling/public/cpp",
     "//components/strings",
     "//components/translate/content/common",
@@ -269,7 +267,8 @@ static_library("common") {
 
   deps = [
     "//build:branding_buildflags",
-    "//components/crash/content/app",
+    "//components/crash/core/app",
+    "//components/google/core/common",
     "//components/metrics:call_stack_profile_builder",
     "//components/page_load_metrics/common:common",
   ]
@@ -336,8 +335,6 @@ static_library("common") {
       "extensions/manifest_handlers/settings_overrides_handler.h",
       "extensions/manifest_handlers/theme_handler.cc",
       "extensions/manifest_handlers/theme_handler.h",
-      "extensions/manifest_handlers/ui_overrides_handler.cc",
-      "extensions/manifest_handlers/ui_overrides_handler.h",
       "extensions/permissions/chrome_api_permissions.cc",
       "extensions/permissions/chrome_api_permissions.h",
       "extensions/permissions/chrome_permission_message_provider.cc",
@@ -436,7 +433,7 @@ static_library("common") {
     deps += [
       "//chrome/chrome_elf:chrome_elf_main_include",
       "//chrome/common/win:eventlog_messages",
-      "//components/crash/content/app:crash_export_thunk_include",
+      "//components/crash/core/app:crash_export_thunk_include",
     ]
 
     public_deps += [
@@ -580,9 +577,7 @@ component("chrome_features") {
     "//rlz/buildflags",
   ]
 
-  public_deps = [
-    "//ui/base:buildflags",
-  ]
+  public_deps = [ "//ui/base:buildflags" ]
 }
 
 static_library("constants") {
@@ -655,20 +650,6 @@ static_library("constants") {
   }
 }
 
-if (is_win) {
-  source_set("metrics_constants_util_win") {
-    sources = [
-      "metrics_constants_util_win.cc",
-      "metrics_constants_util_win.h",
-    ]
-
-    deps = [
-      "//base",
-      "//chrome/install_static:install_static_util",
-    ]
-  }
-}
-
 # Use a static library here because many test binaries depend on this but don't
 # require many files from it. This makes linking more efficient.
 static_library("test_support") {
@@ -731,7 +712,7 @@ mojom("mojo_bindings") {
     "network_easter_egg.mojom",
     "open_search_description_document_handler.mojom",
     "plugin.mojom",
-    "prerender.mojom",
+    "prerender_canceler.mojom",
     "renderer_configuration.mojom",
     "sync_encryption_keys_extension.mojom",
   ]
@@ -776,17 +757,15 @@ mojom("mojo_bindings") {
   }
 
   overridden_deps = [
-    "//third_party/blink/public/mojom:mojom_platform",
     "//content/public/common:interfaces",
+    "//third_party/blink/public/mojom:mojom_platform",
   ]
 
   component_deps = [ "//content/public/common" ]
 }
 
 mojom("search_mojom") {
-  sources = [
-    "search.mojom",
-  ]
+  sources = [ "search.mojom" ]
 
   public_deps = [
     "//mojo/public/mojom/base",
@@ -800,32 +779,20 @@ if (enable_print_preview && !is_chromeos) {
       "cloud_print.mojom",
       "service_process.mojom",
     ]
-    public_deps = [
-      "//mojo/public/mojom/base",
-    ]
+    public_deps = [ "//mojo/public/mojom/base" ]
   }
 }
 
 mojom("supervised_user_commands_mojom") {
-  sources = [
-    "supervised_user_commands.mojom",
-  ]
+  sources = [ "supervised_user_commands.mojom" ]
 }
 
 mojom("available_offline_content_mojom") {
-  sources = [
-    "available_offline_content.mojom",
-  ]
-  public_deps = [
-    "//url/mojom:url_mojom_gurl",
-  ]
+  sources = [ "available_offline_content.mojom" ]
+  public_deps = [ "//url/mojom:url_mojom_gurl" ]
 }
 
 mojom("offline_page_auto_fetcher_mojom") {
-  sources = [
-    "offline_page_auto_fetcher.mojom",
-  ]
-  public_deps = [
-    "//url/mojom:url_mojom_gurl",
-  ]
+  sources = [ "offline_page_auto_fetcher.mojom" ]
+  public_deps = [ "//url/mojom:url_mojom_gurl" ]
 }

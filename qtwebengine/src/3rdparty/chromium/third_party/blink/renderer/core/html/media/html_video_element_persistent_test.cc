@@ -8,8 +8,8 @@
 
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_fullscreen_options.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
-#include "third_party/blink/renderer/core/fullscreen/fullscreen_options.h"
 #include "third_party/blink/renderer/core/html/html_div_element.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
@@ -43,7 +43,7 @@ class HTMLVideoElementPersistentTest : public PageTestBase {
     clients.chrome_client = chrome_client_.Get();
 
     PageTestBase::SetupPageWithClients(&clients);
-    GetDocument().body()->SetInnerHTMLFromString(
+    GetDocument().body()->setInnerHTML(
         "<body><div><video></video></div></body>");
   }
 

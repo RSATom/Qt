@@ -8,6 +8,7 @@
 #include "components/send_tab_to_self/features.h"
 #include "components/sync/driver/test_sync_service.h"
 #include "components/sync_device_info/device_info.h"
+#include "components/sync_device_info/device_info_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace send_tab_to_self {
@@ -33,12 +34,13 @@ static std::unique_ptr<syncer::DeviceInfo> CreateFakeDeviceInfo(
       id, name, "chrome_version", "user_agent", device_type, "device_id",
       hardware_info,
       /*last_updated_timestamp=*/base::Time::Now(),
+      syncer::DeviceInfoUtil::GetPulseInterval(),
       /*send_tab_to_self_receiving_enabled=*/false,
       syncer::DeviceInfo::SharingInfo(
           {"vapid_fcm_token", "vapid_p256dh", "vapid_auth_secret"},
           {"sender_id_fcm_token", "sender_id_p256dh", "sender_id_auth_secret"},
           std::set<sync_pb::SharingSpecificFields::EnabledFeatures>{
-              sync_pb::SharingSpecificFields::CLICK_TO_CALL}));
+              sync_pb::SharingSpecificFields::CLICK_TO_CALL_V2}));
 }
 
 }  // namespace

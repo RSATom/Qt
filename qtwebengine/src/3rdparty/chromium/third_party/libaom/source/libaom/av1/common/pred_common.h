@@ -42,11 +42,12 @@ static INLINE int get_segment_id(const AV1_COMMON *const cm,
 
 static INLINE int av1_get_spatial_seg_pred(const AV1_COMMON *const cm,
                                            const MACROBLOCKD *const xd,
-                                           int mi_row, int mi_col,
                                            int *cdf_index) {
   int prev_ul = -1;  // top left segment_id
   int prev_l = -1;   // left segment_id
   int prev_u = -1;   // top segment_id
+  const int mi_row = xd->mi_row;
+  const int mi_col = xd->mi_col;
   if ((xd->up_available) && (xd->left_available)) {
     prev_ul = get_segment_id(cm, cm->cur_frame->seg_map, BLOCK_4X4, mi_row - 1,
                              mi_col - 1);
@@ -59,9 +60,13 @@ static INLINE int av1_get_spatial_seg_pred(const AV1_COMMON *const cm,
     prev_l = get_segment_id(cm, cm->cur_frame->seg_map, BLOCK_4X4, mi_row - 0,
                             mi_col - 1);
   }
+  // This property follows from the fact that get_segment_id() returns a
+  // nonnegative value. This allows us to test for all edge cases with a simple
+  // prev_ul < 0 check.
+  assert(IMPLIES(prev_ul >= 0, prev_u >= 0 && prev_l >= 0));
 
   // Pick CDF index based on number of matching/out-of-bounds segment IDs.
-  if (prev_ul < 0 || prev_u < 0 || prev_l < 0) /* Edge case */
+  if (prev_ul < 0) /* Edge cases */
     *cdf_index = 0;
   else if ((prev_ul == prev_u) && (prev_ul == prev_l))
     *cdf_index = 2;
@@ -178,6 +183,7 @@ int av1_get_palette_cache(const MACROBLOCKD *const xd, int plane,
                           uint16_t *cache);
 
 static INLINE int av1_get_palette_bsize_ctx(BLOCK_SIZE bsize) {
+  assert(bsize < BLOCK_SIZES_ALL);
   return num_pels_log2_lookup[bsize] - num_pels_log2_lookup[BLOCK_8X8];
 }
 
@@ -196,6 +202,10 @@ int av1_get_reference_mode_context(const MACROBLOCKD *xd);
 
 static INLINE aom_cdf_prob *av1_get_reference_mode_cdf(const MACROBLOCKD *xd) {
   return xd->tile_ctx->comp_inter_cdf[av1_get_reference_mode_context(xd)];
+}
+
+static INLINE aom_cdf_prob *av1_get_skip_cdf(const MACROBLOCKD *xd) {
+  return xd->tile_ctx->skip_cdfs[av1_get_skip_context(xd)];
 }
 
 int av1_get_comp_reference_type_context(const MACROBLOCKD *xd);

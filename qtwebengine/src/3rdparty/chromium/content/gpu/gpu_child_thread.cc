@@ -13,11 +13,12 @@
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/memory/weak_ptr.h"
+#include "base/power_monitor/power_monitor.h"
+#include "base/power_monitor/power_monitor_device_source.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/threading/thread_checker.h"
 #include "build/build_config.h"
-#include "components/viz/common/features.h"
 #include "content/child/child_process.h"
 #include "content/gpu/browser_exposed_gpu_interfaces.h"
 #include "content/gpu/gpu_service_factory.h"
@@ -65,10 +66,10 @@ bool CreateCommandBufferSyncQt(
   if (child_thread) {
     gpu::GpuChannelManager* gpu_channel_manager =
         child_thread->gpu_channel_manager();
-    gpu::GpuChannel* gpu_channel =
-        gpu_channel_manager->LookupChannel(channel_id);
     // With in-process UI-thread GPU, sync IPC would deadlock; so call directly:
-    if (gpu_channel->task_runner()->BelongsToCurrentThread()) {
+    if (gpu_channel_manager->task_runner()->BelongsToCurrentThread()) {
+      gpu::GpuChannel* gpu_channel =
+          gpu_channel_manager->LookupChannel(channel_id);
       gpu_channel->OnCreateCommandBuffer(
           init_params, route_id, std::move(*region), result, capabilities);
       return true;
@@ -99,7 +100,10 @@ ChildThreadImpl::Options GetOptions() {
 
 viz::VizMainImpl::ExternalDependencies CreateVizMainDependencies() {
   viz::VizMainImpl::ExternalDependencies deps;
-  deps.create_display_compositor = features::IsVizDisplayCompositorEnabled();
+  if (!base::PowerMonitor::IsInitialized()) {
+    deps.power_monitor_source =
+        std::make_unique<base::PowerMonitorDeviceSource>();
+  }
   if (GetContentClient()->gpu()) {
     deps.sync_point_manager = GetContentClient()->gpu()->GetSyncPointManager();
     deps.shared_image_manager =
@@ -124,12 +128,10 @@ viz::VizMainImpl::ExternalDependencies CreateVizMainDependencies() {
 GpuChildThread* GpuChildThread::instance_ = 0;
 
 GpuChildThread::GpuChildThread(base::RepeatingClosure quit_closure,
-                               std::unique_ptr<gpu::GpuInit> gpu_init,
-                               viz::VizMainImpl::LogMessages log_messages)
+                               std::unique_ptr<gpu::GpuInit> gpu_init)
     : GpuChildThread(std::move(quit_closure),
                      GetOptions(),
                      std::move(gpu_init)) {
-  viz_main_.SetLogMessagesForHost(std::move(log_messages));
   instance_ = this;
 }
 
@@ -199,18 +201,6 @@ bool GpuChildThread::Send(IPC::Message* msg) {
   return ChildThreadImpl::Send(msg);
 }
 
-void GpuChildThread::RunService(
-    const std::string& service_name,
-    mojo::PendingReceiver<service_manager::mojom::Service> receiver) {
-  if (!service_factory_) {
-    pending_service_requests_.emplace_back(service_name, std::move(receiver));
-    return;
-  }
-
-  DVLOG(1) << "GPU: Handling RunService request for " << service_name;
-  service_factory_->RunService(service_name, std::move(receiver));
-}
-
 void GpuChildThread::OnAssociatedInterfaceRequest(
     const std::string& name,
     mojo::ScopedInterfaceEndpointHandle handle) {
@@ -243,6 +233,9 @@ void GpuChildThread::OnGpuServiceConnection(viz::GpuServiceImpl* gpu_service) {
       gpu_service->gpu_feature_info(),
       gpu_service->media_gpu_channel_manager()->AsWeakPtr(),
       gpu_service->gpu_memory_buffer_factory(), std::move(overlay_factory_cb)));
+  for (auto& receiver : pending_service_receivers_)
+    BindServiceInterface(std::move(receiver));
+  pending_service_receivers_.clear();
 
   if (GetContentClient()->gpu())  // Null in tests.
     GetContentClient()->gpu()->GpuServiceInitialized();
@@ -256,10 +249,6 @@ void GpuChildThread::OnGpuServiceConnection(viz::GpuServiceImpl* gpu_service) {
   content::ExposeGpuInterfacesToBrowser(gpu_service->gpu_preferences(),
                                         &binders);
   ExposeInterfacesToBrowser(std::move(binders));
-
-  for (auto& request : pending_service_requests_)
-    RunService(request.service_name, std::move(request.receiver));
-  pending_service_requests_.clear();
 }
 
 void GpuChildThread::PostCompositorThreadCreated(
@@ -331,15 +320,5 @@ std::unique_ptr<media::AndroidOverlay> GpuChildThread::CreateAndroidOverlay(
       std::move(overlay_provider), std::move(config), routing_token);
 }
 #endif
-
-GpuChildThread::PendingServiceRequest::PendingServiceRequest(
-    const std::string& service_name,
-    mojo::PendingReceiver<service_manager::mojom::Service> receiver)
-    : service_name(service_name), receiver(std::move(receiver)) {}
-
-GpuChildThread::PendingServiceRequest::PendingServiceRequest(
-    PendingServiceRequest&&) = default;
-
-GpuChildThread::PendingServiceRequest::~PendingServiceRequest() = default;
 
 }  // namespace content

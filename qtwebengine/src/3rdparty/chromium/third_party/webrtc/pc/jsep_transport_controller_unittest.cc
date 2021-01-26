@@ -99,9 +99,9 @@ class JsepTransportControllerTest : public JsepTransportController::Observer,
                              int64_t packet_time_us) { RTC_NOTREACHED(); };
     config.ice_transport_factory = fake_ice_transport_factory_.get();
     config.dtls_transport_factory = fake_dtls_transport_factory_.get();
-    // TODO(zstein): Provide an AsyncResolverFactory once it is required.
     transport_controller_ = std::make_unique<JsepTransportController>(
-        signaling_thread, network_thread, port_allocator, nullptr, config);
+        signaling_thread, network_thread, port_allocator,
+        nullptr /* async_resolver_factory */, config);
     ConnectTransportControllerSignals();
   }
 
@@ -637,8 +637,8 @@ TEST_F(JsepTransportControllerTest, SetAndGetLocalCertificate) {
   CreateJsepTransportController(JsepTransportController::Config());
 
   rtc::scoped_refptr<rtc::RTCCertificate> certificate1 =
-      rtc::RTCCertificate::Create(std::unique_ptr<rtc::SSLIdentity>(
-          rtc::SSLIdentity::Generate("session1", rtc::KT_DEFAULT)));
+      rtc::RTCCertificate::Create(
+          rtc::SSLIdentity::Create("session1", rtc::KT_DEFAULT));
   rtc::scoped_refptr<rtc::RTCCertificate> returned_certificate;
 
   auto description = std::make_unique<cricket::SessionDescription>();
@@ -662,8 +662,8 @@ TEST_F(JsepTransportControllerTest, SetAndGetLocalCertificate) {
 
   // Shouldn't be able to change the identity once set.
   rtc::scoped_refptr<rtc::RTCCertificate> certificate2 =
-      rtc::RTCCertificate::Create(std::unique_ptr<rtc::SSLIdentity>(
-          rtc::SSLIdentity::Generate("session2", rtc::KT_DEFAULT)));
+      rtc::RTCCertificate::Create(
+          rtc::SSLIdentity::Create("session2", rtc::KT_DEFAULT));
   EXPECT_FALSE(transport_controller_->SetLocalCertificate(certificate2));
 }
 
@@ -691,12 +691,10 @@ TEST_F(JsepTransportControllerTest, GetRemoteSSLCertChain) {
 
 TEST_F(JsepTransportControllerTest, GetDtlsRole) {
   CreateJsepTransportController(JsepTransportController::Config());
-  auto offer_certificate =
-      rtc::RTCCertificate::Create(std::unique_ptr<rtc::SSLIdentity>(
-          rtc::SSLIdentity::Generate("offer", rtc::KT_DEFAULT)));
-  auto answer_certificate =
-      rtc::RTCCertificate::Create(std::unique_ptr<rtc::SSLIdentity>(
-          rtc::SSLIdentity::Generate("answer", rtc::KT_DEFAULT)));
+  auto offer_certificate = rtc::RTCCertificate::Create(
+      rtc::SSLIdentity::Create("offer", rtc::KT_DEFAULT));
+  auto answer_certificate = rtc::RTCCertificate::Create(
+      rtc::SSLIdentity::Create("answer", rtc::KT_DEFAULT));
   transport_controller_->SetLocalCertificate(offer_certificate);
 
   auto offer_desc = std::make_unique<cricket::SessionDescription>();
@@ -1825,6 +1823,65 @@ TEST_P(JsepTransportControllerDatagramTest, OfferHasWrongTransportName) {
             absl::nullopt);
   EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
             absl::nullopt);
+}
+
+TEST_P(JsepTransportControllerDatagramTest, IncompatibleAnswer) {
+  // Transport will claim that no parameters are compatible, even if they match
+  // exactly.
+  fake_media_transport_factory_.set_transport_parameters_comparison(
+      [](absl::string_view, absl::string_view) { return false; });
+
+  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
+  if (IsOfferer()) {
+    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
+              fake_params);
+    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
+              fake_params);
+  }
+
+  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
+  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
+
+  auto answer = CreateSessionDescriptionForDatagramTransport(fake_params);
+  EXPECT_TRUE(SetDescription(SdpType::kAnswer, answer.get()).ok());
+
+  // The offerer and answerer have incompatible parameters, so the answerer
+  // rejects the offered parameters.
+  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
+            absl::nullopt);
+  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
+            absl::nullopt);
+}
+
+TEST_P(JsepTransportControllerDatagramTest, CompatibleAnswer) {
+  // Transport will claim that no parameters are compatible, even if they are
+  // completely different.
+  fake_media_transport_factory_.set_transport_parameters_comparison(
+      [](absl::string_view, absl::string_view) { return true; });
+
+  cricket::OpaqueTransportParameters fake_params = CreateTransportParameters();
+  if (IsOfferer()) {
+    EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
+              fake_params);
+    EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
+              fake_params);
+  }
+
+  auto offer = CreateSessionDescriptionForDatagramTransport(fake_params);
+  EXPECT_TRUE(SetDescription(SdpType::kOffer, offer.get()).ok());
+
+  cricket::OpaqueTransportParameters answer_params;
+  answer_params.protocol = fake_params.protocol;
+  answer_params.parameters = "something different from offer";
+  auto answer = CreateSessionDescriptionForDatagramTransport(answer_params);
+  EXPECT_TRUE(SetDescription(SdpType::kAnswer, answer.get()).ok());
+
+  // The offerer and answerer have compatible parameters, so the answerer
+  // accepts the offered parameters.
+  EXPECT_EQ(transport_controller_->GetTransportParameters(kAudioMid1),
+            fake_params);
+  EXPECT_EQ(transport_controller_->GetTransportParameters(kVideoMid1),
+            fake_params);
 }
 
 TEST_P(JsepTransportControllerDatagramTest, AnswerRejectsDatagram) {

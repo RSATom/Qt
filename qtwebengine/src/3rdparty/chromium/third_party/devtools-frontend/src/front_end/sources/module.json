@@ -134,6 +134,7 @@
         {
             "type": "action",
             "actionId": "debugger.run-snippet",
+            "category": "Debugger",
             "className": "Sources.SourcesPanel.DebuggingActionDelegate",
             "title": "Run snippet",
             "iconClass": "largeicon-play",
@@ -187,6 +188,7 @@
             "type": "action",
             "actionId": "sources.add-to-watch",
             "className": "Sources.WatchExpressionsSidebarPane",
+            "category": "Debugger",
             "title": "Add selected text to watches",
             "contextTypes": [
                 "Sources.UISourceCodeFrame"
@@ -223,6 +225,7 @@
         {
             "type": "action",
             "actionId": "debugger.evaluate-selection",
+            "category": "Debugger",
             "className": "Sources.SourcesPanel.DebuggingActionDelegate",
             "title": "Evaluate selected text in console",
             "contextTypes": [
@@ -342,6 +345,8 @@
         {
             "type": "action",
             "actionId": "sources.switch-file",
+            "category": "Sources",
+            "title": "Switch file",
             "className": "Sources.SourcesView.SwitchFileActionDelegate",
             "contextTypes": [
                 "Sources.SourcesView"
@@ -355,6 +360,8 @@
         {
             "type": "action",
             "actionId": "sources.rename",
+            "category": "Sources",
+            "title": "Rename",
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -578,6 +585,24 @@
             ]
         },
         {
+            "type": "setting",
+            "category": "Sources",
+            "title": "Allow scrolling past end of file",
+            "settingName": "allowScrollPastEof",
+            "settingType": "boolean",
+            "defaultValue": true,
+            "options": [
+                {
+                    "value": true,
+                    "title": "Allow scrolling past end of file"
+                },
+                {
+                    "value": false,
+                    "title": "Disallow scrolling past end of file"
+                }
+            ]
+        },
+        {
             "type": "view",
             "location": "drawer-view",
             "id": "sources.quick",
@@ -596,6 +621,8 @@
         {
             "type": "action",
             "actionId": "sources.jump-to-previous-location",
+            "category": "Sources",
+            "title": "Jump to previous editing location",
             "className": "Sources.SourcesView.ActionDelegate",
             "contextTypes": [
                 "Sources.SourcesView"
@@ -609,6 +636,8 @@
         {
             "type": "action",
             "actionId": "sources.jump-to-next-location",
+            "category": "Sources",
+            "title": "Jump to next editing location",
             "className": "Sources.SourcesView.ActionDelegate",
             "contextTypes": [
                 "Sources.SourcesView"
@@ -622,6 +651,8 @@
         {
             "type": "action",
             "actionId": "sources.close-editor-tab",
+            "category": "Sources",
+            "title": "Close the active tab",
             "className": "Sources.SourcesView.ActionDelegate",
             "contextTypes": [
                 "Sources.SourcesView"
@@ -635,6 +666,8 @@
         {
             "type": "action",
             "actionId": "sources.go-to-line",
+            "category": "Sources",
+            "title": "Go to line",
             "className": "Sources.SourcesView.ActionDelegate",
             "contextTypes": [
                 "Sources.SourcesView"
@@ -648,6 +681,8 @@
         {
             "type": "action",
             "actionId": "sources.go-to-member",
+            "category": "Sources",
+            "title": "Go to a function declaration/rule set",
             "className": "Sources.SourcesView.ActionDelegate",
             "contextTypes": [
                 "Sources.SourcesView"
@@ -666,6 +701,8 @@
         {
             "type": "action",
             "actionId": "debugger.toggle-breakpoint",
+            "category": "Debugger",
+            "title": "Toggle breakpoint",
             "bindings": [
                 {
                     "platform":"windows,linux",
@@ -680,6 +717,8 @@
         {
             "type": "action",
             "actionId": "debugger.toggle-breakpoint-enabled",
+            "category": "Debugger",
+            "title": "Toggle breakpoint",
             "bindings": [
                 {
                     "platform":"windows,linux",
@@ -694,6 +733,8 @@
         {
             "type": "action",
             "actionId": "debugger.breakpoint-input-window",
+            "category": "Debugger",
+            "title": "Toggle breakpoint input window",
             "bindings": [
                 {
                     "platform":"windows,linux",
@@ -708,6 +749,8 @@
         {
             "type": "action",
             "actionId": "sources.save",
+            "category": "Sources",
+            "title": "Save",
             "className": "Sources.SourcesView.ActionDelegate",
             "contextTypes": [
                 "Sources.SourcesView"
@@ -726,6 +769,8 @@
         {
             "type": "action",
             "actionId": "sources.save-all",
+            "category": "Sources",
+            "title": "Save all",
             "className": "Sources.SourcesView.ActionDelegate",
             "contextTypes": [
                 "Sources.SourcesView"
@@ -798,6 +843,13 @@
         },
         {
             "type": "view",
+            "id": "sources.sourceScopeChain",
+            "title": "Source Scope",
+            "persistence": "permanent",
+            "className": "Sources.SourceScopeChainSidebarPane"
+        },
+        {
+            "type": "view",
             "id": "sources.scopeChain",
             "title": "Scope",
             "persistence": "permanent",
@@ -831,6 +883,13 @@
                 "SDK.DebuggerPausedDetails"
             ],
             "className": "Sources.CallStackSidebarPane"
+        },
+        {
+            "type": "@UI.ContextFlavorListener",
+            "contextTypes": [
+                "SDK.DebuggerModel.CallFrame"
+            ],
+            "className": "Sources.SourceScopeChainSidebarPane"
         },
         {
             "type": "@UI.ContextFlavorListener",
@@ -874,7 +933,7 @@
             "actionId": "sources.search",
             "title": "Search",
             "className": "Sources.SearchSourcesView.ActionDelegate",
-            "category": "DevTools",
+            "category": "Sources",
             "bindings": [
                 {
                     "platform": "mac",
@@ -905,9 +964,13 @@
         "color_picker",
         "event_listeners",
         "object_ui",
-        "formatter"
+        "formatter",
+        "coverage"
     ],
-    "scripts": [
+    "scripts": [],
+    "modules": [
+        "sources.js",
+        "sources-legacy.js",
         "AddSourceMapURLDialog.js",
         "BreakpointEditDialog.js",
         "CallStackSidebarPane.js",
@@ -920,7 +983,9 @@
         "SourceMapNamesResolver.js",
         "JavaScriptBreakpointsSidebarPane.js",
         "UISourceCodeFrame.js",
+        "Plugin.js",
         "DebuggerPlugin.js",
+        "CoveragePlugin.js",
         "CSSPlugin.js",
         "GutterDiffPlugin.js",
         "SearchSourcesView.js",
@@ -933,7 +998,6 @@
         "ThreadsSidebarPane.js",
         "ScriptFormatterEditorAction.js",
         "InplaceFormatterEditorAction.js",
-        "SourceFormatter.js",
         "OpenFileQuickOpen.js",
         "SourcesView.js",
         "SourcesSearchScope.js",

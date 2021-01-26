@@ -22,7 +22,7 @@
 
 #include "perfetto/ext/base/string_view.h"
 #include "perfetto/ext/base/utils.h"
-#include "src/trace_processor/trace_storage.h"
+#include "src/trace_processor/storage/trace_storage.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -37,9 +37,11 @@ class EventTracker {
   EventTracker& operator=(const EventTracker&) = delete;
   virtual ~EventTracker();
 
-  // Adds a counter event to the counters table returning the RowId of the
+  // Adds a counter event to the counters table returning the index of the
   // newly added row.
-  virtual RowId PushCounter(int64_t timestamp, double value, TrackId track_id);
+  virtual base::Optional<CounterId> PushCounter(int64_t timestamp,
+                                                double value,
+                                                TrackId track_id);
 
   // Adds a counter event to the counters table for counter events which
   // should be associated with a process but only have a thread context
@@ -47,18 +49,18 @@ class EventTracker {
   //
   // This function will resolve the utid to a upid when the events are
   // flushed (see |FlushPendingEvents()|).
-  virtual RowId PushProcessCounterForThread(int64_t timestamp,
-                                            double value,
-                                            StringId name_id,
-                                            UniqueTid utid);
+  virtual base::Optional<CounterId> PushProcessCounterForThread(
+      int64_t timestamp,
+      double value,
+      StringId name_id,
+      UniqueTid utid);
 
   // This method is called when a instant event is seen in the trace.
-  virtual RowId PushInstant(int64_t timestamp,
-                            StringId name_id,
-                            double value,
-                            int64_t ref,
-                            RefType ref_type,
-                            bool resolve_utid_to_upid = false);
+  virtual InstantId PushInstant(int64_t timestamp,
+                                StringId name_id,
+                                int64_t ref,
+                                RefType ref_type,
+                                bool resolve_utid_to_upid = false);
 
   // Called at the end of trace to flush any events which are pending to the
   // storage.
@@ -74,7 +76,7 @@ class EventTracker {
   // Represents a counter event which is currently pending upid resolution.
   struct PendingUpidResolutionCounter {
     uint32_t row = 0;
-    StringId name_id = 0;
+    StringId name_id = kNullStringId;
     UniqueTid utid = 0;
   };
 

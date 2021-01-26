@@ -216,20 +216,77 @@ def IterResourceFilesInDirectories(directories,
         yield path, archive_path
 
 
-def CreateResourceInfoFile(files_to_zip, zip_path):
-  """Given a mapping of archive paths to their source, write an info file.
+class ResourceInfoFile(object):
+  """Helper for building up .res.info files."""
 
-  The info file contains lines of '{archive_path},{source_path}' for ease of
-  parsing. Assumes that there is no comma in the file names.
+  def __init__(self):
+    # Dict of archive_path -> source_path for the current target.
+    self._entries = {}
+    # List of (old_archive_path, new_archive_path) tuples.
+    self._renames = []
+    # We don't currently support using both AddMapping and MergeInfoFile.
+    self._add_mapping_was_called = False
 
-  Args:
-    files_to_zip: Dict mapping path in the zip archive to original source.
-    zip_path: Path where the zip file ends up, this is where the info file goes.
-  """
-  info_file_path = zip_path + '.info'
-  with open(info_file_path, 'w') as info_file:
-    for archive_path, source_path in files_to_zip.iteritems():
-      info_file.write('{},{}\n'.format(archive_path, source_path))
+  def AddMapping(self, archive_path, source_path):
+    """Adds a single |archive_path| -> |source_path| entry."""
+    self._add_mapping_was_called = True
+    # "values/" files do not end up in the apk except through resources.arsc.
+    if archive_path.startswith('values'):
+      return
+    source_path = os.path.normpath(source_path)
+    new_value = self._entries.setdefault(archive_path, source_path)
+    if new_value != source_path:
+      raise Exception('Duplicate AddMapping for "{}". old={} new={}'.format(
+          archive_path, new_value, source_path))
+
+  def RegisterRename(self, old_archive_path, new_archive_path):
+    """Records an archive_path rename.
+
+    |old_archive_path| does not need to currently exist in the mappings. Renames
+    are buffered and replayed only when Write() is called.
+    """
+    if not old_archive_path.startswith('values'):
+      self._renames.append((old_archive_path, new_archive_path))
+
+  def MergeInfoFile(self, info_file_path):
+    """Merges the mappings from |info_file_path| into this object.
+
+    Any existing entries are overridden.
+    """
+    assert not self._add_mapping_was_called
+    # Allows clobbering, which is used when overriding resources.
+    with open(info_file_path) as f:
+      self._entries.update(l.rstrip().split('\t') for l in f)
+
+  def _ApplyRenames(self):
+    applied_renames = set()
+    ret = self._entries
+    for rename_tup in self._renames:
+      # Duplicate entries happen for resource overrides.
+      # Use a "seen" set to ensure we still error out if multiple renames
+      # happen for the same old_archive_path with different new_archive_paths.
+      if rename_tup in applied_renames:
+        continue
+      applied_renames.add(rename_tup)
+      old_archive_path, new_archive_path = rename_tup
+      ret[new_archive_path] = ret[old_archive_path]
+      del ret[old_archive_path]
+
+    self._entries = None
+    self._renames = None
+    return ret
+
+  def Write(self, info_file_path):
+    """Applies renames and writes out the file.
+
+    No other methods may be called after this.
+    """
+    entries = self._ApplyRenames()
+    lines = []
+    for archive_path, source_path in entries.iteritems():
+      lines.append('{}\t{}\n'.format(archive_path, source_path))
+    with open(info_file_path, 'w') as info_file:
+      info_file.writelines(sorted(lines))
 
 
 def _ParseTextSymbolsFile(path, fix_package_ids=False):
@@ -283,26 +340,26 @@ def GetRTxtStringResourceNames(r_txt_path):
   })
 
 
-def GenerateStringResourcesWhitelist(module_r_txt_path, whitelist_r_txt_path):
-  """Generate a whitelist of string resource IDs.
+def GenerateStringResourcesAllowList(module_r_txt_path, allowlist_r_txt_path):
+  """Generate a allowlist of string resource IDs.
 
   Args:
     module_r_txt_path: Input base module R.txt path.
-    whitelist_r_txt_path: Input whitelist R.txt path.
+    allowlist_r_txt_path: Input allowlist R.txt path.
   Returns:
     A dictionary mapping numerical resource IDs to the corresponding
     string resource names. The ID values are taken from string resources in
-    |module_r_txt_path| that are also listed by name in |whitelist_r_txt_path|.
+    |module_r_txt_path| that are also listed by name in |allowlist_r_txt_path|.
   """
-  whitelisted_names = {
+  allowlisted_names = {
       entry.name
-      for entry in _ParseTextSymbolsFile(whitelist_r_txt_path)
+      for entry in _ParseTextSymbolsFile(allowlist_r_txt_path)
       if entry.resource_type == 'string'
   }
   return {
       int(entry.value, 0): entry.name
       for entry in _ParseTextSymbolsFile(module_r_txt_path)
-      if entry.resource_type == 'string' and entry.name in whitelisted_names
+      if entry.resource_type == 'string' and entry.name in allowlisted_names
   }
 
 
@@ -319,21 +376,21 @@ class RJavaBuildOptions:
   """
   def __init__(self):
     self.has_constant_ids = True
-    self.resources_whitelist = None
+    self.resources_allowlist = None
     self.has_on_resources_loaded = False
     self.export_const_styleable = False
 
   def ExportNoResources(self):
     """Make all resource IDs final, and don't generate a method."""
     self.has_constant_ids = True
-    self.resources_whitelist = None
+    self.resources_allowlist = None
     self.has_on_resources_loaded = False
     self.export_const_styleable = False
 
   def ExportAllResources(self):
     """Make all resource IDs non-final in the R.java file."""
     self.has_constant_ids = False
-    self.resources_whitelist = None
+    self.resources_allowlist = None
 
   def ExportSomeResources(self, r_txt_file_path):
     """Only select specific resource IDs to be non-final.
@@ -344,7 +401,7 @@ class RJavaBuildOptions:
         will be final.
     """
     self.has_constant_ids = True
-    self.resources_whitelist = _GetRTxtResourceNames(r_txt_file_path)
+    self.resources_allowlist = _GetRTxtResourceNames(r_txt_file_path)
 
   def ExportAllStyleables(self):
     """Make all styleable constants non-final, even non-resources ones.
@@ -379,12 +436,12 @@ class RJavaBuildOptions:
     elif not self.has_constant_ids:
       # Every resource is non-final
       return False
-    elif not self.resources_whitelist:
-      # No whitelist means all IDs are non-final.
+    elif not self.resources_allowlist:
+      # No allowlist means all IDs are non-final.
       return True
     else:
       # Otherwise, only those in the
-      return entry.name not in self.resources_whitelist
+      return entry.name not in self.resources_allowlist
 
 
 def CreateRJavaFiles(srcjar_dir,

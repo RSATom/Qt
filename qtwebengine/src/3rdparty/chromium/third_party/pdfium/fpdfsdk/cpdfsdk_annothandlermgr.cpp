@@ -50,8 +50,9 @@ void CPDFSDK_AnnotHandlerMgr::SetFormFillEnv(
     m_pXFAWidgetHandler->SetFormFillEnvironment(pFormFillEnv);
 }
 
-CPDFSDK_Annot* CPDFSDK_AnnotHandlerMgr::NewAnnot(CPDF_Annot* pAnnot,
-                                                 CPDFSDK_PageView* pPageView) {
+std::unique_ptr<CPDFSDK_Annot> CPDFSDK_AnnotHandlerMgr::NewAnnot(
+    CPDF_Annot* pAnnot,
+    CPDFSDK_PageView* pPageView) {
   ASSERT(pPageView);
   return GetAnnotHandlerOfType(pAnnot->GetSubtype())
       ->NewAnnot(pAnnot, pPageView);
@@ -237,13 +238,13 @@ bool CPDFSDK_AnnotHandlerMgr::Annot_OnKeyDown(CPDFSDK_Annot* pAnnot,
     return GetAnnotHandler(pAnnot)->OnKeyDown(pAnnot, nKeyCode, nFlag);
   }
   ObservedPtr<CPDFSDK_Annot> pObservedAnnot(pAnnot);
-  CPDFSDK_PageView* pPage = pAnnot->GetPageView();
-  CPDFSDK_Annot* pFocusAnnot = pPage->GetFocusAnnot();
+  CPDFSDK_PageView* pPageView = pAnnot->GetPageView();
+  CPDFSDK_Annot* pFocusAnnot = pPageView->GetFocusAnnot();
   if (pFocusAnnot && (nKeyCode == FWL_VKEY_Tab)) {
     ObservedPtr<CPDFSDK_Annot> pNext(
         GetNextAnnot(pFocusAnnot, !CPWL_Wnd::IsSHIFTKeyDown(nFlag)));
     if (pNext && pNext.Get() != pFocusAnnot) {
-      pPage->GetFormFillEnv()->SetFocusAnnot(&pNext);
+      pPageView->GetFormFillEnv()->SetFocusAnnot(&pNext);
       return true;
     }
   }
@@ -324,9 +325,11 @@ CPDFSDK_Annot* CPDFSDK_AnnotHandlerMgr::GetNextAnnot(CPDFSDK_Annot* pSDKAnnot,
     return static_cast<CPDFXFA_Page*>(pPage)->GetNextXFAAnnot(pSDKAnnot, bNext);
   }
 #endif  // PDF_ENABLE_XFA
+  CPDFSDK_FormFillEnvironment* pFormFillEnv =
+      pSDKAnnot->GetPageView()->GetFormFillEnv();
 
   // For PDF annots.
-  CPDFSDK_Widget* pWidget = ToCPDFSDKWidget(pSDKAnnot);
-  CPDFSDK_AnnotIterator ai(pWidget->GetPageView(), pWidget->GetAnnotSubtype());
-  return bNext ? ai.GetNextAnnot(pWidget) : ai.GetPrevAnnot(pWidget);
+  CPDFSDK_AnnotIterator ai(pSDKAnnot->GetPageView(),
+                           pFormFillEnv->GetFocusableAnnotSubtypes());
+  return bNext ? ai.GetNextAnnot(pSDKAnnot) : ai.GetPrevAnnot(pSDKAnnot);
 }

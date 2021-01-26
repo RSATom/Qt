@@ -674,7 +674,8 @@ std::string RtcEventLogEncoderLegacy::EncodeVideoSendStreamConfig(
     if (event.config().codecs.size() > 1) {
       RTC_LOG(WARNING)
           << "LogVideoSendStreamConfig currently only supports one "
-          << "codec. Logging codec :" << codec.payload_name;
+             "codec. Logging codec :"
+          << codec.payload_name;
       break;
     }
   }
@@ -694,8 +695,7 @@ std::string RtcEventLogEncoderLegacy::EncodeRtcpPacket(
   rtcp::CommonHeader header;
   const uint8_t* block_begin = packet.data();
   const uint8_t* packet_end = packet.data() + packet.size();
-  RTC_DCHECK(packet.size() <= IP_PACKET_SIZE);
-  uint8_t buffer[IP_PACKET_SIZE];
+  std::vector<uint8_t> buffer(packet.size());
   uint32_t buffer_length = 0;
   while (block_begin < packet_end) {
     if (!header.Parse(block_begin, packet_end - block_begin)) {
@@ -714,7 +714,7 @@ std::string RtcEventLogEncoderLegacy::EncodeRtcpPacket(
         // We log sender reports, receiver reports, bye messages
         // inter-arrival jitter, third-party loss reports, payload-specific
         // feedback and extended reports.
-        memcpy(buffer + buffer_length, block_begin, block_size);
+        memcpy(buffer.data() + buffer_length, block_begin, block_size);
         buffer_length += block_size;
         break;
       case rtcp::App::kPacketType:
@@ -727,7 +727,8 @@ std::string RtcEventLogEncoderLegacy::EncodeRtcpPacket(
 
     block_begin += block_size;
   }
-  rtclog_event.mutable_rtcp_packet()->set_packet_data(buffer, buffer_length);
+  rtclog_event.mutable_rtcp_packet()->set_packet_data(buffer.data(),
+                                                      buffer_length);
 
   return Serialize(&rtclog_event);
 }

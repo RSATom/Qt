@@ -214,16 +214,17 @@ bool CPDFXFA_WidgetHandler::CanAnswer(CPDFSDK_Annot* pAnnot) {
   return pWidget && pWidget->GetXFAFFWidget();
 }
 
-CPDFSDK_Annot* CPDFXFA_WidgetHandler::NewAnnot(CPDF_Annot* pAnnot,
-                                               CPDFSDK_PageView* pPage) {
+std::unique_ptr<CPDFSDK_Annot> CPDFXFA_WidgetHandler::NewAnnot(
+    CPDF_Annot* pAnnot,
+    CPDFSDK_PageView* pPageView) {
   return nullptr;
 }
 
 std::unique_ptr<CPDFSDK_Annot> CPDFXFA_WidgetHandler::NewAnnotForXFA(
     CXFA_FFWidget* pAnnot,
-    CPDFSDK_PageView* pPage) {
+    CPDFSDK_PageView* pPageView) {
   CPDFSDK_InteractiveForm* pForm = m_pFormFillEnv->GetInteractiveForm();
-  return pdfium::MakeUnique<CPDFXFA_Widget>(pAnnot, pPage, pForm);
+  return pdfium::MakeUnique<CPDFXFA_Widget>(pAnnot, pPageView, pForm);
 }
 
 void CPDFXFA_WidgetHandler::OnDraw(CPDFSDK_PageView* pPageView,
@@ -249,8 +250,7 @@ void CPDFXFA_WidgetHandler::OnDraw(CPDFSDK_PageView* pPageView,
 void CPDFXFA_WidgetHandler::OnLoad(CPDFSDK_Annot* pAnnot) {}
 
 void CPDFXFA_WidgetHandler::ReleaseAnnot(
-    std::unique_ptr<CPDFSDK_Annot> pAnnot) {
-}
+    std::unique_ptr<CPDFSDK_Annot> pAnnot) {}
 
 CFX_FloatRect CPDFXFA_WidgetHandler::GetViewBBox(CPDFSDK_PageView* pPageView,
                                                  CPDFSDK_Annot* pAnnot) {
@@ -356,12 +356,9 @@ bool CPDFXFA_WidgetHandler::HitTest(CPDFSDK_PageView* pPageView,
     return false;
 
   CXFA_FFWidgetHandler* pWidgetHandler = pDocView->GetWidgetHandler();
-  if (!pWidgetHandler)
-    return false;
-
-  FWL_WidgetHit dwHitTest =
-      pWidgetHandler->OnHitTest(pXFAWidget->GetXFAFFWidget(), point);
-  return dwHitTest != FWL_WidgetHit::Unknown;
+  return pWidgetHandler &&
+         pWidgetHandler->HitTest(pXFAWidget->GetXFAFFWidget(), point) !=
+             FWL_WidgetHit::Unknown;
 }
 
 void CPDFXFA_WidgetHandler::OnMouseEnter(CPDFSDK_PageView* pPageView,
@@ -632,11 +629,8 @@ CXFA_FFWidgetHandler* CPDFXFA_WidgetHandler::GetXFAFFWidgetHandler(
   if (!pAnnot)
     return nullptr;
 
-  CPDFSDK_PageView* pPageView = pAnnot->GetPageView();
-  if (!pPageView)
-    return nullptr;
-
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = pPageView->GetFormFillEnv();
+  CPDFSDK_FormFillEnvironment* pFormFillEnv =
+      pAnnot->GetPageView()->GetFormFillEnv();
   if (!pFormFillEnv)
     return nullptr;
 

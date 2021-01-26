@@ -33,6 +33,13 @@ export function markAsAlert(element) {
 /**
  * @param {!Element} element
  */
+export function markAsApplication(element) {
+  element.setAttribute('role', 'application');
+}
+
+/**
+ * @param {!Element} element
+ */
 export function markAsButton(element) {
   element.setAttribute('role', 'button');
 }
@@ -97,6 +104,13 @@ export function markAsProgressBar(element, min = 0, max = 100) {
  */
 export function markAsTab(element) {
   element.setAttribute('role', 'tab');
+}
+
+/**
+ * @param {!Element} element
+ */
+export function markAsTablist(element) {
+  element.setAttribute('role', 'tablist');
 }
 
 /**
@@ -222,9 +236,28 @@ export function markAsHeading(element, level) {
 
 /**
  * @param {!Element} element
+ * @param {boolean} isAtomic
  */
-export function markAsPoliteLiveRegion(element) {
+export function markAsPoliteLiveRegion(element, isAtomic) {
   element.setAttribute('aria-live', 'polite');
+  if (isAtomic) {
+    element.setAttribute('aria-atomic', 'true');
+  }
+}
+
+/**
+ * @param {!Element} element
+ * @return {boolean}
+ */
+export function hasRole(element) {
+  return element.hasAttribute('role');
+}
+
+/**
+ * @param {!Element} element
+ */
+export function removeRole(element) {
+  element.removeAttribute('role');
 }
 
 /**
@@ -322,6 +355,14 @@ export function setCheckboxAsIndeterminate(element) {
  * @param {!Element} element
  * @param {boolean} value
  */
+export function setDisabled(element, value) {
+  element.setAttribute('aria-disabled', !!value);
+}
+
+/**
+ * @param {!Element} element
+ * @param {boolean} value
+ */
 export function setExpanded(element, value) {
   element.setAttribute('aria-expanded', !!value);
 }
@@ -368,6 +409,10 @@ export function setSelected(element, value) {
   // Often times undefined values are unintentionally typed as booleans.
   // Use !! to make sure this is true or false.
   element.setAttribute('aria-selected', !!value);
+}
+
+export function clearSelected(element) {
+  element.removeAttribute('aria-selected');
 }
 
 /**
@@ -434,11 +479,11 @@ const _descriptionMap = new WeakMap();
  * @param {string} description
  */
 export function setDescription(element, description) {
-  // Nodes in the accesesibility tree are made up of a core
+  // Nodes in the accessibility tree are made up of a core
   // triplet of "name", "value", "description"
   // The "description" field is taken from either
   // 1. The title html attribute
-  // 2. The value of the aria-help attribute
+  // 2. The value of the aria-description attribute.
   // 3. The textContent of an element specified by aria-describedby
   //
   // The title attribute has the side effect of causing tooltips
@@ -446,12 +491,8 @@ export function setDescription(element, description) {
   // This is usually fine, except that DevTools has its own styled
   // tooltips which would interfere with the browser tooltips.
   //
-  // aria-help does what we want with no side effects, but it
-  // is deprecated and may be removed in a future version of Blink.
-  // Current DevTools needs to be able to work in future browsers,
-  // to support debugging old mobile devices. So we can't rely on
-  // any APIs that might be removed. There is also no way to feature
-  // detect this API.
+  // In future, the aria-description attribute may be used once it
+  // is unflagged.
   //
   // aria-describedby requires that an extra element exist in DOM
   // that this element can point to. Both elements also have to
@@ -537,87 +578,45 @@ export function setActiveDescendant(element, activedescendant) {
   element.setAttribute('aria-activedescendant', activedescendant.id);
 }
 
+/**
+ * @param {!Element} element
+ */
+function hideFromLayout(element) {
+  element.style.position = 'absolute';
+  element.style.left = '-999em';
+  element.style.width = '100em';
+  element.style.overflow = 'hidden';
+}
+
 const AlertElementSymbol = Symbol('AlertElementSybmol');
+const MessageElementSymbol = Symbol('MessageElementSymbol');
 
 /**
+ * This function is used to announce a message with the screen reader.
+ * Setting the textContent would allow the SR to access the offscreen element via browse mode
+ * Due to existing NVDA bugs (https://github.com/nvaccess/nvda/issues/10140), setting the
+ * aria-label of the alert element results in the message being read twice.
+ * The current workaround is to set the aria-describedby of the alert element
+ * to a description element where the aria-label is set to the message.
  * @param {string} message
  * @param {!Element} element
  */
 export function alert(message, element) {
   const document = element.ownerDocument;
+  const messageElementId = 'ariaLiveMessageElement';
+  if (!document[MessageElementSymbol]) {
+    const messageElement = document.body.createChild('div');
+    messageElement.id = messageElementId;
+    hideFromLayout(messageElement);
+    document[MessageElementSymbol] = messageElement;
+  }
   if (!document[AlertElementSymbol]) {
     const alertElement = document.body.createChild('div');
-    alertElement.style.position = 'absolute';
-    alertElement.style.left = '-999em';
-    alertElement.style.width = '100em';
-    alertElement.style.overflow = 'hidden';
+    hideFromLayout(alertElement);
     alertElement.setAttribute('role', 'alert');
     alertElement.setAttribute('aria-atomic', 'true');
+    alertElement.setAttribute('aria-describedby', messageElementId);
     document[AlertElementSymbol] = alertElement;
   }
-
-  document[AlertElementSymbol].textContent = message.trimEndWithMaxLength(10000);
+  setAccessibleName(document[MessageElementSymbol], message.trimEndWithMaxLength(10000));
 }
-
-/** Legacy exported object */
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-self.UI.ARIAUtils = {
-  nextId,
-  bindLabelToControl,
-  markAsAlert,
-  markAsButton,
-  markAsCheckbox,
-  markAsCombobox,
-  markAsModalDialog,
-  markAsGroup,
-  markAsLink,
-  markAsMenuButton,
-  markAsProgressBar,
-  markAsTab,
-  markAsTabpanel,
-  markAsTree,
-  markAsTreeitem,
-  markAsTextBox,
-  markAsMenu,
-  markAsMenuItem,
-  markAsMenuItemSubMenu,
-  markAsList,
-  markAsListitem,
-  markAsListBox,
-  markAsMultiSelectable,
-  markAsOption,
-  markAsRadioGroup,
-  markAsHidden,
-  markAsSlider,
-  markAsHeading,
-  markAsPoliteLiveRegion,
-  setPlaceholder,
-  markAsPresentation,
-  markAsStatus,
-  ensureId,
-  setAriaValueText,
-  setAriaValueNow,
-  setAriaValueMinMax,
-  setControls,
-  setChecked,
-  setCheckboxAsIndeterminate,
-  setExpanded,
-  unsetExpandable,
-  setHidden,
-  AutocompleteInteractionModel,
-  setAutocomplete,
-  setSelected,
-  setInvalid,
-  setPressed,
-  setProgressBarValue,
-  setValueNow,
-  setValueText,
-  setAccessibleName,
-  setDescription,
-  setActiveDescendant,
-  alert,
-};

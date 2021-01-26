@@ -55,20 +55,19 @@ float DateTimeFieldElement::ComputeTextWidth(const ComputedStyle& style,
 }
 
 void DateTimeFieldElement::DefaultEventHandler(Event& event) {
-  if (event.IsKeyboardEvent()) {
-    auto& keyboard_event = ToKeyboardEvent(event);
+  if (auto* keyboard_event = DynamicTo<KeyboardEvent>(event)) {
     if (!IsDisabled() && !IsFieldOwnerDisabled() && !IsFieldOwnerReadOnly()) {
-      HandleKeyboardEvent(keyboard_event);
-      if (keyboard_event.DefaultHandled()) {
+      HandleKeyboardEvent(*keyboard_event);
+      if (keyboard_event->DefaultHandled()) {
         if (field_owner_)
           field_owner_->FieldDidChangeValueByKeyboard();
         return;
       }
     }
-    DefaultKeyboardEventHandler(keyboard_event);
+    DefaultKeyboardEventHandler(*keyboard_event);
     if (field_owner_)
       field_owner_->FieldDidChangeValueByKeyboard();
-    if (keyboard_event.DefaultHandled())
+    if (keyboard_event->DefaultHandled())
       return;
   }
 
@@ -130,7 +129,8 @@ void DateTimeFieldElement::DefaultKeyboardEventHandler(
   }
 }
 
-void DateTimeFieldElement::SetFocused(bool value, WebFocusType focus_type) {
+void DateTimeFieldElement::SetFocused(bool value,
+                                      mojom::blink::FocusType focus_type) {
   if (field_owner_) {
     if (value) {
       field_owner_->DidFocusOnField(focus_type);

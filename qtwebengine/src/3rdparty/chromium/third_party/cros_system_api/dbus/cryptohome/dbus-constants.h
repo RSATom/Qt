@@ -158,6 +158,7 @@ const char kCryptohomeGetCurrentSpaceForGid[] = "GetCurrentSpaceForGid";
 const char kCryptohomeLockToSingleUserMountUntilReboot[] =
     "LockToSingleUserMountUntilReboot";
 const char kCryptohomeGetRsuDeviceId[] = "GetRsuDeviceId";
+const char kCryptohomeCheckHealth[] = "CheckHealth";
 
 // Signals of the |kCryptohomeInterface| interface:
 const char kSignalAsyncCallStatus[] = "AsyncCallStatus";
@@ -188,6 +189,7 @@ enum MountError {
   MOUNT_ERROR_TPM_DEFEND_LOCK = 16,
   MOUNT_ERROR_SETUP_GROUP_ACCESS_FAILED = 17,
   MOUNT_ERROR_MOUNT_HOMES_AND_DAEMON_STORES_FAILED = 18,
+  MOUNT_ERROR_TPM_UPDATE_REQUIRED = 19,
   MOUNT_ERROR_USER_DOES_NOT_EXIST = 32,
   MOUNT_ERROR_TPM_NEEDS_REBOOT = 64,
   // Encrypted in old method, need migration before mounting.

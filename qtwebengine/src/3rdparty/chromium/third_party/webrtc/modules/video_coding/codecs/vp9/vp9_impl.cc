@@ -249,7 +249,8 @@ VP9EncoderImpl::VP9EncoderImpl(const cricket::VideoCodec& codec)
           "WebRTC-VP9VariableFramerateScreenshare")),
       variable_framerate_controller_(
           variable_framerate_experiment_.framerate_limit),
-      num_steady_state_frames_(0) {
+      num_steady_state_frames_(0),
+      config_changed_(true) {
   codec_ = {};
   memset(&svc_params_, 0, sizeof(vpx_svc_extra_cfg_t));
 }
@@ -410,6 +411,7 @@ bool VP9EncoderImpl::SetSvcRates(
   }
 
   current_bitrate_allocation_ = bitrate_allocation;
+  config_changed_ = true;
   return true;
 }
 
@@ -439,6 +441,7 @@ void VP9EncoderImpl::SetRates(const RateControlParameters& parameters) {
 
   bool res = SetSvcRates(parameters.bitrate);
   RTC_DCHECK(res) << "Failed to set new bitrate allocation";
+  config_changed_ = true;
 }
 
 // TODO(eladalon): s/inst/codec_settings/g.
@@ -814,6 +817,7 @@ int VP9EncoderImpl::InitAndSetControlSettings(const VideoCodec* inst) {
   // Enable encoder skip of static/low content blocks.
   vpx_codec_control(encoder_, VP8E_SET_STATIC_THRESHOLD, 1);
   inited_ = true;
+  config_changed_ = true;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -917,7 +921,10 @@ int VP9EncoderImpl::Encode(const VideoFrame& input_image,
     }
   }
 
-  for (int sl_idx = 0; sl_idx < num_active_spatial_layers_; ++sl_idx) {
+  // Need to set temporal layer id on ALL layers, even disabled ones.
+  // Otherwise libvpx might produce frames on a disabled layer:
+  // http://crbug.com/1051476
+  for (int sl_idx = 0; sl_idx < num_spatial_layers_; ++sl_idx) {
     layer_id.temporal_layer_id_per_spatial[sl_idx] = layer_id.temporal_layer_id;
   }
 
@@ -933,8 +940,11 @@ int VP9EncoderImpl::Encode(const VideoFrame& input_image,
                       &svc_drop_frame_);
   }
 
-  if (vpx_codec_enc_config_set(encoder_, config_)) {
-    return WEBRTC_VIDEO_CODEC_ERROR;
+  if (config_changed_) {
+    if (vpx_codec_enc_config_set(encoder_, config_)) {
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
+    config_changed_ = false;
   }
 
   RTC_DCHECK_EQ(input_image.width(), raw_->d_w);
@@ -1032,7 +1042,8 @@ int VP9EncoderImpl::Encode(const VideoFrame& input_image,
   if (rv != VPX_CODEC_OK) {
     RTC_LOG(LS_ERROR) << "Encoding error: " << vpx_codec_err_to_string(rv)
                       << "\n"
-                      << "Details: " << vpx_codec_error(encoder_) << "\n"
+                         "Details: "
+                      << vpx_codec_error(encoder_) << "\n"
                       << vpx_codec_error_detail(encoder_);
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
@@ -1112,6 +1123,7 @@ void VP9EncoderImpl::PopulateCodecSpecific(CodecSpecificInfo* codec_specific,
   // Always populate this, so that the packetizer can properly set the marker
   // bit.
   vp9_info->num_spatial_layers = num_active_spatial_layers_;
+  vp9_info->first_active_layer = first_active_layer_;
 
   vp9_info->num_ref_pics = 0;
   FillReferenceIndices(pkt, pics_since_key_, vp9_info->inter_layer_predicted,
@@ -1538,20 +1550,33 @@ VideoEncoder::EncoderInfo VP9EncoderImpl::GetEncoderInfo() const {
   info.has_trusted_rate_controller = trusted_rate_controller_;
   info.is_hardware_accelerated = false;
   info.has_internal_source = false;
-  for (size_t si = 0; si < num_spatial_layers_; ++si) {
-    info.fps_allocation[si].clear();
-    if (!codec_.spatialLayers[si].active) {
-      continue;
+  if (inited_) {
+    // Find the max configured fps of any active spatial layer.
+    float max_fps = 0.0;
+    for (size_t si = 0; si < num_spatial_layers_; ++si) {
+      if (codec_.spatialLayers[si].active &&
+          codec_.spatialLayers[si].maxFramerate > max_fps) {
+        max_fps = codec_.spatialLayers[si].maxFramerate;
+      }
     }
-    // This spatial layer may already use a fraction of the total frame rate.
-    const float sl_fps_fraction =
-        codec_.spatialLayers[si].maxFramerate / codec_.maxFramerate;
-    for (size_t ti = 0; ti < num_temporal_layers_; ++ti) {
-      const uint32_t decimator =
-          num_temporal_layers_ <= 1 ? 1 : config_->ts_rate_decimator[ti];
-      RTC_DCHECK_GT(decimator, 0);
-      info.fps_allocation[si].push_back(rtc::saturated_cast<uint8_t>(
-          EncoderInfo::kMaxFramerateFraction * (sl_fps_fraction / decimator)));
+
+    for (size_t si = 0; si < num_spatial_layers_; ++si) {
+      info.fps_allocation[si].clear();
+      if (!codec_.spatialLayers[si].active) {
+        continue;
+      }
+
+      // This spatial layer may already use a fraction of the total frame rate.
+      const float sl_fps_fraction =
+          codec_.spatialLayers[si].maxFramerate / max_fps;
+      for (size_t ti = 0; ti < num_temporal_layers_; ++ti) {
+        const uint32_t decimator =
+            num_temporal_layers_ <= 1 ? 1 : config_->ts_rate_decimator[ti];
+        RTC_DCHECK_GT(decimator, 0);
+        info.fps_allocation[si].push_back(
+            rtc::saturated_cast<uint8_t>(EncoderInfo::kMaxFramerateFraction *
+                                         (sl_fps_fraction / decimator)));
+      }
     }
   }
   return info;
@@ -1608,8 +1633,9 @@ VP9DecoderImpl::~VP9DecoderImpl() {
     // The frame buffers are reference counted and frames are exposed after
     // decoding. There may be valid usage cases where previous frames are still
     // referenced after ~VP9DecoderImpl that is not a leak.
-    RTC_LOG(LS_INFO) << num_buffers_in_use << " Vp9FrameBuffers are still "
-                     << "referenced during ~VP9DecoderImpl.";
+    RTC_LOG(LS_INFO) << num_buffers_in_use
+                     << " Vp9FrameBuffers are still "
+                        "referenced during ~VP9DecoderImpl.";
   }
 }
 
@@ -1652,6 +1678,11 @@ int VP9DecoderImpl::InitDecode(const VideoCodec* inst, int number_of_cores) {
   inited_ = true;
   // Always start with a complete key frame.
   key_frame_required_ = true;
+  if (inst && inst->buffer_pool_size) {
+    if (!frame_buffer_pool_.Resize(*inst->buffer_pool_size)) {
+      return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+    }
+  }
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -1725,15 +1756,33 @@ int VP9DecoderImpl::ReturnFrame(
   rtc::scoped_refptr<VideoFrameBuffer> img_wrapped_buffer;
   switch (img->bit_depth) {
     case 8:
-      img_wrapped_buffer = WrapI420Buffer(
-          img->d_w, img->d_h, img->planes[VPX_PLANE_Y],
-          img->stride[VPX_PLANE_Y], img->planes[VPX_PLANE_U],
-          img->stride[VPX_PLANE_U], img->planes[VPX_PLANE_V],
-          img->stride[VPX_PLANE_V],
-          // WrappedI420Buffer's mechanism for allowing the release of its frame
-          // buffer is through a callback function. This is where we should
-          // release |img_buffer|.
-          rtc::KeepRefUntilDone(img_buffer));
+      RTC_DCHECK(img->fmt == VPX_IMG_FMT_I420 || img->fmt == VPX_IMG_FMT_I444);
+      if (img->fmt == VPX_IMG_FMT_I420) {
+        img_wrapped_buffer = WrapI420Buffer(
+            img->d_w, img->d_h, img->planes[VPX_PLANE_Y],
+            img->stride[VPX_PLANE_Y], img->planes[VPX_PLANE_U],
+            img->stride[VPX_PLANE_U], img->planes[VPX_PLANE_V],
+            img->stride[VPX_PLANE_V],
+            // WrappedI420Buffer's mechanism for allowing the release of its
+            // frame buffer is through a callback function. This is where we
+            // should release |img_buffer|.
+            rtc::KeepRefUntilDone(img_buffer));
+      } else if (img->fmt == VPX_IMG_FMT_I444) {
+        img_wrapped_buffer = WrapI444Buffer(
+            img->d_w, img->d_h, img->planes[VPX_PLANE_Y],
+            img->stride[VPX_PLANE_Y], img->planes[VPX_PLANE_U],
+            img->stride[VPX_PLANE_U], img->planes[VPX_PLANE_V],
+            img->stride[VPX_PLANE_V],
+            // WrappedI444Buffer's mechanism for allowing the release of its
+            // frame buffer is through a callback function. This is where we
+            // should release |img_buffer|.
+            rtc::KeepRefUntilDone(img_buffer));
+      } else {
+        RTC_LOG(LS_ERROR)
+            << "Unsupported pixel format produced by the decoder: "
+            << static_cast<int>(img->fmt);
+        return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+      }
       break;
     case 10:
       img_wrapped_buffer = WrapI010Buffer(

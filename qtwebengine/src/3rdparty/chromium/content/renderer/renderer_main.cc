@@ -37,12 +37,10 @@
 #include "mojo/public/cpp/bindings/mojo_buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "services/service_manager/sandbox/switches.h"
+#include "services/tracing/public/cpp/stack_sampling/tracing_sampler_profiler.h"
+#include "services/tracing/public/cpp/trace_startup.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "ui/base/ui_base_switches.h"
-
-#ifndef TOOLKIT_QT
-#include "services/tracing/public/cpp/stack_sampling/tracing_sampler_profiler.h"
-#endif
 
 #if defined(OS_ANDROID)
 #include "base/android/library_loader/library_loader_hooks.h"
@@ -104,7 +102,7 @@ std::unique_ptr<base::MessagePump> CreateMainThreadMessagePump() {
 int RendererMain(const MainFunctionParams& parameters) {
   // Don't use the TRACE_EVENT0 macro because the tracing infrastructure doesn't
   // expect synchronous events around the main loop of a thread.
-  TRACE_EVENT_ASYNC_BEGIN0("startup", "RendererMain", 0);
+  TRACE_EVENT_ASYNC_BEGIN1("startup", "RendererMain", 0, "zygote_child", false);
 
   base::trace_event::TraceLog::GetInstance()->set_process_name("Renderer");
   base::trace_event::TraceLog::GetInstance()->SetProcessSortIndex(
@@ -199,11 +197,21 @@ int RendererMain(const MainFunctionParams& parameters) {
     new RenderThreadImpl(run_loop.QuitClosure(),
                          std::move(main_thread_scheduler));
 
-#ifndef TOOLKIT_QT
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
+    // Startup tracing is usually enabled earlier, but if we forked from a
+    // zygote, we can only enable it after mojo IPC support is brought up
+    // initialized by RenderThreadImpl, because the mojo broker has to create
+    // the tracing SMB on our behalf due to the zygote sandbox.
+    if (parameters.zygote_child) {
+      tracing::EnableStartupTracingIfNeeded();
+      TRACE_EVENT_ASYNC_BEGIN1("startup", "RendererMain", 0, "zygote_child",
+                               true);
+    }
+#endif  // OS_POSIX && !OS_ANDROID && !!OS_MACOSX
+
     // Setup tracing sampler profiler as early as possible.
     auto tracing_sampler_profiler =
         tracing::TracingSamplerProfiler::CreateOnMainThread();
-#endif
 
     if (need_sandbox)
       should_run_loop = platform.EnableSandbox();

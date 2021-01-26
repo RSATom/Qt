@@ -44,6 +44,8 @@
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/power_monitor/power_monitor.h"
+#include "base/power_monitor/power_monitor_device_source.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
 #include "base/task/sequence_manager/thread_controller_with_message_pump_impl.h"
@@ -94,6 +96,7 @@
 #include "services/tracing/public/cpp/trace_startup.h"
 #include "services/tracing/public/cpp/tracing_features.h"
 #include "third_party/blink/public/common/features.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/events/event_switches.h"
 #include "ui/native_theme/native_theme_features.h"
 #include "ui/gl/gl_switches.h"
@@ -360,16 +363,14 @@ void WebEngineContext::destroy()
     // Normally the GPU thread is shut down when the GpuProcessHost is destroyed
     // on IO thread (triggered by ~BrowserMainRunner). But by that time the UI
     // task runner is not working anymore so we need to do this earlier.
-    if (features::IsVizDisplayCompositorEnabled()) {
-        cleanupVizProcess();
-        while (waitForViz) {
-            while (delegate->DoWork()){}
-            QThread::msleep(50);
-        }
+    cleanupVizProcess();
+    while (waitForViz) {
+        while (delegate->DoWork().is_immediate()) { }
+        QThread::msleep(50);
     }
     destroyGpuProcess();
     // Flush the UI message loop before quitting.
-    while (delegate->DoWork()) { }
+    while (delegate->DoWork().is_immediate()) { }
 
 #if QT_CONFIG(webengine_printing_and_pdf)
     // Kill print job manager early as it has a content::NotificationRegistrar
@@ -391,7 +392,7 @@ void WebEngineContext::destroy()
 
     // Handle any events posted by browser-context shutdown.
     // This should deliver all nessesery calls of DeleteSoon from PostTask
-    while (delegate->DoWork()) { }
+    while (delegate->DoWork().is_immediate()) { }
 
     m_devtoolsServer.reset();
     m_runLoop->AfterRun();
@@ -496,6 +497,17 @@ const static char kChromiumFlagsEnv[] = "QTWEBENGINE_CHROMIUM_FLAGS";
 const static char kDisableSandboxEnv[] = "QTWEBENGINE_DISABLE_SANDBOX";
 const static char kDisableInProcGpuThread[] = "QTWEBENGINE_DISABLE_GPU_THREAD";
 
+// static
+bool WebEngineContext::isGpuServiceOnUIThread()
+{
+    static bool threadedGpu =
+#if QT_CONFIG(opengl) && !defined(Q_OS_MACOS)
+            QOpenGLContext::supportsThreadedOpenGL() &&
+#endif
+            !qEnvironmentVariableIsSet(kDisableInProcGpuThread);
+    return !threadedGpu;
+}
+
 static void appendToFeatureList(std::string &featureList, const char *feature)
 {
     if (featureList.empty())
@@ -568,7 +580,7 @@ WebEngineContext::WebEngineContext()
     setupProxyPac(parsedCommandLine);
     parsedCommandLine->AppendSwitchPath(switches::kBrowserSubprocessPath, WebEngineLibraryInfo::getPath(content::CHILD_PROCESS_EXE));
 
-    parsedCommandLine->AppendSwitchASCII(service_manager::switches::kApplicationName, QCoreApplication::applicationName().toStdString());
+    parsedCommandLine->AppendSwitchASCII(service_manager::switches::kApplicationName, QCoreApplication::applicationName().toUtf8().toPercentEncoding().toStdString());
 
     // Enable sandboxing on OS X and Linux (Desktop / Embedded) by default.
     bool disable_sandbox = qEnvironmentVariableIsSet(kDisableSandboxEnv);
@@ -606,19 +618,6 @@ WebEngineContext::WebEngineContext()
     if (isDesktopGLOrSoftware || isGLES2Context)
         parsedCommandLine->AppendSwitch(switches::kDisableES3GLContext);
 #endif
-    bool threadedGpu = false;
-#if QT_CONFIG(opengl)
-    threadedGpu = QOpenGLContext::supportsThreadedOpenGL();
-#if defined(Q_OS_MACOS)
-    // QtBase disabled it when building on 10.14+, unfortunately we still need it
-    // until we have fixed single-threaded viz-display-compositor.
-    threadedGpu = true;
-#endif
-#endif
-    threadedGpu = threadedGpu && !qEnvironmentVariableIsSet(kDisableInProcGpuThread);
-
-    bool enableViz = !parsedCommandLine->HasSwitch("disable-viz-display-compositor");
-    parsedCommandLine->RemoveSwitch("disable-viz-display-compositor");
 
     // Do not advertise a feature we have removed at compile time
     parsedCommandLine->AppendSwitch(switches::kDisableSpeechAPI);
@@ -656,34 +655,15 @@ WebEngineContext::WebEngineContext()
     appendToFeatureList(disableFeatures, features::kWebUsb.name);
     appendToFeatureList(disableFeatures, media::kPictureInPicture.name);
 
+    // Breaks current colordialog tests.
+    appendToFeatureList(disableFeatures, features::kFormControlsRefresh.name);
+
     if (useEmbeddedSwitches) {
         // embedded switches are based on the switches for Android, see content/browser/android/content_startup_flags.cc
         appendToFeatureList(enableFeatures, features::kOverlayScrollbar.name);
         parsedCommandLine->AppendSwitch(switches::kEnableViewport);
         parsedCommandLine->AppendSwitch(switches::kMainFrameResizesAreOrientationChanges);
         parsedCommandLine->AppendSwitch(cc::switches::kDisableCompositedAntialiasing);
-    }
-
-    if (!enableViz) {
-        // These are currently only default on OS X, and we don't support them:
-        parsedCommandLine->AppendSwitch(switches::kDisableZeroCopy);
-        parsedCommandLine->AppendSwitch(switches::kDisableGpuMemoryBufferCompositorResources);
-
-        // Enabled on OS X and Linux but currently not working. It worked in 5.7 on OS X.
-        parsedCommandLine->AppendSwitch(switches::kDisableGpuMemoryBufferVideoFrames);
-
-#if defined(Q_OS_MACOS)
-        // Accelerated decoding currently does not work on macOS due to issues with OpenGL Rectangle
-        // texture support. See QTBUG-60002.
-        parsedCommandLine->AppendSwitch(switches::kDisableAcceleratedVideoDecode);
-        // Same problem with Pepper using OpenGL images.
-        parsedCommandLine->AppendSwitch(switches::kDisablePepper3DImageChromium);
-#endif
-
-        // Viz Display Compositor is enabled by default since 73. Doesn't work for us (also implies SurfaceSynchronization)
-        appendToFeatureList(disableFeatures, features::kVizDisplayCompositor.name);
-        // VideoSurfaceLayer is enabled by default since 75. We don't support it.
-        appendToFeatureList(enableFeatures, media::kDisableSurfaceLayerForVideo.name);
     }
 
     appendToFeatureSwitch(parsedCommandLine, switches::kDisableFeatures, disableFeatures);
@@ -774,9 +754,7 @@ WebEngineContext::WebEngineContext()
         parsedCommandLine->AppendSwitch(switches::kDisableGpu);
     }
 
-    registerMainThreadFactories(threadedGpu);
-
-    SetContentClient(new ContentClientQt);
+    registerMainThreadFactories();
 
     content::ContentMainParams contentMainParams(m_mainDelegate.get());
 #if defined(OS_WIN)
@@ -802,6 +780,7 @@ WebEngineContext::WebEngineContext()
     content::BrowserTaskExecutor::PostFeatureListSetup();
     tracing::InitTracingPostThreadPoolStartAndFeatureList();
     m_discardableSharedMemoryManager = std::make_unique<discardable_memory::DiscardableSharedMemoryManager>();
+    base::PowerMonitor::Initialize(std::make_unique<base::PowerMonitorDeviceSource>());
     m_serviceManagerEnvironment = std::make_unique<content::ServiceManagerEnvironment>(content::BrowserTaskExecutor::CreateIOThread());
     m_startupData = m_serviceManagerEnvironment->CreateBrowserStartupData();
 

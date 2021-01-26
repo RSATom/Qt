@@ -27,9 +27,9 @@
 #ifndef HB_OT_CFF2_TABLE_HH
 #define HB_OT_CFF2_TABLE_HH
 
-#include "hb-ot-head-table.hh"
 #include "hb-ot-cff-common.hh"
 #include "hb-subset-cff2.hh"
+#include "hb-draw.hh"
 
 namespace CFF {
 
@@ -43,7 +43,6 @@ typedef CFFIndex<HBUINT32>  CFF2Index;
 template <typename Type> struct CFF2IndexOf : CFFIndexOf<HBUINT32, Type> {};
 
 typedef CFF2Index         CFF2CharStrings;
-typedef FDArray<HBUINT32> CFF2FDArray;
 typedef Subrs<HBUINT32>   CFF2Subrs;
 
 typedef FDSelect3_4<HBUINT32, HBUINT16> FDSelect4;
@@ -60,9 +59,6 @@ struct CFF2FDSelect
     memcpy (dest, &src, size);
     return_trace (true);
   }
-
-  unsigned int calculate_serialized_size (unsigned int num_glyphs) const
-  { return get_size (num_glyphs); }
 
   unsigned int get_size (unsigned int num_glyphs) const
   {
@@ -149,26 +145,6 @@ struct cff2_top_dict_values_t : top_dict_values_t<>
     FDSelectOffset = 0;
   }
   void fini () { top_dict_values_t<>::fini (); }
-
-  unsigned int calculate_serialized_size () const
-  {
-    unsigned int size = 0;
-    for (unsigned int i = 0; i < get_count (); i++)
-    {
-      op_code_t op = get_value (i).op;
-      switch (op)
-      {
-	case OpCode_vstore:
-	case OpCode_FDSelect:
-	  size += OpCode_Size (OpCode_longintdict) + 4 + OpCode_Size (op);
-	  break;
-	default:
-	  size += top_dict_values_t<>::calculate_serialized_op_size (get_value (i));
-	  break;
-      }
-    }
-    return size;
-  }
 
   unsigned int  vstoreOffset;
   unsigned int  FDSelectOffset;
@@ -260,17 +236,6 @@ struct cff2_private_dict_values_base_t : dict_values_t<VAL>
     ivs = 0;
   }
   void fini () { dict_values_t<VAL>::fini (); }
-
-  unsigned int calculate_serialized_size () const
-  {
-    unsigned int size = 0;
-    for (unsigned int i = 0; i < dict_values_t<VAL>::get_count; i++)
-      if (dict_values_t<VAL>::get_value (i).op == OpCode_Subrs)
-	size += OpCode_Size (OpCode_shortint) + 2 + OpCode_Size (OpCode_Subrs);
-      else
-	size += dict_values_t<VAL>::get_value (i).str.length;
-    return size;
-  }
 
   unsigned int      subrsOffset;
   const CFF2Subrs   *localSubrs;
@@ -404,6 +369,14 @@ struct cff2_private_dict_opset_subset_t : dict_opset_t
 typedef dict_interpreter_t<cff2_top_dict_opset_t, cff2_top_dict_values_t> cff2_top_dict_interpreter_t;
 typedef dict_interpreter_t<cff2_font_dict_opset_t, cff2_font_dict_values_t> cff2_font_dict_interpreter_t;
 
+struct CFF2FDArray : FDArray<HBUINT32>
+{
+  /* FDArray::serialize does not compile without this partial specialization */
+  template <typename ITER, typename OP_SERIALIZER>
+  bool serialize (hb_serialize_context_t *c, ITER it, OP_SERIALIZER& opszr)
+  { return FDArray<HBUINT32>::serialize<cff2_font_dict_values_t, table_info_t> (c, it, opszr); }
+};
+
 } /* namespace CFF */
 
 namespace OT {
@@ -533,27 +506,14 @@ struct cff2
     HB_INTERNAL bool get_extents (hb_font_t *font,
 				  hb_codepoint_t glyph,
 				  hb_glyph_extents_t *extents) const;
+#ifdef HB_EXPERIMENTAL_API
+    HB_INTERNAL bool get_path (hb_font_t *font, hb_codepoint_t glyph, draw_helper_t &draw_helper) const;
+#endif
   };
 
   typedef accelerator_templ_t<cff2_private_dict_opset_subset_t, cff2_private_dict_values_subset_t> accelerator_subset_t;
 
-  bool subset (hb_subset_plan_t *plan) const
-  {
-    hb_blob_t *cff2_prime = nullptr;
-
-    bool success = true;
-    if (hb_subset_cff2 (plan, &cff2_prime)) {
-      success = success && plan->add_table (HB_OT_TAG_cff2, cff2_prime);
-      hb_blob_t *head_blob = hb_sanitize_context_t().reference_table<head> (plan->source);
-      success = success && head_blob && plan->add_table (HB_OT_TAG_head, head_blob);
-      hb_blob_destroy (head_blob);
-    } else {
-      success = false;
-    }
-    hb_blob_destroy (cff2_prime);
-
-    return success;
-  }
+  bool subset (hb_subset_context_t *c) const { return hb_subset_cff2 (c); }
 
   public:
   FixedVersion<HBUINT8>		version;	/* Version of CFF2 table. set to 0x0200u */

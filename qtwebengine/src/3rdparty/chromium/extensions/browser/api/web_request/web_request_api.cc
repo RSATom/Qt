@@ -34,7 +34,6 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/child_process_host.h"
-#include "content/public/common/resource_type.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/api/activity_log/web_request_constants.h"
 #include "extensions/browser/api/declarative/rules_registry_service.h"
@@ -627,9 +626,36 @@ void WebRequestAPI::ProxySet::MaybeProxyAuthRequest(
                            request_id.request_id, std::move(callback));
 }
 
+WebRequestAPI::RequestIDGenerator::RequestIDGenerator() = default;
+WebRequestAPI::RequestIDGenerator::~RequestIDGenerator() = default;
+
+int64_t WebRequestAPI::RequestIDGenerator::Generate(
+    int32_t routing_id,
+    int32_t network_service_request_id) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  auto it = saved_id_map_.find({routing_id, network_service_request_id});
+  if (it != saved_id_map_.end()) {
+    int64_t id = it->second;
+    saved_id_map_.erase(it);
+    return id;
+  }
+  return ++id_;
+}
+
+void WebRequestAPI::RequestIDGenerator::SaveID(
+    int32_t routing_id,
+    int32_t network_service_request_id,
+    uint64_t request_id) {
+  // If |network_service_request_id| is 0, we cannot reliably match the
+  // generated ID to a future request, so ignore it.
+  if (network_service_request_id != 0) {
+    saved_id_map_.insert(
+        {{routing_id, network_service_request_id}, request_id});
+  }
+}
+
 WebRequestAPI::WebRequestAPI(content::BrowserContext* context)
     : browser_context_(context),
-      request_id_generator_(base::MakeRefCounted<RequestIDGenerator>()),
       proxies_(std::make_unique<ProxySet>()),
       may_have_proxies_(MayHaveProxies()) {
   EventRouter* event_router = EventRouter::Get(browser_context_);
@@ -756,7 +782,7 @@ bool WebRequestAPI::MaybeProxyURLLoaderFactory(
               browser_context_));
   WebRequestProxyingURLLoaderFactory::StartProxying(
       browser_context, is_navigation ? -1 : render_process_id,
-      request_id_generator_, std::move(navigation_ui_data),
+      &request_id_generator_, std::move(navigation_ui_data),
       std::move(navigation_id), std::move(proxied_receiver),
       std::move(target_factory_remote), std::move(header_client_receiver),
       proxies_.get(), type);
@@ -808,7 +834,7 @@ void WebRequestAPI::ProxyWebSocket(
       std::move(factory), url, site_for_cookies, user_agent,
       std::move(handshake_client), has_extra_headers,
       frame->GetProcess()->GetID(), frame->GetRoutingID(),
-      request_id_generator_, frame->GetLastCommittedOrigin(),
+      &request_id_generator_, frame->GetLastCommittedOrigin(),
       frame->GetProcess()->GetBrowserContext(), proxies_.get());
 }
 
@@ -1107,9 +1133,12 @@ int ExtensionWebRequestEventRouter::OnBeforeRequest(
         *should_collapse_initiator = true;
         return net::ERR_BLOCKED_BY_CLIENT;
       case DNRRequestAction::Type::ALLOW:
-        NOTREACHED();
+      case DNRRequestAction::Type::ALLOW_ALL_REQUESTS:
+        DCHECK_EQ(1u, actions.size());
+        OnDNRActionMatched(browser_context, *request, action);
         break;
       case DNRRequestAction::Type::REDIRECT:
+      case DNRRequestAction::Type::UPGRADE:
         ClearPendingCallbacks(*request);
         DCHECK_EQ(1u, actions.size());
         DCHECK(action.redirect_url);
@@ -1895,7 +1924,7 @@ bool ExtensionWebRequestEventRouter::HasAnyExtraHeadersListenerImpl(
 
 bool ExtensionWebRequestEventRouter::IsPageLoad(
     const WebRequestInfo& request) const {
-  return request.type == content::ResourceType::kMainFrame;
+  return request.type == blink::mojom::ResourceType::kMainFrame;
 }
 
 void ExtensionWebRequestEventRouter::NotifyPageLoad() {
@@ -2533,10 +2562,11 @@ void ExtensionWebRequestEventRouter::ClearSignaled(uint64_t request_id,
 // when the cache is cleared (when page loads happen).
 class ClearCacheQuotaHeuristic : public QuotaLimitHeuristic {
  public:
-  ClearCacheQuotaHeuristic(const Config& config, BucketMapper* map)
+  ClearCacheQuotaHeuristic(const Config& config,
+                           std::unique_ptr<BucketMapper> map)
       : QuotaLimitHeuristic(
             config,
-            map,
+            std::move(map),
             "MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES"),
         callback_registered_(false) {}
   ~ClearCacheQuotaHeuristic() override {}
@@ -2837,10 +2867,8 @@ void WebRequestHandlerBehaviorChangedFunction::GetQuotaLimitHeuristics(
       // See web_request.json for current value.
       web_request::MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES,
       base::TimeDelta::FromMinutes(10)};
-  QuotaLimitHeuristic::BucketMapper* bucket_mapper =
-      new QuotaLimitHeuristic::SingletonBucketMapper();
-  heuristics->push_back(
-      std::make_unique<ClearCacheQuotaHeuristic>(config, bucket_mapper));
+  heuristics->push_back(std::make_unique<ClearCacheQuotaHeuristic>(
+      config, std::make_unique<QuotaLimitHeuristic::SingletonBucketMapper>()));
 }
 
 void WebRequestHandlerBehaviorChangedFunction::OnQuotaExceeded(

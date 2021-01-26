@@ -21,6 +21,9 @@ declare_args() {
   # Enables checks that ensure the packages are installable on all supported
   # distributions.
   enable_distro_version_check = true
+
+  # Enable building snap packages
+  enable_snap_package = false
 }
 
 assert(is_linux)
@@ -67,19 +70,16 @@ packaging_files = packaging_files_binaries + [
                   ]
 
 action_foreach("calculate_deb_dependencies") {
-  deps = [
-    ":installer_deps",
-  ]
+  deps = [ ":installer_deps" ]
   script = "debian/calculate_package_deps.py"
   sources = packaging_files_binaries
   inputs = [
     "debian/deb_version.py",
     "debian/dist_package_versions.json",
     "debian/package_version_interval.py",
+    "//third_party/dpkg-shlibdeps/dpkg-shlibdeps.pl",
   ]
-  outputs = [
-    "$root_out_dir/deb_{{source_name_part}}.deps",
-  ]
+  outputs = [ "$root_out_dir/deb_{{source_name_part}}.deps" ]
   args = [
     "{{source}}",
     rebase_path(sysroot, root_build_dir),
@@ -92,9 +92,7 @@ action_foreach("calculate_deb_dependencies") {
 }
 
 action("merge_deb_dependencies") {
-  deps = [
-    ":calculate_deb_dependencies",
-  ]
+  deps = [ ":calculate_deb_dependencies" ]
   script = "debian/merge_package_versions.py"
   additional_deps = "debian/additional_deps"
   inputs = [
@@ -102,9 +100,7 @@ action("merge_deb_dependencies") {
     "debian/deb_version.py",
     "debian/package_version_interval.py",
   ]
-  outputs = [
-    "$root_out_dir/deb_common.deps",
-  ]
+  outputs = [ "$root_out_dir/deb_common.deps" ]
   args = [
     "deb_common.deps",
     rebase_path(additional_deps, root_build_dir),
@@ -114,17 +110,11 @@ action("merge_deb_dependencies") {
 }
 
 action_foreach("calculate_rpm_dependencies") {
-  deps = [
-    ":installer_deps",
-  ]
+  deps = [ ":installer_deps" ]
   script = "rpm/calculate_package_deps.py"
   sources = packaging_files_binaries
-  inputs = [
-    "rpm/dist_package_provides.json",
-  ]
-  outputs = [
-    "$root_out_dir/rpm_{{source_name_part}}.deps",
-  ]
+  inputs = [ "rpm/dist_package_provides.json" ]
+  outputs = [ "$root_out_dir/rpm_{{source_name_part}}.deps" ]
   args = [
     "{{source}}",
     "rpm_{{source_name_part}}.deps",
@@ -136,17 +126,11 @@ action_foreach("calculate_rpm_dependencies") {
 }
 
 action("merge_rpm_dependencies") {
-  deps = [
-    ":calculate_rpm_dependencies",
-  ]
+  deps = [ ":calculate_rpm_dependencies" ]
   script = "rpm/merge_package_deps.py"
   additional_deps = "rpm/additional_deps"
-  inputs = [
-    additional_deps,
-  ]
-  outputs = [
-    "$root_out_dir/rpm_common.deps",
-  ]
+  inputs = [ additional_deps ]
+  outputs = [ "$root_out_dir/rpm_common.deps" ]
   args = [
     "rpm_common.deps",
     rebase_path(additional_deps, root_build_dir),
@@ -159,9 +143,7 @@ action("strip_chrome_binary") {
   prog_name = "$root_out_dir/chrome"
   debug_file = prog_name + ".debug"
   stripped_file = prog_name + ".stripped"
-  deps = [
-    "//chrome",
-  ]
+  deps = [ "//chrome" ]
   script = "//build/gn_run_binary.py"
   sources = [
     "//buildtools/third_party/eu-strip/bin/eu-strip",
@@ -194,6 +176,12 @@ action("strip_chrome_binary") {
 #
 #
 # TO BUILD LINUX INSTALLER PACKAGES
+#
+# Use the following GN args:
+#
+#   is_component_build = false
+#
+# and the "chrome/installer/linux" target.
 #
 # The packages list the exact versions of each library used. The versions used
 # on the bots are likely different than those on your workstation, so you'll
@@ -252,9 +240,7 @@ copy("common_packaging_files") {
 
   sources += [ "//buildtools/third_party/eu-strip/bin/eu-strip" ]
 
-  outputs = [
-    "$root_out_dir/installer/common/{{source_file_part}}",
-  ]
+  outputs = [ "$root_out_dir/installer/common/{{source_file_part}}" ]
 }
 
 copy("deb_packaging_files") {
@@ -264,13 +250,12 @@ copy("deb_packaging_files") {
     "debian/changelog.template",
     "debian/control.template",
     "debian/debian.menu",
+    "debian/manual_recommends",
     "debian/postinst",
     "debian/postrm",
     "debian/prerm",
   ]
-  outputs = [
-    "$root_out_dir/installer/debian/{{source_file_part}}",
-  ]
+  outputs = [ "$root_out_dir/installer/debian/{{source_file_part}}" ]
 }
 
 copy("theme_files") {
@@ -306,9 +291,7 @@ copy("theme_files") {
       "$branding_dir_100/product_logo_32_dev.png",
     ]
   }
-  outputs = [
-    "$root_out_dir/installer/theme/{{source_file_part}}",
-  ]
+  outputs = [ "$root_out_dir/installer/theme/{{source_file_part}}" ]
 }
 
 if (!is_chromeos) {
@@ -318,9 +301,7 @@ if (!is_chromeos) {
       "rpm/build.sh",
       "rpm/chrome.spec.template",
     ]
-    outputs = [
-      "$root_out_dir/installer/rpm/{{source_file_part}}",
-    ]
+    outputs = [ "$root_out_dir/installer/rpm/{{source_file_part}}" ]
   }
 }
 
@@ -380,11 +361,10 @@ template("linux_package") {
   assert(defined(invoker.channel))
   channel = invoker.channel
 
-  if (current_cpu == "x86") {
-    # The shell scripts use "ia32" instead of "x86".
-    build_script_arch = "ia32"
+  if (is_chrome_branded) {
+    package = "google-chrome"
   } else {
-    build_script_arch = current_cpu
+    package = "chromium-browser"
   }
 
   deb_target_name = "${target_name}_deb"
@@ -397,7 +377,7 @@ template("linux_package") {
     } else if (current_cpu == "x64") {
       deb_arch = "amd64"
     } else if (current_cpu == "arm") {
-      deb_arch = "arm"
+      deb_arch = "armhf"
     } else if (current_cpu == "arm64") {
       deb_arch = "arm64"
     } else if (current_cpu == "mipsel") {
@@ -409,21 +389,12 @@ template("linux_package") {
     }
 
     inputs = packaging_files
-    if (is_chrome_branded) {
-      package = "google-chrome"
-    } else {
-      package = "chromium-browser"
-    }
-    outputs = [
-      "$root_out_dir/${package}-${channel}_${chrome_version_full}-1_${deb_arch}.deb",
-    ]
+    outputs = [ "$root_out_dir/${package}-${channel}_${chrome_version_full}-1_${deb_arch}.deb" ]
 
     args = [
       rebase_path("$root_out_dir/installer/debian/build.sh", root_build_dir),
       "-a",
-      build_script_arch,
-      "-b",
-      rebase_path(root_out_dir, root_build_dir),
+      deb_arch,
       "-c",
       invoker.channel,
       "-d",
@@ -455,9 +426,9 @@ template("linux_package") {
       } else if (current_cpu == "x64") {
         rpm_arch = "x86_64"
       } else if (current_cpu == "arm") {
-        rpm_arch = "arm"
+        rpm_arch = "armhf"
       } else if (current_cpu == "arm64") {
-        rpm_arch = "arm64"
+        rpm_arch = "aarch64"
       } else if (current_cpu == "mipsel") {
         rpm_arch = "mipsel"
       } else if (current_cpu == "mips64el") {
@@ -467,21 +438,12 @@ template("linux_package") {
       }
 
       inputs = packaging_files
-      if (is_chrome_branded) {
-        package = "google-chrome"
-      } else {
-        package = "chromium-browser"
-      }
-      outputs = [
-        "$root_out_dir/${package}-${channel}-${chrome_version_full}-1.${rpm_arch}.rpm",
-      ]
+      outputs = [ "$root_out_dir/${package}-${channel}-${chrome_version_full}-1.${rpm_arch}.rpm" ]
 
       args = [
         rebase_path("$root_out_dir/installer/rpm/build.sh", root_build_dir),
         "-a",
-        build_script_arch,
-        "-b",
-        rebase_path(root_out_dir, root_build_dir),
+        rpm_arch,
         "-c",
         invoker.channel,
         "-d",
@@ -499,14 +461,54 @@ template("linux_package") {
         ":merge_rpm_dependencies",
       ]
     }
+
+    if (enable_snap_package) {
+      snap_target_name = "${target_name}_snap"
+      action(snap_target_name) {
+        visibility = [ ":*" ]
+        deps = [
+          ":installer_deps",
+          ":save_build_info",
+        ]
+        script = "//build/gn_run_binary.py"
+        sources = [
+          "snap/chrome.launcher.in",
+          "snap/snapcraft.yaml.in",
+        ]
+        if (!is_chrome_branded) {
+          package = "chromium"
+        }
+        if (current_cpu == "x86") {
+          snap_arch = "i386"
+        } else if (current_cpu == "x64") {
+          snap_arch = "amd64"
+        } else if (current_cpu == "arm") {
+          snap_arch = "armhf"
+        } else if (current_cpu == "arm64") {
+          snap_arch = "arm64"
+        } else {
+          assert(false, "Linux installer not configured for this architecture.")
+        }
+        args = [
+          rebase_path("snap/build.sh", root_build_dir),
+          package,
+          channel,
+          chrome_version_full,
+          snap_arch,
+          target_os,
+        ]
+        outputs = [ "$root_out_dir/${package}-${channel}_${chrome_version_full}_${snap_arch}.snap" ]
+      }
+    }
   }
 
   group(target_name) {
-    deps = [
-      ":$deb_target_name",
-    ]
+    deps = [ ":$deb_target_name" ]
     if (!is_chromeos) {
       deps += [ ":$rpm_target_name" ]
+      if (enable_snap_package) {
+        deps += [ ":$snap_target_name" ]
+      }
     }
   }
 }

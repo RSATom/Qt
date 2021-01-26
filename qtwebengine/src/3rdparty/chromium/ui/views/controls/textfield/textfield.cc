@@ -4,6 +4,8 @@
 
 #include "ui/views/controls/textfield/textfield.h"
 
+#include <algorithm>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -61,7 +63,6 @@
 #endif
 
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-#include "base/strings/utf_string_conversions.h"
 #include "ui/base/ime/linux/text_edit_command_auralinux.h"
 #include "ui/base/ime/linux/text_edit_key_bindings_delegate_auralinux.h"
 #endif
@@ -95,7 +96,6 @@ enum TextfieldPropertyKey {
   kTextfieldCursorEnabled,
   kTextfieldHorizontalAlignment,
   kTextfieldSelectedRange,
-
 };
 
 #if defined(OS_MACOSX)
@@ -176,8 +176,13 @@ ui::TextEditCommand GetCommandForKeyEvent(const ui::KeyEvent& event) {
                  ? ui::TextEditCommand::MOVE_TO_END_OF_LINE_AND_MODIFY_SELECTION
                  : ui::TextEditCommand::INVALID_COMMAND;
     case ui::VKEY_BACK:
-      if (!control)
+      if (!control) {
+#if defined(OS_WIN)
+        if (alt)
+          return shift ? ui::TextEditCommand::REDO : ui::TextEditCommand::UNDO;
+#endif
         return ui::TextEditCommand::DELETE_BACKWARD;
+      }
 #if defined(OS_LINUX)
       // Only erase by line break on Linux and ChromeOS.
       if (shift)
@@ -366,6 +371,7 @@ void Textfield::SetTextInputType(ui::TextInputType type) {
   if (GetInputMethod())
     GetInputMethod()->OnTextInputTypeChanged(this);
   OnCaretBoundsChanged();
+  UpdateCursorViewPosition();
   OnPropertyChanged(&text_input_type_, kPropertyEffectsPaint);
 }
 
@@ -433,84 +439,44 @@ bool Textfield::HasSelection() const {
 }
 
 SkColor Textfield::GetTextColor() const {
-  if (!use_default_text_color_)
-    return text_color_;
-
-  return style::GetColor(*this, style::CONTEXT_TEXTFIELD, GetTextStyle());
+  return text_color_.value_or(
+      style::GetColor(*this, style::CONTEXT_TEXTFIELD, GetTextStyle()));
 }
 
 void Textfield::SetTextColor(SkColor color) {
   text_color_ = color;
-  use_default_text_color_ = false;
   SetColor(color);
 }
 
-void Textfield::UseDefaultTextColor() {
-  use_default_text_color_ = true;
-  SetColor(GetTextColor());
-}
-
 SkColor Textfield::GetBackgroundColor() const {
-  if (!use_default_background_color_)
-    return background_color_;
-
-  return GetNativeTheme()->GetSystemColor(
+  return background_color_.value_or(GetNativeTheme()->GetSystemColor(
       GetReadOnly() || !GetEnabled()
           ? ui::NativeTheme::kColorId_TextfieldReadOnlyBackground
-          : ui::NativeTheme::kColorId_TextfieldDefaultBackground);
+          : ui::NativeTheme::kColorId_TextfieldDefaultBackground));
 }
 
 void Textfield::SetBackgroundColor(SkColor color) {
   background_color_ = color;
-  use_default_background_color_ = false;
-  UpdateBackgroundColor();
-}
-
-void Textfield::UseDefaultBackgroundColor() {
-  use_default_background_color_ = true;
   UpdateBackgroundColor();
 }
 
 SkColor Textfield::GetSelectionTextColor() const {
-  return use_default_selection_text_color_
-             ? GetNativeTheme()->GetSystemColor(
-                   ui::NativeTheme::kColorId_TextfieldSelectionColor)
-             : selection_text_color_;
+  return selection_text_color_.value_or(GetNativeTheme()->GetSystemColor(
+      ui::NativeTheme::kColorId_TextfieldSelectionColor));
 }
 
 void Textfield::SetSelectionTextColor(SkColor color) {
   selection_text_color_ = color;
-  use_default_selection_text_color_ = false;
-  UpdateSelectionTextColor();
-}
-
-void Textfield::UseDefaultSelectionTextColor() {
-  if (use_default_selection_text_color_ == true)
-    return;
-
-  use_default_selection_text_color_ = true;
   UpdateSelectionTextColor();
 }
 
 SkColor Textfield::GetSelectionBackgroundColor() const {
-  return use_default_selection_background_color_
-             ? GetNativeTheme()->GetSystemColor(
-                   ui::NativeTheme::
-                       kColorId_TextfieldSelectionBackgroundFocused)
-             : selection_background_color_;
+  return selection_background_color_.value_or(GetNativeTheme()->GetSystemColor(
+      ui::NativeTheme::kColorId_TextfieldSelectionBackgroundFocused));
 }
 
 void Textfield::SetSelectionBackgroundColor(SkColor color) {
   selection_background_color_ = color;
-  use_default_selection_background_color_ = false;
-  UpdateSelectionBackgroundColor();
-}
-
-void Textfield::UseDefaultSelectionBackgroundColor() {
-  if (use_default_selection_background_color_ == true)
-    return;
-
-  use_default_selection_background_color_ = true;
   UpdateSelectionBackgroundColor();
 }
 
@@ -656,8 +622,8 @@ void Textfield::SetAccessibleName(const base::string16& name) {
   OnPropertyChanged(&accessible_name_, kPropertyEffectsNone);
 }
 
-void Textfield::SetGlyphSpacing(int spacing) {
-  GetRenderText()->set_glyph_spacing(spacing);
+void Textfield::SetObscuredGlyphSpacing(int spacing) {
+  GetRenderText()->SetObscuredGlyphSpacing(spacing);
 }
 
 void Textfield::SetExtraInsets(const gfx::Insets& insets) {
@@ -804,7 +770,9 @@ void Textfield::OnGestureEvent(ui::GestureEvent* event) {
   bool show_virtual_keyboard = true;
 #if defined(OS_WIN)
   show_virtual_keyboard = event->details().primary_pointer_type() ==
-                          ui::EventPointerType::POINTER_TYPE_TOUCH;
+                              ui::EventPointerType::POINTER_TYPE_TOUCH ||
+                          event->details().primary_pointer_type() ==
+                              ui::EventPointerType::POINTER_TYPE_PEN;
 #endif
   switch (event->type()) {
     case ui::ET_GESTURE_TAP_DOWN:
@@ -1184,6 +1152,7 @@ gfx::Point Textfield::GetKeyboardContextMenuLocation() {
 }
 
 void Textfield::OnThemeChanged() {
+  View::OnThemeChanged();
   gfx::RenderText* render_text = GetRenderText();
   SetColor(GetTextColor());
   UpdateBackgroundColor();
@@ -1646,7 +1615,7 @@ bool Textfield::GetTextFromRange(const gfx::Range& range,
     return false;
 
   gfx::Range text_range;
-  if (!GetTextRange(&text_range) || !text_range.Contains(range))
+  if (!GetTextRange(&text_range) || !range.IsBoundedBy(text_range))
     return false;
 
   *range_text = model_->GetTextFromRange(range);
@@ -1800,8 +1769,8 @@ bool Textfield::ShouldDoLearning() {
 }
 
 #if defined(OS_WIN) || defined(OS_CHROMEOS)
-// TODO(https://crbug.com/952355): Implement this method to support Korean IME reconversion feature
-// on native text fields (e.g. find bar).
+// TODO(https://crbug.com/952355): Implement this method to support Korean IME
+// reconversion feature on native text fields (e.g. find bar).
 bool Textfield::SetCompositionFromExistingText(
     const gfx::Range& range,
     const std::vector<ui::ImeTextSpan>& ui_ime_text_spans) {
@@ -1815,8 +1784,12 @@ bool Textfield::SetCompositionFromExistingText(
 #endif
 
 #if defined(OS_WIN)
-// TODO(https://crbug.com/952355): Implement this method once TSF supports reconversion
-// features on native text fields.
+void Textfield::GetActiveTextInputControlLayoutBounds(
+    base::Optional<gfx::Rect>* control_bounds,
+    base::Optional<gfx::Rect>* selection_bounds) {}
+
+// TODO(https://crbug.com/952355): Implement this method once TSF supports
+// reconversion features on native text fields.
 void Textfield::SetActiveCompositionForAccessibility(
     const gfx::Range& range,
     const base::string16& active_composition_text,
@@ -2185,9 +2158,9 @@ void Textfield::UpdateSelectionClipboard() {
 
 void Textfield::UpdateBackgroundColor() {
   const SkColor color = GetBackgroundColor();
-    SetBackground(
-        CreateBackgroundFromPainter(Painter::CreateSolidRoundRectPainter(
-            color, FocusableBorder::kCornerRadiusDp)));
+  SetBackground(
+      CreateBackgroundFromPainter(Painter::CreateSolidRoundRectPainter(
+          color, FocusableBorder::kCornerRadiusDp)));
   // Disable subpixel rendering when the background color is not opaque because
   // it draws incorrect colors around the glyphs in that case.
   // See crbug.com/115198
@@ -2282,7 +2255,8 @@ void Textfield::PaintTextAndCursor(gfx::Canvas* canvas) {
         GetPlaceholderText(),
         placeholder_font_list_.has_value() ? placeholder_font_list_.value()
                                            : GetFontList(),
-        placeholder_text_color_.value_or(SkColorSetA(GetTextColor(), 0x83)),
+        placeholder_text_color_.value_or(style::GetColor(
+            *this, style::CONTEXT_TEXTFIELD, style::STYLE_HINT)),
         render_text->display_rect(), placeholder_text_draw_flags);
   }
 

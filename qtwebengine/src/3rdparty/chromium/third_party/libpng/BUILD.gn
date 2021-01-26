@@ -2,16 +2,14 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/chromecast_build.gni")
 import("//build/config/arm.gni")
+import("//build/config/chromecast_build.gni")
 import("//build/config/mips.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 
 declare_args() {
   use_system_libpng = false
 }
-
-assert(!is_linux || host_toolchain != current_toolchain, "Trying to include png for host build")
 
 config("libpng_config") {
   include_dirs = [ "." ]
@@ -95,12 +93,6 @@ source_set("libpng_sources") {
     ]
   }
 
-  if ((current_cpu == "arm" || current_cpu == "arm64") && !arm_use_neon) {
-    defines += [
-      "PNG_ARM_NEON_OPT=0"
-    ]
-  }
-
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [ "//build/config/compiler:no_chromium_code" ]
 
@@ -115,9 +107,7 @@ source_set("libpng_sources") {
 
   public_configs = [ ":libpng_config" ]
 
-  public_deps = [
-    "//third_party/zlib",
-  ]
+  public_deps = [ "//third_party/zlib" ]
 
   configs += [ ":clang_warnings" ]
 }
@@ -162,12 +152,8 @@ libpng_ossfuzz_seed_corpuses = [
 ]
 
 fuzzer_test("libpng_read_fuzzer") {
-  sources = [
-    "contrib/oss-fuzz/libpng_read_fuzzer.cc",
-  ]
-  deps = [
-    ":libpng",
-  ]
+  sources = [ "contrib/oss-fuzz/libpng_read_fuzzer.cc" ]
+  deps = [ ":libpng" ]
   dict = "contrib/oss-fuzz/png.dict"
   seed_corpuses = libpng_ossfuzz_seed_corpuses
 }

@@ -9,11 +9,14 @@
 
 #include <utility>
 
+#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
 #include "net/third_party/quiche/src/quic/core/quic_data_reader.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_exported_stats.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 #include "net/third_party/quiche/src/quic/qbone/platform/icmp_packet.h"
 #include "net/third_party/quiche/src/quic/qbone/qbone_constants.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -35,9 +38,9 @@ QboneSessionBase::QboneSessionBase(
   const uint32_t max_streams =
       (std::numeric_limits<uint32_t>::max() / kMaxAvailableStreamsMultiplier) -
       1;
-  this->config()->SetMaxIncomingBidirectionalStreamsToSend(max_streams);
+  this->config()->SetMaxBidirectionalStreamsToSend(max_streams);
   if (VersionHasIetfQuicFrames(transport_version())) {
-    ConfigureMaxIncomingDynamicStreamsToSend(max_streams);
+    ConfigureMaxDynamicStreamsToSend(max_streams);
   }
 }
 
@@ -79,14 +82,14 @@ void QboneSessionBase::OnStreamFrame(const QuicStreamFrame& frame) {
   if (frame.offset == 0 && frame.fin && frame.data_length > 0) {
     ++num_ephemeral_packets_;
     ProcessPacketFromPeer(
-        QuicStringPiece(frame.data_buffer, frame.data_length));
+        quiche::QuicheStringPiece(frame.data_buffer, frame.data_length));
     flow_controller()->AddBytesConsumed(frame.data_length);
     return;
   }
   QuicSession::OnStreamFrame(frame);
 }
 
-void QboneSessionBase::OnMessageReceived(QuicStringPiece message) {
+void QboneSessionBase::OnMessageReceived(quiche::QuicheStringPiece message) {
   ++num_message_packets_;
   ProcessPacketFromPeer(message);
 }
@@ -101,7 +104,7 @@ QuicStream* QboneSessionBase::CreateIncomingStream(PendingStream* /*pending*/) {
 }
 
 bool QboneSessionBase::ShouldKeepConnectionAlive() const {
-  // Qbone connections stay alive until they're explicitly closed.
+  // QBONE connections stay alive until they're explicitly closed.
   return true;
 }
 
@@ -131,16 +134,17 @@ QuicStream* QboneSessionBase::ActivateDataStream(
   return raw;
 }
 
-void QboneSessionBase::SendPacketToPeer(QuicStringPiece packet) {
+void QboneSessionBase::SendPacketToPeer(quiche::QuicheStringPiece packet) {
   if (crypto_stream_ == nullptr) {
     QUIC_BUG << "Attempting to send packet before encryption established";
     return;
   }
 
   if (send_packets_as_messages_) {
-    QuicMemSlice slice(connection()->helper()->GetStreamSendBufferAllocator(),
-                       packet.size());
-    memcpy(const_cast<char*>(slice.data()), packet.data(), packet.size());
+    QuicUniqueBufferPtr buffer = MakeUniqueBuffer(
+        connection()->helper()->GetStreamSendBufferAllocator(), packet.size());
+    memcpy(buffer.get(), packet.data(), packet.size());
+    QuicMemSlice slice(std::move(buffer), packet.size());
     switch (SendMessage(QuicMemSliceSpan(&slice), /*flush=*/true).status) {
       case MESSAGE_STATUS_SUCCESS:
         break;
@@ -156,7 +160,7 @@ void QboneSessionBase::SendPacketToPeer(QuicStringPiece packet) {
             connection()->GetGuaranteedLargestMessagePayload();
 
         CreateIcmpPacket(header->ip6_dst, header->ip6_src, icmp_header, packet,
-                         [this](QuicStringPiece icmp_packet) {
+                         [this](quiche::QuicheStringPiece icmp_packet) {
                            writer_->WritePacketToNetwork(icmp_packet.data(),
                                                          icmp_packet.size());
                          });
@@ -178,7 +182,7 @@ void QboneSessionBase::SendPacketToPeer(QuicStringPiece packet) {
     return;
   }
 
-  // Qbone streams are ephemeral.
+  // QBONE streams are ephemeral.
   QuicStream* stream = CreateOutgoingStream();
   if (!stream) {
     QUIC_BUG << "Failed to create an outgoing QBONE stream.";

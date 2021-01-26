@@ -82,48 +82,6 @@ RUNTIME_FUNCTION(Runtime_ThrowSymbolAsyncIteratorInvalid) {
       isolate, NewTypeError(MessageTemplate::kSymbolAsyncIteratorInvalid));
 }
 
-RUNTIME_FUNCTION(Runtime_ReportDetachedWindowAccess) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(0, args.length());
-  Handle<NativeContext> native_context(isolate->context().native_context(),
-                                       isolate);
-  v8::Isolate::UseCounterFeature counter_main;
-  v8::Isolate::UseCounterFeature counter_10s;
-  v8::Isolate::UseCounterFeature counter_1min;
-  switch (native_context->GetDetachedWindowReason()) {
-    case v8::Context::kWindowNotDetached:
-      // We should never get here. Just exit early in case we do.
-      return ReadOnlyRoots(isolate).undefined_value();
-    case v8::Context::kDetachedWindowByNavigation:
-      counter_main = v8::Isolate::kCallInDetachedWindowByNavigation;
-      counter_10s = v8::Isolate::kCallInDetachedWindowByNavigationAfter10s;
-      counter_1min = v8::Isolate::kCallInDetachedWindowByNavigationAfter1min;
-      break;
-    case v8::Context::kDetachedWindowByClosing:
-      counter_main = v8::Isolate::kCallInDetachedWindowByClosing;
-      counter_10s = v8::Isolate::kCallInDetachedWindowByClosingAfter10s;
-      counter_1min = v8::Isolate::kCallInDetachedWindowByClosingAfter1min;
-      break;
-    case v8::Context::kDetachedWindowByOtherReason:
-      counter_main = v8::Isolate::kCallInDetachedWindowByOtherReason;
-      counter_10s = v8::Isolate::kCallInDetachedWindowByOtherReasonAfter10s;
-      counter_1min = v8::Isolate::kCallInDetachedWindowByOtherReasonAfter1min;
-      break;
-  }
-  isolate->CountUsage(counter_main);
-  // This can be off by up to 1s in each direction, but that's ok.
-  int secs_passed = native_context->SecondsSinceDetachedWindow();
-  if (secs_passed >= 10) {
-    isolate->CountUsage(counter_10s);
-  }
-  if (secs_passed >= 60) {
-    isolate->CountUsage(counter_1min);
-  }
-
-  // The return value isn't needed, but RUNTIME_FUNCTION sets it up.
-  return ReadOnlyRoots(isolate).undefined_value();
-}
-
 #define THROW_ERROR(isolate, args, call)                               \
   HandleScope scope(isolate);                                          \
   DCHECK_LE(1, args.length());                                         \
@@ -238,6 +196,15 @@ RUNTIME_FUNCTION(Runtime_ThrowAccessedUninitializedVariable) {
   THROW_NEW_ERROR_RETURN_FAILURE(
       isolate,
       NewReferenceError(MessageTemplate::kAccessedUninitializedVariable, name));
+}
+
+RUNTIME_FUNCTION(Runtime_NewError) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(2, args.length());
+  CONVERT_INT32_ARG_CHECKED(template_index, 0);
+  CONVERT_ARG_HANDLE_CHECKED(Object, arg0, 1);
+  MessageTemplate message_template = MessageTemplateFromInt(template_index);
+  return *isolate->factory()->NewError(message_template, arg0);
 }
 
 RUNTIME_FUNCTION(Runtime_NewTypeError) {
@@ -440,6 +407,13 @@ RUNTIME_FUNCTION(Runtime_ThrowIteratorError) {
   DCHECK_EQ(1, args.length());
   CONVERT_ARG_HANDLE_CHECKED(Object, object, 0);
   return isolate->Throw(*ErrorUtils::NewIteratorError(isolate, object));
+}
+
+RUNTIME_FUNCTION(Runtime_ThrowSpreadArgIsNullOrUndefined) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(Object, object, 0);
+  return ErrorUtils::ThrowSpreadArgIsNullOrUndefinedError(isolate, object);
 }
 
 RUNTIME_FUNCTION(Runtime_ThrowCalledNonCallable) {

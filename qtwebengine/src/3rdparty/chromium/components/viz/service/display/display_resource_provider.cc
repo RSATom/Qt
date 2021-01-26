@@ -21,6 +21,7 @@
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/context_support.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
+#include "gpu/command_buffer/common/shared_image_trace_utils.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "ui/gl/trace_util.h"
 
@@ -117,7 +118,7 @@ bool DisplayResourceProvider::OnMemoryDump(
     if (resource.transferable.is_software)
       backing_memory_allocated = !!resource.shared_bitmap;
     else
-      backing_memory_allocated = !!resource.gl_id;
+      backing_memory_allocated = resource.gl_id != 0 || resource.image_context;
 
     if (!backing_memory_allocated) {
       // Don't log unallocated resources - they have no backing memory.
@@ -144,28 +145,23 @@ bool DisplayResourceProvider::OnMemoryDump(
 
     // Resources may be shared across processes and require a shared GUID to
     // prevent double counting the memory.
-    base::trace_event::MemoryAllocatorDumpGuid guid;
-    base::UnguessableToken shared_memory_guid;
-    if (resource.transferable.is_software) {
-      shared_memory_guid = resource.shared_bitmap_tracing_guid;
-    } else {
-      guid = gl::GetGLTextureClientGUIDForTracing(
-          compositor_context_provider_->ContextSupport()
-              ->ShareGroupTracingGUID(),
-          resource.gl_id);
-    }
-
-    DCHECK(!shared_memory_guid.is_empty() || !guid.empty());
 
     // The client that owns the resource will use a higher importance (2), and
     // the GPU service will use a lower one (0).
-    const int importance = 1;
-    if (!shared_memory_guid.is_empty()) {
-      pmd->CreateSharedMemoryOwnershipEdge(dump->guid(), shared_memory_guid,
-                                           importance);
+    constexpr int kImportance = 1;
+
+    if (resource.transferable.is_software) {
+      pmd->CreateSharedMemoryOwnershipEdge(
+          dump->guid(), resource.shared_bitmap_tracing_guid, kImportance);
     } else {
+      // Shared ownership edges for legacy mailboxes aren't supported.
+      if (!resource.transferable.mailbox_holder.mailbox.IsSharedImage())
+        continue;
+
+      auto guid = GetSharedImageGUIDForTracing(
+          resource.transferable.mailbox_holder.mailbox);
       pmd->CreateSharedGlobalAllocatorDump(guid);
-      pmd->AddOwnershipEdge(dump->guid(), guid, importance);
+      pmd->AddOwnershipEdge(dump->guid(), guid, kImportance);
     }
   }
 
@@ -300,13 +296,12 @@ void DisplayResourceProvider::WaitSyncToken(ResourceId id) {
 #endif
 }
 
-int DisplayResourceProvider::CreateChild(const ReturnCallback& return_callback,
-                                         bool needs_sync_tokens) {
+int DisplayResourceProvider::CreateChild(
+    const ReturnCallback& return_callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   Child child_info;
   child_info.return_callback = return_callback;
-  child_info.needs_sync_tokens = needs_sync_tokens;
   int child = next_child_++;
   children_[child] = child_info;
   return child;
@@ -386,6 +381,13 @@ void DisplayResourceProvider::DeclareUsedResourcesFromChild(
       unused.push_back(local_id);
   }
   DeleteAndReturnUnusedResourcesToChild(child_it, NORMAL, unused);
+}
+
+gpu::Mailbox DisplayResourceProvider::GetMailbox(int resource_id) {
+  ChildResource* resource = TryGetResource(resource_id);
+  if (!resource)
+    return gpu::Mailbox();
+  return resource->transferable.mailbox_holder.mailbox;
 }
 
 const std::unordered_map<ResourceId, ResourceId>&
@@ -701,7 +703,7 @@ void DisplayResourceProvider::DeleteAndReturnUnusedResourcesToChild(
                            resource.imported_count, is_lost);
     auto& returned = to_return.back();
 
-    if (resource.is_gpu_resource_type() && child_info->needs_sync_tokens) {
+    if (resource.is_gpu_resource_type()) {
       if (resource.needs_sync_token()) {
         need_synchronization_resources.push_back(&returned);
       } else if (returned.sync_token.HasData() &&
@@ -720,14 +722,12 @@ void DisplayResourceProvider::DeleteAndReturnUnusedResourcesToChild(
 
   gpu::SyncToken new_sync_token;
   if (!need_synchronization_resources.empty()) {
-    DCHECK(child_info->needs_sync_tokens);
     DCHECK(gl);
     gl->GenUnverifiedSyncTokenCHROMIUM(new_sync_token.GetData());
     unverified_sync_tokens.push_back(new_sync_token.GetData());
   }
 
   if (!unverified_sync_tokens.empty()) {
-    DCHECK(child_info->needs_sync_tokens);
     DCHECK(gl);
     gl->VerifySyncTokensCHROMIUM(unverified_sync_tokens.data(),
                                  unverified_sync_tokens.size());
@@ -774,11 +774,17 @@ void DisplayResourceProvider::DestroyChildInternal(ChildMap::iterator it,
 void DisplayResourceProvider::SetBatchReturnResources(bool batch) {
   if (batch) {
     DCHECK_GE(batch_return_resources_lock_count_, 0);
+    if (!scoped_batch_read_access_) {
+      scoped_batch_read_access_ =
+          std::make_unique<ScopedBatchReadAccess>(ContextGL());
+    }
     batch_return_resources_lock_count_++;
   } else {
     DCHECK_GT(batch_return_resources_lock_count_, 0);
     batch_return_resources_lock_count_--;
     if (batch_return_resources_lock_count_ == 0) {
+      DCHECK(scoped_batch_read_access_);
+      scoped_batch_read_access_.reset();
       for (auto& child_resources_kv : batched_returning_resources_) {
         auto child_it = children_.find(child_resources_kv.first);
 
@@ -956,8 +962,7 @@ DisplayResourceProvider::LockSetForExternalUse::~LockSetForExternalUse() {
 ExternalUseClient::ImageContext*
 DisplayResourceProvider::LockSetForExternalUse::LockResource(
     ResourceId id,
-    bool is_video_plane,
-    float sdr_scale_factor) {
+    bool is_video_plane) {
   auto it = resource_provider_->resources_.find(id);
   DCHECK(it != resource_provider_->resources_.end());
 
@@ -968,43 +973,17 @@ DisplayResourceProvider::LockSetForExternalUse::LockResource(
     DCHECK(!base::Contains(resources_, std::make_pair(id, &resource)));
     resources_.emplace_back(id, &resource);
 
-    // Ignore sdr_scale_factor for video planes, if the src color space
-    // is invalid, or if it's already HDR.
-    const gfx::ColorSpace& original_src = resource.transferable.color_space;
-    if (is_video_plane || !original_src.IsValid() || original_src.IsHDR()) {
-      sdr_scale_factor = 1.0f;
-    }
-
-    if (resource.image_context &&
-        resource.image_context->sdr_scale_factor() != sdr_scale_factor) {
-      // Must rebuild the image context with a new color space, which requires
-      // releasing the old image context on the GPU main thread.
-      std::vector<std::unique_ptr<ExternalUseClient::ImageContext>> to_release;
-      to_release.push_back(std::move(resource.image_context));
-      resource_provider_->external_use_client_->ReleaseImageContexts(
-          std::move(to_release));
-    }
-
     if (!resource.image_context) {
-      sk_sp<SkColorSpace> src_color_space;
-      if (!is_video_plane) {
-        if (sdr_scale_factor != 1.0f) {
-          src_color_space = original_src.GetScaledColorSpace(sdr_scale_factor)
-                                .ToSkColorSpace();
-        } else {
-          src_color_space = original_src.ToSkColorSpace();
-        }
-      }
-      // Else the resource |color_space| is handled externally in SkiaRenderer
-      // using a special color filter.
-
+      sk_sp<SkColorSpace> image_color_space;
+      // Video color conversion is handled externally in SkiaRenderer using a
+      // special color filter.
+      if (!is_video_plane)
+        image_color_space = resource.transferable.color_space.ToSkColorSpace();
       resource.image_context =
           resource_provider_->external_use_client_->CreateImageContext(
               resource.transferable.mailbox_holder, resource.transferable.size,
               resource.transferable.format, resource.transferable.ycbcr_info,
-              std::move(src_color_space));
-      // Save the SDR scale, in order to cache the scaled SkColorSpace
-      resource.image_context->set_sdr_scale_factor(sdr_scale_factor);
+              std::move(image_color_space));
     }
     resource.locked_for_external_use = true;
 
@@ -1112,6 +1091,18 @@ void DisplayResourceProvider::ChildResource::UpdateSyncToken(
   // the gpu process or in case of context loss.
   sync_token_ = sync_token;
   synchronization_state_ = sync_token.HasData() ? NEEDS_WAIT : SYNCHRONIZED;
+}
+
+DisplayResourceProvider::ScopedBatchReadAccess::ScopedBatchReadAccess(
+    gpu::gles2::GLES2Interface* gl)
+    : gl_(gl) {
+  if (gl_)
+    gl_->BeginBatchReadAccessSharedImageCHROMIUM();
+}
+
+DisplayResourceProvider::ScopedBatchReadAccess::~ScopedBatchReadAccess() {
+  if (gl_)
+    gl_->EndBatchReadAccessSharedImageCHROMIUM();
 }
 
 }  // namespace viz

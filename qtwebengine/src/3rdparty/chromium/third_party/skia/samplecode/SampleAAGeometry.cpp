@@ -15,6 +15,7 @@
 #include "src/core/SkPointPriv.h"
 #include "src/pathops/SkIntersections.h"
 #include "src/pathops/SkOpEdgeBuilder.h"
+#include "tools/ToolUtils.h"
 
 #if 0
 void SkStrokeSegment::dump() const {
@@ -123,78 +124,6 @@ static SkScalar get_path_weight(int index, const SkPath& path) {
     }
     SkASSERT(0);
     return 0;
-}
-
-static void set_path_pt(int index, const SkPoint& pt, SkPath* path) {
-    SkPath result;
-    SkPoint pts[4];
-    SkPath::Verb verb;
-    SkPath::RawIter iter(*path);
-    int startIndex = 0;
-    int endIndex = 0;
-    while ((verb = iter.next(pts)) != SkPath::kDone_Verb) {
-        switch (verb) {
-            case SkPath::kMove_Verb:
-                endIndex += 1;
-                break;
-            case SkPath::kLine_Verb:
-                endIndex += 1;
-                break;
-            case SkPath::kQuad_Verb:
-            case SkPath::kConic_Verb:
-                endIndex += 2;
-                break;
-            case SkPath::kCubic_Verb:
-                endIndex += 3;
-                break;
-            case SkPath::kClose_Verb:
-                break;
-            case SkPath::kDone_Verb:
-                break;
-            default:
-                SkASSERT(0);
-        }
-        if (startIndex <= index && index < endIndex) {
-            pts[index - startIndex] = pt;
-            index = -1;
-        }
-        switch (verb) {
-            case SkPath::kMove_Verb:
-                result.moveTo(pts[0]);
-                break;
-            case SkPath::kLine_Verb:
-                result.lineTo(pts[1]);
-                startIndex += 1;
-                break;
-            case SkPath::kQuad_Verb:
-                result.quadTo(pts[1], pts[2]);
-                startIndex += 2;
-                break;
-            case SkPath::kConic_Verb:
-                result.conicTo(pts[1], pts[2], iter.conicWeight());
-                startIndex += 2;
-                break;
-            case SkPath::kCubic_Verb:
-                result.cubicTo(pts[1], pts[2], pts[3]);
-                startIndex += 3;
-                break;
-            case SkPath::kClose_Verb:
-                result.close();
-                startIndex += 1;
-                break;
-            case SkPath::kDone_Verb:
-                break;
-            default:
-                SkASSERT(0);
-        }
-    }
-#if 0
-    SkDebugf("\n\noriginal\n");
-    path->dump();
-    SkDebugf("\nedited\n");
-    result.dump();
-#endif
-    *path = result;
 }
 
 static void add_path_segment(int index, SkPath* path) {
@@ -464,7 +393,7 @@ static void add_to_map(SkScalar coverage, int x, int y, uint8_t* distanceMap, in
     }
     SkASSERT(x < w);
     SkASSERT(y < h);
-    distanceMap[y * w + x] = SkTMax(distanceMap[y * w + x], (uint8_t) byteCoverage);
+    distanceMap[y * w + x] = std::max(distanceMap[y * w + x], (uint8_t) byteCoverage);
 }
 
 static void filter_coverage(const uint8_t* map, int len, uint8_t min, uint8_t max,
@@ -989,7 +918,7 @@ public:
     bool scaleToFit() {
         SkMatrix matrix;
         SkRect bounds = fPath.getBounds();
-        SkScalar scale = SkTMin(this->width() / bounds.width(), this->height() / bounds.height())
+        SkScalar scale = std::min(this->width() / bounds.width(), this->height() / bounds.height())
                 * 0.8f;
         matrix.setScale(scale, scale, bounds.centerX(), bounds.centerY());
         fPath.transform(matrix);
@@ -1297,16 +1226,16 @@ public:
                 return -radius;
         }
         rotated.fY /= SkScalarSqrt(lenSq);
-        return SkTMax(-radius, SkTMin(radius, rotated.fY));
+        return std::max(-radius, std::min(radius, rotated.fY));
     }
 
     // given a line, compute the interior and exterior gradient coverage
     bool coverage(SkPoint s, SkPoint e, uint8_t* distanceMap, int w, int h) {
         SkScalar radius = fWidthControl.fValLo;
-        int minX = SkTMax(0, (int) (SkTMin(s.fX, e.fX) - radius));
-        int minY = SkTMax(0, (int) (SkTMin(s.fY, e.fY) - radius));
-        int maxX = SkTMin(w, (int) (SkTMax(s.fX, e.fX) + radius) + 1);
-        int maxY = SkTMin(h, (int) (SkTMax(s.fY, e.fY) + radius) + 1);
+        int minX = std::max(0, (int) (std::min(s.fX, e.fX) - radius));
+        int minY = std::max(0, (int) (std::min(s.fY, e.fY) - radius));
+        int maxX = std::min(w, (int) (std::max(s.fX, e.fX) + radius) + 1);
+        int maxY = std::min(h, (int) (std::max(s.fY, e.fY) + radius) + 1);
         for (int y = minY; y < maxY; ++y) {
             for (int x = minX; x < maxX; ++x) {
                 SkScalar ptToLineDist = pt_to_line(s, e, x, y);
@@ -1642,7 +1571,7 @@ public:
     }
 
     static SkScalar MapScreenYtoValue(int y, const UniControl& control) {
-        return SkTMin(1.f, SkTMax(0.f,
+        return std::min(1.f, std::max(0.f,
                 SkIntToScalar(y) - control.fBounds.fTop) / control.fBounds.height())
                 * (control.fMax - control.fMin) + control.fMin;
     }
@@ -1656,7 +1585,7 @@ public:
                 SkPoint pt = fPath.getPoint((int) myClick->fControl);
                 pt.offset(SkIntToScalar(click->fCurr.fX - click->fPrev.fX),
                         SkIntToScalar(click->fCurr.fY - click->fPrev.fY));
-                set_path_pt(fActivePt, pt, &fPath);
+                ToolUtils::set_path_pt(fActivePt, pt, &fPath);
                 validatePath();
                 return true;
                 }
@@ -1686,9 +1615,9 @@ public:
                     case MyClick::kFilterControl: {
                         SkScalar val = MapScreenYtoValue(click->fCurr.fY, fFilterControl);
                         if (val - fFilterControl.fValLo < fFilterControl.fValHi - val) {
-                            fFilterControl.fValLo = SkTMax(0.f, val);
+                            fFilterControl.fValLo = std::max(0.f, val);
                         } else {
-                            fFilterControl.fValHi = SkTMin(255.f, val);
+                            fFilterControl.fValHi = std::min(255.f, val);
                         }
                         } break;
                     case MyClick::kResControl:

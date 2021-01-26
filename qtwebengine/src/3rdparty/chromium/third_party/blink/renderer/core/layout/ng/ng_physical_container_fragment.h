@@ -14,9 +14,12 @@
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
+#include <iterator>
+
 namespace blink {
 
 class NGContainerFragmentBuilder;
+class NGFragmentItem;
 struct NGPhysicalOutOfFlowPositionedNode;
 enum class NGOutlineType;
 
@@ -30,7 +33,7 @@ class CORE_EXPORT NGPhysicalContainerFragment : public NGPhysicalFragment {
     PostLayoutChildLinkList(wtf_size_t count, const NGLink* buffer)
         : count_(count), buffer_(buffer) {}
 
-    class ConstIterator {
+    class ConstIterator : public std::iterator<std::input_iterator_tag, const NGLink> {
       STACK_ALLOCATED();
 
      public:
@@ -148,6 +151,19 @@ class CORE_EXPORT NGPhysicalContainerFragment : public NGPhysicalFragment {
                               NGLink* buffer,
                               NGFragmentType,
                               unsigned sub_type);
+
+  void AddScrollableOverflowForInlineChild(
+      const NGPhysicalBoxFragment& container,
+      const ComputedStyle& container_style,
+      const NGFragmentItem& line,
+      bool has_hanging,
+      const NGInlineCursor& cursor,
+      PhysicalRect* overflow) const;
+
+  static void AdjustScrollableOverflowForHanging(
+      const PhysicalRect& rect,
+      const WritingMode container_writing_mode,
+      PhysicalRect* overflow);
 
   void AddOutlineRectsForNormalChildren(
       Vector<PhysicalRect>* outline_rects,

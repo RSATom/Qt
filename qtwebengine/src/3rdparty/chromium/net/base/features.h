@@ -137,6 +137,12 @@ NET_EXPORT extern const base::Feature
 NET_EXPORT extern const base::FeatureParam<int>
     kRecentCreationTimeGrantsLegacyCookieSemanticsMilliseconds;
 
+// When enabled, blocks external requests coming from non-secure contexts. An
+// external request is a request that crosses a network boundary from a more
+// public address space into a less public address space.
+NET_EXPORT extern const base::Feature
+    kBlockExternalRequestsFromNonSecureInitiators;
+
 #if BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)
 // When enabled, use the builtin cert verifier instead of the platform verifier.
 NET_EXPORT extern const base::Feature kCertVerifierBuiltinFeature;
@@ -149,6 +155,29 @@ NET_EXPORT extern const base::Feature
 
 // Turns off streaming media caching to disk.
 NET_EXPORT extern const base::Feature kTurnOffStreamingMediaCaching;
+
+// When enabled, sites that use TLS versions below the |version_min_warn|
+// threshold are marked with the LEGACY_TLS CertStatus and return an
+// ERR_SSL_OBSOLETE_VERSION error. This is used to trigger an interstitial
+// warning for these pages.
+NET_EXPORT extern const base::Feature kLegacyTLSEnforced;
+
+// When enabled this feature will cause same-site calculations to take into
+// account the scheme of the site-for-cookies and the request/response url.
+NET_EXPORT extern const base::Feature kSchemefulSameSite;
+
+// When enabled, TLS connections will initially not offer 3DES and SHA-1 but
+// enable them on fallback. This is used to improve metrics around usage of
+// those algorithms. If disabled, the algorithms will always be offered.
+NET_EXPORT extern const base::Feature kTLSLegacyCryptoFallbackForMetrics;
+
+// Enables a process-wide limit on "open" UDP sockets. See
+// udp_socket_global_limits.h for details on what constitutes an "open" socket.
+NET_EXPORT extern const base::Feature kLimitOpenUDPSockets;
+// FeatureParams associated with kLimitOpenUDPSockets.
+// Sets the maximum allowed open UDP sockets. Provisioning more sockets than
+// this will result in a failure (ERR_INSUFFICIENT_RESOURCES).
+NET_EXPORT extern const base::FeatureParam<int> kLimitOpenUDPSocketsMax;
 
 }  // namespace features
 }  // namespace net

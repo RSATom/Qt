@@ -1,4 +1,4 @@
-TARGET = clip2tri
+TARGET = qt_clip2tri
 
 CONFIG += staticlib exceptions warn_off optimize_full
 
@@ -18,5 +18,5 @@ gcc {
 HEADERS += clip2tri.h
 SOURCES += clip2tri.cpp
 
-LIBS_PRIVATE += -L$$MODULE_BASE_OUTDIR/lib -lpoly2tri$$qtPlatformTargetSuffix() -lclipper$$qtPlatformTargetSuffix()
+LIBS_PRIVATE += -L$$MODULE_BASE_OUTDIR/lib -lqt_poly2tri$$qtPlatformTargetSuffix() -lqt_clipper$$qtPlatformTargetSuffix()
 

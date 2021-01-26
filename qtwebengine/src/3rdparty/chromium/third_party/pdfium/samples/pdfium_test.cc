@@ -135,6 +135,7 @@ struct Options {
   bool linux_no_system_fonts = false;
 #endif
   OutputFormat output_format = OUTPUT_NONE;
+  std::string password;
   std::string scale_factor_as_string;
   std::string exe_path;
   std::string bin_directory;
@@ -217,10 +218,9 @@ FPDF_FORMFILLINFO_PDFiumTest* ToPDFiumTestFormFillInfo(
   return static_cast<FPDF_FORMFILLINFO_PDFiumTest*>(form_fill_info);
 }
 
-void OutputMD5Hash(const char* file_name, const char* buffer, int len) {
+void OutputMD5Hash(const char* file_name, const uint8_t* buffer, int len) {
   // Get the MD5 hash and write it to stdout.
-  std::string hash =
-      GenerateMD5Base16(reinterpret_cast<const uint8_t*>(buffer), len);
+  std::string hash = GenerateMD5Base16(buffer, len);
   printf("MD5:%s:%s\n", file_name, hash.c_str());
 }
 
@@ -307,7 +307,12 @@ void ExampleDocSubmitForm(IPDF_JSPLATFORM*,
                           void* formData,
                           int length,
                           FPDF_WIDESTRING url) {
-  printf("Doc Submit Form: url=%ls\n", GetPlatformWString(url).c_str());
+  printf("Doc Submit Form: url=%ls + %d data bytes:\n",
+         GetPlatformWString(url).c_str(), length);
+  uint8_t* ptr = reinterpret_cast<uint8_t*>(formData);
+  for (int i = 0; i < length; ++i)
+    printf(" %02x", ptr[i]);
+  printf("\n");
 }
 
 void ExampleDocGotoPage(IPDF_JSPLATFORM*, int page_number) {
@@ -322,6 +327,18 @@ int ExampleFieldBrowse(IPDF_JSPLATFORM*, void* file_path, int length) {
   return kRequired;
 }
 #endif  // PDF_ENABLE_V8
+
+#ifdef PDF_ENABLE_XFA
+FPDF_BOOL ExamplePopupMenu(FPDF_FORMFILLINFO* pInfo,
+                           FPDF_PAGE page,
+                           FPDF_WIDGET always_null,
+                           int flags,
+                           float x,
+                           float y) {
+  printf("Popup: x=%2.1f, y=%2.1f, flags=0x%x\n", x, y, flags);
+  return true;
+}
+#endif  // PDF_ENABLE_XFA
 
 void ExampleUnsupportedHandler(UNSUPPORT_INFO*, int type) {
   std::string feature = "Unknown";
@@ -367,6 +384,17 @@ void ExampleUnsupportedHandler(UNSUPPORT_INFO*, int type) {
   printf("Unsupported feature: %s.\n", feature.c_str());
 }
 
+// |arg| is expected to be "--key=value", and |key| is "--key=".
+bool ParseSwitchKeyValue(const std::string& arg,
+                         const std::string& key,
+                         std::string* value) {
+  if (arg.size() <= key.size() || arg.compare(0, key.size(), key) != 0)
+    return false;
+
+  *value = arg.substr(key.size());
+  return true;
+}
+
 bool ParseCommandLine(const std::vector<std::string>& args,
                       Options* options,
                       std::vector<std::string>* files) {
@@ -375,6 +403,7 @@ bool ParseCommandLine(const std::vector<std::string>& args,
 
   options->exe_path = args[0];
   size_t cur_idx = 1;
+  std::string value;
   for (; cur_idx < args.size(); ++cur_idx) {
     const std::string& cur_arg = args[cur_idx];
     if (cur_arg == "--show-config") {
@@ -465,13 +494,12 @@ bool ParseCommandLine(const std::vector<std::string>& args,
       }
       options->output_format = OUTPUT_SKP;
 #endif  // PDF_ENABLE_SKIA
-    } else if (cur_arg.size() > 11 &&
-               cur_arg.compare(0, 11, "--font-dir=") == 0) {
+    } else if (ParseSwitchKeyValue(cur_arg, "--font-dir=", &value)) {
       if (!options->font_directory.empty()) {
         fprintf(stderr, "Duplicate --font-dir argument\n");
         return false;
       }
-      std::string path = cur_arg.substr(11);
+      std::string path = value;
       auto expanded_path = ExpandDirectoryPath(path);
       if (!expanded_path) {
         fprintf(stderr, "Failed to expand --font-dir, %s\n", path.c_str());
@@ -515,13 +543,12 @@ bool ParseCommandLine(const std::vector<std::string>& args,
 
 #ifdef PDF_ENABLE_V8
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
-    } else if (cur_arg.size() > 10 &&
-               cur_arg.compare(0, 10, "--bin-dir=") == 0) {
+    } else if (ParseSwitchKeyValue(cur_arg, "--bin-dir=", &value)) {
       if (!options->bin_directory.empty()) {
         fprintf(stderr, "Duplicate --bin-dir argument\n");
         return false;
       }
-      std::string path = cur_arg.substr(10);
+      std::string path = value;
       auto expanded_path = ExpandDirectoryPath(path);
       if (!expanded_path) {
         fprintf(stderr, "Failed to expand --bin-dir, %s\n", path.c_str());
@@ -531,12 +558,18 @@ bool ParseCommandLine(const std::vector<std::string>& args,
 #endif  // V8_USE_EXTERNAL_STARTUP_DATA
 #endif  // PDF_ENABLE_V8
 
-    } else if (cur_arg.size() > 8 && cur_arg.compare(0, 8, "--scale=") == 0) {
+    } else if (ParseSwitchKeyValue(cur_arg, "--password=", &value)) {
+      if (!options->password.empty()) {
+        fprintf(stderr, "Duplicate --password argument\n");
+        return false;
+      }
+      options->password = value;
+    } else if (ParseSwitchKeyValue(cur_arg, "--scale=", &value)) {
       if (!options->scale_factor_as_string.empty()) {
         fprintf(stderr, "Duplicate --scale argument\n");
         return false;
       }
-      options->scale_factor_as_string = cur_arg.substr(8);
+      options->scale_factor_as_string = value;
     } else if (cur_arg == "--show-pageinfo") {
       if (options->output_format != OUTPUT_NONE) {
         fprintf(stderr, "Duplicate or conflicting --show-pageinfo argument\n");
@@ -549,13 +582,13 @@ bool ParseCommandLine(const std::vector<std::string>& args,
         return false;
       }
       options->output_format = OUTPUT_STRUCTURE;
-    } else if (cur_arg.size() > 8 && cur_arg.compare(0, 8, "--pages=") == 0) {
+    } else if (ParseSwitchKeyValue(cur_arg, "--pages=", &value)) {
       if (options->pages) {
         fprintf(stderr, "Duplicate --pages argument\n");
         return false;
       }
       options->pages = true;
-      const std::string pages_string = cur_arg.substr(8);
+      const std::string pages_string = value;
       size_t first_dash = pages_string.find("-");
       if (first_dash == std::string::npos) {
         std::stringstream(pages_string) >> options->first_page;
@@ -568,12 +601,12 @@ bool ParseCommandLine(const std::vector<std::string>& args,
       }
     } else if (cur_arg == "--md5") {
       options->md5 = true;
-    } else if (cur_arg.size() > 7 && cur_arg.compare(0, 7, "--time=") == 0) {
+    } else if (ParseSwitchKeyValue(cur_arg, "--time=", &value)) {
       if (options->time > -1) {
         fprintf(stderr, "Duplicate --time argument\n");
         return false;
       }
-      const std::string time_string = cur_arg.substr(7);
+      const std::string time_string = value;
       std::stringstream(time_string) >> options->time;
       if (options->time < 0) {
         fprintf(stderr, "Invalid --time argument, must be non-negative\n");
@@ -694,8 +727,8 @@ bool RenderPage(const std::string& name,
   if (!options.scale_factor_as_string.empty())
     std::stringstream(options.scale_factor_as_string) >> scale;
 
-  auto width = static_cast<int>(FPDF_GetPageWidth(page) * scale);
-  auto height = static_cast<int>(FPDF_GetPageHeight(page) * scale);
+  auto width = static_cast<int>(FPDF_GetPageWidthF(page) * scale);
+  auto height = static_cast<int>(FPDF_GetPageHeightF(page) * scale);
   int alpha = FPDFPage_HasTransparency(page) ? 1 : 0;
   ScopedFPDFBitmap bitmap(FPDFBitmap_Create(width, height, alpha));
 
@@ -726,8 +759,7 @@ bool RenderPage(const std::string& name,
       FPDF_RenderPage_Close(page);
 
     int stride = FPDFBitmap_GetStride(bitmap.get());
-    const char* buffer =
-        reinterpret_cast<const char*>(FPDFBitmap_GetBuffer(bitmap.get()));
+    void* buffer = FPDFBitmap_GetBuffer(bitmap.get());
 
     std::string image_file_name;
     switch (options.output_format) {
@@ -779,8 +811,10 @@ bool RenderPage(const std::string& name,
 
     // Write the filename and the MD5 of the buffer to stdout if we wrote a
     // file.
-    if (options.md5 && !image_file_name.empty())
-      OutputMD5Hash(image_file_name.c_str(), buffer, stride * height);
+    if (options.md5 && !image_file_name.empty()) {
+      OutputMD5Hash(image_file_name.c_str(),
+                    static_cast<const uint8_t*>(buffer), stride * height);
+    }
   } else {
     fprintf(stderr, "Page was too large to be rendered.\n");
   }
@@ -816,13 +850,15 @@ void RenderPdf(const std::string& name,
   // |doc| must outlive |form_callbacks.loaded_pages|.
   ScopedFPDFDocument doc;
 
+  const char* password =
+      options.password.empty() ? nullptr : options.password.c_str();
   bool is_linearized = false;
   if (options.use_load_mem_document) {
-    doc.reset(FPDF_LoadMemDocument(buf, len, nullptr));
+    doc.reset(FPDF_LoadMemDocument(buf, len, password));
   } else {
     if (FPDFAvail_IsLinearized(pdf_avail.get()) == PDF_LINEARIZED) {
       int avail_status = PDF_DATA_NOTAVAIL;
-      doc.reset(FPDFAvail_GetDocument(pdf_avail.get(), nullptr));
+      doc.reset(FPDFAvail_GetDocument(pdf_avail.get(), password));
       if (doc) {
         while (avail_status == PDF_DATA_NOTAVAIL)
           avail_status = FPDFAvail_IsDocAvail(pdf_avail.get(), &hints);
@@ -842,7 +878,7 @@ void RenderPdf(const std::string& name,
         is_linearized = true;
       }
     } else {
-      doc.reset(FPDF_LoadCustomDocument(&file_access, nullptr));
+      doc.reset(FPDF_LoadCustomDocument(&file_access, password));
     }
   }
 
@@ -879,6 +915,9 @@ void RenderPdf(const std::string& name,
   FPDF_FORMFILLINFO_PDFiumTest form_callbacks = {};
 #ifdef PDF_ENABLE_XFA
   form_callbacks.version = 2;
+  form_callbacks.xfa_disabled =
+      options.disable_xfa || options.disable_javascript;
+  form_callbacks.FFI_PopupMenu = ExamplePopupMenu;
 #else   // PDF_ENABLE_XFA
   form_callbacks.version = 1;
 #endif  // PDF_ENABLE_XFA

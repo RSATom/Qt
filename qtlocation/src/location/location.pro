@@ -45,4 +45,4 @@ HEADERS += $$PUBLIC_HEADERS $$PRIVATE_HEADERS
 
 load(qt_module)
 
-LIBS_PRIVATE += -L$$MODULE_BASE_OUTDIR/lib -lclip2tri$$qtPlatformTargetSuffix()
+LIBS_PRIVATE += -L$$MODULE_BASE_OUTDIR/lib -lqt_clip2tri$$qtPlatformTargetSuffix()

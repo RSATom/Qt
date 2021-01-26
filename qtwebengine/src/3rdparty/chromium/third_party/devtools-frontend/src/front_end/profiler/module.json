@@ -49,7 +49,8 @@
             "toggledIconClass": "largeicon-stop-recording",
             "toggleWithRedColor": true,
             "className": "Profiler.LiveHeapProfileView.ActionDelegate",
-            "category": "Performance",
+            "category": "Memory",
+            "experiment": "liveHeapProfile",
             "options": [
                 {
                     "value": true,
@@ -66,13 +67,16 @@
             "actionId": "live-heap-profile.start-with-reload",
             "iconClass": "largeicon-refresh",
             "className": "Profiler.LiveHeapProfileView.ActionDelegate",
-            "category": "Performance",
+            "category": "Memory",
+            "experiment": "liveHeapProfile",
             "title": "Start recording heap allocations and reload the page"
         },
         {
             "type": "action",
             "actionId": "profiler.heap-toggle-recording",
+            "category": "Memory",
             "iconClass": "largeicon-start-recording",
+            "title": "Start/stop recording",
             "toggleable": true,
             "toggledIconClass": "largeicon-stop-recording",
             "toggleWithRedColor": true,
@@ -94,6 +98,8 @@
         {
             "type": "action",
             "actionId": "profiler.js-toggle-recording",
+            "category": "JavaScript Profiler",
+            "title": "Start/stop recording",
             "iconClass": "largeicon-start-recording",
             "toggleable": true,
             "toggledIconClass": "largeicon-stop-recording",
@@ -121,14 +127,18 @@
         "heap_snapshot_model",
         "object_ui"
     ],
-    "scripts": [
-        "ProfileType.js",
+    "scripts": [],
+    "modules": [
+        "profiler.js",
+        "profiler-legacy.js",
         "ProfileHeader.js",
         "ProfilesPanel.js",
         "ProfileView.js",
         "ProfileDataGrid.js",
+        "ProfileSidebarTreeElement.js",
         "BottomUpProfileDataGrid.js",
         "TopDownProfileDataGrid.js",
+        "ChildrenProvider.js",
         "CPUProfileFlameChart.js",
         "CPUProfileView.js",
         "HeapProfileView.js",

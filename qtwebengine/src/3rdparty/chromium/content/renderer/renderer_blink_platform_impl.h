@@ -52,6 +52,10 @@ namespace network {
 class SharedURLLoaderFactory;
 }
 
+namespace viz {
+class RasterContextProvider;
+}
+
 namespace content {
 class ChildURLLoaderFactoryBundle;
 class ThreadSafeSender;
@@ -124,7 +128,7 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   scoped_refptr<media::AudioCapturerSource> NewAudioCapturerSource(
       blink::WebLocalFrame* web_frame,
       const media::AudioSourceParameters& params) override;
-  viz::ContextProvider* SharedMainThreadContextProvider() override;
+  viz::RasterContextProvider* SharedMainThreadContextProvider() override;
 #if BUILDFLAG(ENABLE_WEBRTC)
   bool RTCSmoothnessAlgorithmEnabled() override;
   base::Optional<double> GetWebRtcMaxCaptureFrameRate() override;
@@ -139,7 +143,7 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   bool UsesFakeCodecForPeerConnection() override;
   bool IsWebRtcEncryptionEnabled() override;
   bool IsWebRtcStunOriginEnabled() override;
-  base::Optional<std::string> WebRtcStunProbeTrialParameter() override;
+  base::Optional<blink::WebString> WebRtcStunProbeTrialParameter() override;
   media::MediaPermission* GetWebRTCMediaPermission(
       blink::WebLocalFrame* web_frame) override;
   void GetWebRTCRendererPreferences(blink::WebLocalFrame* web_frame,
@@ -173,9 +177,6 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   blink::WebString ConvertIDNToUnicode(const blink::WebString& host) override;
   void SetDisplayThreadPriority(base::PlatformThreadId thread_id) override;
   blink::BlameContext* GetTopLevelBlameContext() override;
-  void RecordRappor(const char* metric,
-                    const blink::WebString& sample) override;
-  void RecordRapporURL(const char* metric, const blink::WebURL& url) override;
 
   std::unique_ptr<blink::WebDedicatedWorkerHostFactoryClient>
   CreateDedicatedWorkerHostFactoryClient(

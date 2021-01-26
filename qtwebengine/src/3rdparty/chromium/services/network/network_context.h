@@ -94,8 +94,11 @@ class MdnsResponderManager;
 class NSSTempCertsCacheChromeOS;
 class P2PSocketManager;
 class ProxyLookupRequest;
+class QuicTransport;
 class ResourceScheduler;
 class ResourceSchedulerClient;
+class SQLiteTrustTokenPersister;
+class PendingTrustTokenStore;
 class WebSocketFactory;
 
 namespace cors {
@@ -187,7 +190,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
       mojo::PendingReceiver<mojom::RestrictedCookieManager> receiver,
       mojom::RestrictedCookieManagerRole role,
       const url::Origin& origin,
-      const GURL& site_for_cookies,
+      const net::SiteForCookies& site_for_cookies,
       const url::Origin& top_frame_origin,
       bool is_service_worker,
       int32_t process_id,
@@ -284,7 +287,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   void CreateWebSocket(
       const GURL& url,
       const std::vector<std::string>& requested_protocols,
-      const GURL& site_for_cookies,
+      const net::SiteForCookies& site_for_cookies,
       const net::NetworkIsolationKey& network_isolation_key,
       std::vector<mojom::HttpHeaderPtr> additional_headers,
       int32_t process_id,
@@ -316,6 +319,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
       const std::string& ocsp_result,
       const std::string& sct_list,
       VerifyCertForSignedExchangeCallback callback) override;
+  void ParseContentSecurityPolicy(
+      const GURL& base_url,
+      const scoped_refptr<net::HttpResponseHeaders>& headers,
+      ParseContentSecurityPolicyCallback callback) override;
   void AddHSTS(const std::string& host,
                base::Time expiry,
                bool include_subdomains,
@@ -402,6 +409,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   // no open pipes.
   void DestroyURLLoaderFactory(cors::CorsURLLoaderFactory* url_loader_factory);
 
+  // Removes |transport| and destroys it.
+  void Remove(QuicTransport* transport);
+
   // The following methods are used to track the number of requests per process
   // and ensure it doesn't go over a reasonable limit.
   void LoaderCreated(uint32_t process_id);
@@ -461,6 +471,22 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
 
   const net::HttpAuthPreferences* GetHttpAuthPreferences() const noexcept;
 
+  size_t NumOpenQuicTransports() const;
+
+  size_t num_url_loader_factories_for_testing() const {
+    return url_loader_factories_.size();
+  }
+
+  // Maintains Trust Tokens protocol state
+  // (https://github.com/WICG/trust-token-api). Used by URLLoader to check
+  // preconditions before annotating requests with protocol-related headers
+  // and to store information conveyed in the corresponding responses.
+  //
+  // May return null if Trust Tokens support is disabled.
+  PendingTrustTokenStore* trust_token_store() {
+    return trust_token_store_.get();
+  }
+
  private:
   URLRequestContextOwner MakeURLRequestContext();
 
@@ -510,6 +536,13 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
 
   void InitializeCorsParams();
 
+  // If |trust_token_store_| is backed by an asynchronously-constructed (e.g.,
+  // SQL-based) persistence layer, |FinishConstructingTrustTokenStore|
+  // constructs and populates |trust_token_store_| once the persister's
+  // asynchronous initialization has finished.
+  void FinishConstructingTrustTokenStore(
+      std::unique_ptr<SQLiteTrustTokenPersister> persister);
+
   NetworkService* const network_service_;
 
   mojo::Remote<mojom::NetworkContextClient> client_;
@@ -545,6 +578,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   mojo::UniqueReceiverSet<mojom::ProxyResolvingSocketFactory>
       proxy_resolving_socket_factories_;
 
+  // See the comment for |trust_token_store()|.
+  std::unique_ptr<PendingTrustTokenStore> trust_token_store_;
+
 #if !defined(OS_IOS)
   std::unique_ptr<WebSocketFactory> websocket_factory_;
 #endif  // !defined(OS_IOS)
@@ -561,6 +597,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   std::set<std::unique_ptr<cors::CorsURLLoaderFactory>,
            base::UniquePtrComparator>
       url_loader_factories_;
+
+  std::set<std::unique_ptr<QuicTransport>, base::UniquePtrComparator>
+      quic_transports_;
 
   // A count of outstanding requests per initiating process.
   std::map<uint32_t, uint32_t> loader_count_per_process_;
@@ -668,6 +707,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   // `http_auth_merged_preferences_` which would then be used to create
   // HttpAuthHandle via |NetworkContext::CreateHttpAuthHandlerFactory|.
   net::HttpAuthPreferences http_auth_merged_preferences_;
+
+  base::WeakPtrFactory<NetworkContext> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(NetworkContext);
 };

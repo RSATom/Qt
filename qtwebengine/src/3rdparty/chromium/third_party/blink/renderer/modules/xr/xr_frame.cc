@@ -42,6 +42,7 @@ XRFrame::XRFrame(XRSession* session, XRWorldInformation* world_information)
 
 XRViewerPose* XRFrame::getViewerPose(XRReferenceSpace* reference_space,
                                      ExceptionState& exception_state) const {
+  DVLOG(3) << __func__;
   if (!is_active_) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       kInactiveFrame);
@@ -55,6 +56,7 @@ XRViewerPose* XRFrame::getViewerPose(XRReferenceSpace* reference_space,
   }
 
   if (!reference_space) {
+    DVLOG(1) << __func__ << ": reference space not present, returning null";
     return nullptr;
   }
 
@@ -72,18 +74,24 @@ XRViewerPose* XRFrame::getViewerPose(XRReferenceSpace* reference_space,
 
   session_->LogGetPose();
 
-  std::unique_ptr<TransformationMatrix> pose =
-      reference_space->SpaceFromViewerWithDefaultAndOffset(
-          mojo_from_viewer_.get());
-  if (!pose) {
+  std::unique_ptr<TransformationMatrix> offset_space_from_viewer =
+      reference_space->OffsetFromViewer();
+
+  // Can only update an XRViewerPose's views with an invertible matrix.
+  if (!(offset_space_from_viewer && offset_space_from_viewer->IsInvertible())) {
+    DVLOG(1) << __func__
+             << ": offset_space_from_viewer is invalid or not invertible - "
+                "returning nullptr, offset_space_from_viewer valid? "
+             << (offset_space_from_viewer ? true : false);
     return nullptr;
   }
 
-  return MakeGarbageCollected<XRViewerPose>(session(), *pose);
+  return MakeGarbageCollected<XRViewerPose>(session(),
+                                            *offset_space_from_viewer);
 }
 
 XRAnchorSet* XRFrame::trackedAnchors() const {
-  return session_->trackedAnchors();
+  return session_->TrackedAnchors();
 }
 
 // Return an XRPose that has a transform of basespace_from_space, while
@@ -121,13 +129,7 @@ XRPose* XRFrame::getPose(XRSpace* space,
     return nullptr;
   }
 
-  return space->getPose(basespace, mojo_from_viewer_.get());
-}
-
-void XRFrame::SetMojoFromViewer(const TransformationMatrix& mojo_from_viewer,
-                                bool emulated_position) {
-  mojo_from_viewer_ = std::make_unique<TransformationMatrix>(mojo_from_viewer);
-  emulated_position_ = emulated_position;
+  return space->getPose(basespace);
 }
 
 void XRFrame::Deactivate() {
@@ -164,7 +166,44 @@ XRFrame::getHitTestResultsForTransientInput(
   return hit_test_source->Results();
 }
 
-void XRFrame::Trace(blink::Visitor* visitor) {
+ScriptPromise XRFrame::createAnchor(ScriptState* script_state,
+                                    XRRigidTransform* initial_pose,
+                                    XRSpace* space,
+                                    ExceptionState& exception_state) {
+  DVLOG(2) << __func__;
+
+  if (!is_active_) {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      kInactiveFrame);
+    return {};
+  }
+
+  if (!initial_pose) {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      XRSession::kNoRigidTransformSpecified);
+    return {};
+  }
+
+  if (!space) {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      XRSession::kNoSpaceSpecified);
+    return {};
+  }
+
+  auto maybe_mojo_from_offset_space = space->MojoFromOffsetMatrix();
+
+  if (!maybe_mojo_from_offset_space) {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      XRSession::kUnableToRetrieveMatrix);
+    return ScriptPromise();
+  }
+
+  return session_->CreateAnchor(script_state, initial_pose->TransformMatrix(),
+                                *maybe_mojo_from_offset_space, base::nullopt,
+                                exception_state);
+}
+
+void XRFrame::Trace(Visitor* visitor) {
   visitor->Trace(session_);
   visitor->Trace(world_information_);
   ScriptWrappable::Trace(visitor);

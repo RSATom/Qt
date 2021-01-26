@@ -99,7 +99,8 @@ TextureState::TextureState(TextureType type)
       mBaseLevel(0),
       mMaxLevel(1000),
       mDepthStencilTextureMode(GL_DEPTH_COMPONENT),
-      mBoundAsImageTexture(false),
+      mSamplerBindingCount(0),
+      mImageBindingCount(0),
       mImmutableFormat(false),
       mImmutableLevels(0),
       mUsage(GL_NONE),
@@ -270,7 +271,7 @@ SamplerFormat TextureState::computeRequiredSamplerFormat(const SamplerState &sam
 }
 
 bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
-                                              const State &data) const
+                                              const State &state) const
 {
     if (mBaseLevel > mMaxLevel)
     {
@@ -297,12 +298,13 @@ bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
     // filter state of multisample texture is ignored(11.1.3.3). So it shouldn't be judged as
     // incomplete texture. So, we ignore filtering for multisample texture completeness here.
     if (!IsMultisampled(mType) &&
-        !baseImageDesc.format.info->filterSupport(data.getClientVersion(), data.getExtensions()) &&
+        !baseImageDesc.format.info->filterSupport(state.getClientVersion(),
+                                                  state.getExtensions()) &&
         !IsPointSampled(samplerState))
     {
         return false;
     }
-    bool npotSupport = data.getExtensions().textureNPOT || data.getClientMajorVersion() >= 3;
+    bool npotSupport = state.getExtensions().textureNPOTOES || state.getClientMajorVersion() >= 3;
     if (!npotSupport)
     {
         if ((samplerState.getWrapS() != GL_CLAMP_TO_EDGE &&
@@ -342,15 +344,20 @@ bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
     // to that unit, the behavior of the implementation is as if the texture were incomplete. For
     // example, if TEXTURE_WRAP_S or TEXTURE_WRAP_T is set to anything but CLAMP_TO_EDGE on the
     // sampler object bound to a texture unit and the texture bound to that unit is an external
-    // texture, the texture will be considered incomplete.
-    // Sampler object state which does not affect sampling for the type of texture bound to a
-    // texture unit, such as TEXTURE_WRAP_R for an external texture, does not affect completeness.
+    // texture and EXT_EGL_image_external_wrap_modes is not enabled, the texture will be considered
+    // incomplete.
+    // Sampler object state which does not affect sampling for the type of texture bound
+    // to a texture unit, such as TEXTURE_WRAP_R for an external texture, does not affect
+    // completeness.
     if (mType == TextureType::External)
     {
-        if (samplerState.getWrapS() != GL_CLAMP_TO_EDGE ||
-            samplerState.getWrapT() != GL_CLAMP_TO_EDGE)
+        if (!state.getExtensions().eglImageExternalWrapModesEXT)
         {
-            return false;
+            if (samplerState.getWrapS() != GL_CLAMP_TO_EDGE ||
+                samplerState.getWrapT() != GL_CLAMP_TO_EDGE)
+            {
+                return false;
+            }
         }
 
         if (samplerState.getMinFilter() != GL_LINEAR && samplerState.getMinFilter() != GL_NEAREST)
@@ -365,7 +372,7 @@ bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
     // MODE is NONE, and either the magnification filter is not NEAREST or the mini-
     // fication filter is neither NEAREST nor NEAREST_MIPMAP_NEAREST.
     if (!IsMultisampled(mType) && baseImageDesc.format.info->depthBits > 0 &&
-        data.getClientMajorVersion() >= 3)
+        state.getClientMajorVersion() >= 3)
     {
         // Note: we restrict this validation to sized types. For the OES_depth_textures
         // extension, due to some underspecification problems, we must allow linear filtering
@@ -639,7 +646,7 @@ void TextureState::clearImageDescs()
 }
 
 Texture::Texture(rx::GLImplFactory *factory, TextureID id, TextureType type)
-    : RefCountObject(id),
+    : RefCountObject(factory->generateSerial(), id),
       mState(type),
       mTexture(factory->createTexture(mState)),
       mImplObserver(this, rx::kTextureImageImplObserverMessageIndex),
@@ -929,6 +936,12 @@ const TextureState &Texture::getTextureState() const
     return mState;
 }
 
+const gl::Extents &Texture::getExtents(TextureTarget target, size_t level) const
+{
+    ASSERT(TextureTargetToType(target) == mState.mType);
+    return mState.getImageDesc(target, level).size;
+}
+
 size_t Texture::getWidth(TextureTarget target, size_t level) const
 {
     ASSERT(TextureTargetToType(target) == mState.mType);
@@ -1179,7 +1192,27 @@ angle::Result Texture::copySubImage(Context *context,
 {
     ASSERT(TextureTargetToType(index.getTarget()) == mState.mType);
 
-    Box destBox(destOffset.x, destOffset.y, destOffset.z, sourceArea.width, sourceArea.height, 1);
+    // Most if not all renderers clip these copies to the size of the source framebuffer, leaving
+    // other pixels untouched. For safety in robust resource initialization, assume that that
+    // clipping is going to occur when computing the region for which to ensure initialization. If
+    // the copy lies entirely off the source framebuffer, initialize as though a zero-size box is
+    // going to be set during the copy operation. Note that this assumes that
+    // ensureSubImageInitialized ensures initialization of the entire destination texture, and not
+    // just a sub-region.
+    Box destBox;
+    if (context->isRobustResourceInitEnabled())
+    {
+        Extents fbSize = source->getReadColorAttachment()->getSize();
+        Rectangle clippedArea;
+        if (ClipRectangle(sourceArea, Rectangle(0, 0, fbSize.width, fbSize.height), &clippedArea))
+        {
+            const Offset clippedOffset(destOffset.x + clippedArea.x - sourceArea.x,
+                                       destOffset.y + clippedArea.y - sourceArea.y, 0);
+            destBox = Box(clippedOffset.x, clippedOffset.y, clippedOffset.z, clippedArea.width,
+                          clippedArea.height, 1);
+        }
+    }
+
     ANGLE_TRY(
         ensureSubImageInitialized(context, index.getTarget(), index.getLevelIndex(), destBox));
 
@@ -1846,6 +1879,8 @@ angle::Result Texture::ensureSubImageInitialized(const Context *context,
                                 area.depth == desc.size.depth;
         if (!coversWholeImage)
         {
+            // NOTE: do not optimize this to only initialize the passed area of the texture, or the
+            // initialization logic in copySubImage will be incorrect.
             ANGLE_TRY(initializeContents(context, imageIndex));
         }
         setInitState(imageIndex, InitState::Initialized);
@@ -1914,13 +1949,13 @@ angle::Result Texture::getTexImage(const Context *context,
                                  pixels);
 }
 
-void Texture::onBindImageTexture()
+void Texture::onBindAsImageTexture()
 {
-    if (!mState.mBoundAsImageTexture)
+    if (!mState.isBoundAsImageTexture())
     {
         mDirtyBits.set(DIRTY_BIT_BOUND_AS_IMAGE);
-        mState.mBoundAsImageTexture = true;
     }
+    mState.mImageBindingCount++;
 }
 
 }  // namespace gl

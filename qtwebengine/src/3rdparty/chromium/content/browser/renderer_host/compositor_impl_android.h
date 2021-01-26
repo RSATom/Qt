@@ -104,13 +104,15 @@ class CONTENT_EXPORT CompositorImpl
   ui::ResourceManager& GetResourceManager() override;
   void CacheBackBufferForCurrentSurface() override;
   void EvictCachedBackBuffer() override;
+  void RequestPresentationTimeForNextFrame(
+      PresentationTimeCallback callback) override;
 
   // LayerTreeHostClient implementation.
   void WillBeginMainFrame() override {}
   void DidBeginMainFrame() override {}
   void WillUpdateLayers() override {}
   void DidUpdateLayers() override;
-  void BeginMainFrame(const viz::BeginFrameArgs& args) override {}
+  void BeginMainFrame(const viz::BeginFrameArgs& args) override;
   void OnDeferMainFrameUpdatesChanged(bool) override {}
   void OnDeferCommitsChanged(bool) override {}
   void BeginMainFrameNotExpectedSoon() override {}
@@ -128,7 +130,7 @@ class CONTENT_EXPORT CompositorImpl
   void DidInitializeLayerTreeFrameSink() override;
   void DidFailToInitializeLayerTreeFrameSink() override;
   void WillCommit() override {}
-  void DidCommit() override;
+  void DidCommit(base::TimeTicks) override;
   void DidCommitAndDrawFrame() override {}
   void DidReceiveCompositorFrameAck() override;
   void DidCompletePageScaleAnimation() override {}
@@ -136,7 +138,9 @@ class CONTENT_EXPORT CompositorImpl
       uint32_t frame_token,
       const gfx::PresentationFeedback& feedback) override {}
   void RecordStartOfFrameMetrics() override {}
-  void RecordEndOfFrameMetrics(base::TimeTicks frame_begin_time) override {}
+  void RecordEndOfFrameMetrics(
+      base::TimeTicks frame_begin_time,
+      cc::ActiveFrameSequenceTrackers trackers) override {}
   std::unique_ptr<cc::BeginMainFrameMetrics> GetBeginMainFrameMetrics()
       override;
 
@@ -221,7 +225,7 @@ class CONTENT_EXPORT CompositorImpl
   std::unique_ptr<cc::LayerTreeHost> host_;
   ui::ResourceManagerImpl resource_manager_;
 
-  gfx::ColorSpace display_color_space_;
+  gfx::DisplayColorSpaces display_color_spaces_;
   gfx::Size size_;
   bool requires_alpha_channel_ = false;
 
@@ -247,7 +251,6 @@ class CONTENT_EXPORT CompositorImpl
   bool layer_tree_frame_sink_request_pending_;
 
   gpu::Capabilities gpu_capabilities_;
-  bool has_layer_tree_frame_sink_ = false;
   std::unordered_set<viz::FrameSinkId, viz::FrameSinkIdHash>
       pending_child_frame_sink_ids_;
   bool has_submitted_frame_since_became_visible_ = false;
@@ -264,6 +267,8 @@ class CONTENT_EXPORT CompositorImpl
       swap_completed_with_size_for_testing_;
 
   size_t num_of_consecutive_surface_failures_ = 0u;
+
+  base::TimeTicks latest_frame_time_;
 
   base::WeakPtrFactory<CompositorImpl> weak_factory_{this};
 

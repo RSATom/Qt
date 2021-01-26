@@ -41,22 +41,6 @@
  * Casts
  */
 
-/* Cast to struct T, reference to reference */
-template<typename Type, typename TObject>
-static inline const Type& CastR(const TObject &X)
-{ return reinterpret_cast<const Type&> (X); }
-template<typename Type, typename TObject>
-static inline Type& CastR(TObject &X)
-{ return reinterpret_cast<Type&> (X); }
-
-/* Cast to struct T, pointer to pointer */
-template<typename Type, typename TObject>
-static inline const Type* CastP(const TObject *X)
-{ return reinterpret_cast<const Type*> (X); }
-template<typename Type, typename TObject>
-static inline Type* CastP(TObject *X)
-{ return reinterpret_cast<Type*> (X); }
-
 /* StructAtOffset<T>(P,Ofs) returns the struct T& that is placed at memory
  * location pointed to by P plus Ofs bytes. */
 template<typename Type>
@@ -70,7 +54,7 @@ static inline const Type& StructAtOffsetUnaligned(const void *P, unsigned int of
 {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-align"
-  return * reinterpret_cast<Type*> ((char *) P + offset);
+  return * reinterpret_cast<const Type*> ((const char *) P + offset);
 #pragma GCC diagnostic pop
 }
 template<typename Type>

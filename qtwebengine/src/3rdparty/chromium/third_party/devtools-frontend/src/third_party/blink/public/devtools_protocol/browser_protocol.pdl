@@ -447,6 +447,10 @@ experimental domain ApplicationCache
 experimental domain Audits
   depends on Network
 
+  type Issue extends object
+    properties
+      string code
+
   # Returns the response body and size if it were re-encoded with the specified settings. Only
   # applies to images.
   command getEncodedResponse
@@ -469,6 +473,17 @@ experimental domain Audits
       integer originalSize
       # Size after re-encoding.
       integer encodedSize
+
+  # Disables issues domain, prevents further issues from being reported to the client.
+  command disable
+
+  # Enables issues domain, sends the issues collected so far to the client by means of the
+  # `issueAdded` event.
+  command enable
+
+  event issueAdded
+    parameters
+      Issue issue
 
 # Defines events for background web platform features.
 experimental domain BackgroundService
@@ -573,8 +588,8 @@ domain Browser
       audioCapture
       backgroundSync
       backgroundFetch
-      clipboardRead
-      clipboardWrite
+      clipboardReadWrite
+      clipboardSanitizedWrite
       durableStorage
       flash
       geolocation
@@ -611,6 +626,8 @@ domain Browser
       optional boolean userVisibleOnly
       # For "wake-lock" permission, must specify type as either "screen" or "system".
       optional string type
+      # For "clipboard" permission, may specify allowWithoutSanitization.
+      optional boolean allowWithoutSanitization
 
   # Set permission settings for given origin.
   experimental command setPermission
@@ -1242,6 +1259,8 @@ experimental domain CSS
   command takeCoverageDelta
     returns
       array of RuleUsage coverage
+      # Monotonically increasing time, in seconds.
+      number timestamp
 
   # Fires whenever a web font is updated.  A non-empty font parameter indicates a successfully loaded
   # web font
@@ -1467,6 +1486,7 @@ domain DOM
       first-letter
       before
       after
+      marker
       backdrop
       selection
       first-line-inherited
@@ -1647,6 +1667,21 @@ domain DOM
     returns
       # Node description.
       Node node
+
+  # Scrolls the specified rect of the given node into view if not already visible.
+  # Note: exactly one between nodeId, backendNodeId and objectId should be passed
+  # to identify the node.
+  experimental command scrollIntoViewIfNeeded
+    parameters
+      # Identifier of the node.
+      optional NodeId nodeId
+      # Identifier of the backend node.
+      optional BackendNodeId backendNodeId
+      # JavaScript object id of the node wrapper.
+      optional Runtime.RemoteObjectId objectId
+      # The rect to be scrolled into view, relative to the node's border box, in CSS pixels.
+      # When omitted, center of the node will be used, similar to Element.scrollIntoView.
+      optional Rect rect
 
   # Disables DOM agent for the given page.
   command disable
@@ -2810,6 +2845,22 @@ domain Emulation
       # Media features to emulate.
       optional array of MediaFeature features
 
+  # Emulates the given vision deficiency.
+  experimental command setEmulatedVisionDeficiency
+    parameters
+      # Vision deficiency to emulate.
+      enum type
+        none
+        achromatomaly
+        achromatopsia
+        blurredVision
+        deuteranomaly
+        deuteranopia
+        protanomaly
+        protanopia
+        tritanomaly
+        tritanopia
+
   # Overrides the Geolocation Position or Error. Omitting any of the parameters emulates position
   # unavailable.
   command setGeolocationOverride
@@ -2866,6 +2917,13 @@ domain Emulation
     returns
       # Absolute timestamp at which virtual time was first enabled (up time in milliseconds).
       number virtualTimeTicksBase
+
+  # Overrides default host system locale with the specified one.
+  experimental command setLocaleOverride
+    parameters
+      # ICU style C locale (e.g. "en_US"). If not specified or empty, disables the override and
+      # restores default host system locale.
+      optional string locale
 
   # Overrides default host system timezone with the specified one.
   experimental command setTimezoneOverride
@@ -3203,6 +3261,15 @@ domain Input
       touch
       mouse
 
+  type MouseButton extends string
+    enum
+        none
+        left
+        middle
+        right
+        back
+        forward
+
   # UTC time in seconds, counted from January 1, 1970.
   type TimeSinceEpoch extends number
 
@@ -3274,13 +3341,7 @@ domain Input
       # Time at which the event occurred.
       optional TimeSinceEpoch timestamp
       # Mouse button (default: "none").
-      optional enum button
-        none
-        left
-        middle
-        right
-        back
-        forward
+      optional MouseButton button
       # A number indicating which buttons are pressed on the mouse when a mouse event is triggered.
       # Left=1, Right=2, Middle=4, Back=8, Forward=16, None=0.
       optional integer buttons
@@ -3328,12 +3389,8 @@ domain Input
       integer x
       # Y coordinate of the mouse pointer in DIP.
       integer y
-      # Mouse button.
-      enum button
-        none
-        left
-        middle
-        right
+      # Mouse button. Only "none", "left", "right" are supported.
+      MouseButton button
       # Time at which the event occurred (default: current time).
       optional TimeSinceEpoch timestamp
       # X delta in DIP for mouse wheel event (default: 0).
@@ -3522,7 +3579,9 @@ experimental domain LayerTree
       LayerId layerId
     returns
       # A list of strings specifying reasons for the given layer to become composited.
-      array of string compositingReasons
+      deprecated array of string compositingReasons
+      # A list of strings specifying reason IDs for the given layer to become composited.
+      array of string compositingReasonIds
 
   # Disables compositing tree inspection.
   command disable
@@ -3863,6 +3922,14 @@ domain Network
       Lax
       None
 
+  # Represents the cookie's 'Priority' status:
+  # https://tools.ietf.org/html/draft-west-cookie-priority-00
+  experimental type CookiePriority extends string
+    enum
+      Low
+      Medium
+      High
+
   # Timing information for the request.
   type ResourceTiming extends object
     properties
@@ -4009,6 +4076,11 @@ domain Network
       subresource-filter
       content-type
       collapsed-by-client
+      coep-frame-resource-needs-coep-header
+      coop-sandboxed-iframe-cannot-navigate-to-coop-page
+      corp-not-same-origin
+      corp-not-same-origin-after-defaulted-to-same-origin-by-coep
+      corp-not-same-site
 
   # HTTP response data.
   type Response extends object
@@ -4141,6 +4213,8 @@ domain Network
       boolean session
       # Cookie SameSite type.
       optional CookieSameSite sameSite
+      # Cookie Priority
+      experimental CookiePriority priority
 
   # Types of reasons why a cookie may not be stored from a response.
   experimental type SetCookieBlockedReason extends string
@@ -4247,6 +4321,8 @@ domain Network
       optional CookieSameSite sameSite
       # Cookie expiration date, session cookie if not set
       optional TimeSinceEpoch expires
+      # Cookie Priority.
+      experimental optional CookiePriority priority
 
   # Authorization challenge for HTTP status code 401 or 407.
   experimental type AuthChallenge extends object
@@ -4589,6 +4665,8 @@ domain Network
       optional CookieSameSite sameSite
       # Cookie expiration date, session cookie if not set
       optional TimeSinceEpoch expires
+      # Cookie Priority type.
+      experimental optional CookiePriority priority
     returns
       # True if successfully set cookie.
       boolean success
@@ -5231,6 +5309,12 @@ domain Page
       # Error column.
       integer column
 
+  # Parsed app manifest properties.
+  experimental type AppManifestParsedProperties extends object
+    properties
+      # Computed scope value
+      string scope
+
   # Layout viewport position and dimensions.
   type LayoutViewport extends object
     properties
@@ -5312,6 +5396,34 @@ domain Page
       metaTagRefresh
       pageBlockInterstitial
       reload
+      anchorClick
+
+  experimental type InstallabilityErrorArgument extends object
+    properties
+      # Argument name (e.g. name:'minimum-icon-size-in-pixels').
+      string name
+      # Argument value (e.g. value:'64').
+      string value
+
+  # The installability error
+  experimental type InstallabilityError extends object
+    properties
+      # The error id (e.g. 'manifest-missing-suitable-icon').
+      string errorId
+      # The list of error arguments (e.g. {name:'minimum-icon-size-in-pixels', value:'64'}).
+      array of InstallabilityErrorArgument errorArguments
+
+  # The referring-policy used for the navigation.
+  experimental type ReferrerPolicy extends string
+    enum
+      noReferrer
+      noReferrerWhenDowngrade
+      origin
+      originWhenCrossOrigin
+      sameOrigin
+      strictOrigin
+      strictOriginWhenCrossOrigin
+      unsafeUrl
 
   # Deprecated, please use addScriptToEvaluateOnNewDocument instead.
   experimental deprecated command addScriptToEvaluateOnLoad
@@ -5416,10 +5528,16 @@ domain Page
       array of AppManifestError errors
       # Manifest content.
       optional string data
+      # Parsed manifest properties
+      experimental optional AppManifestParsedProperties parsed
 
   experimental command getInstallabilityErrors
     returns
-      array of string errors
+      array of InstallabilityError installabilityErrors
+
+  experimental command getManifestIcons
+    returns
+      optional binary primaryIcon
 
   # Returns all browser cookies. Depending on the backend support, will return detailed cookie
   # information in the `cookies` field.
@@ -5496,6 +5614,8 @@ domain Page
       optional TransitionType transitionType
       # Frame id to navigate, if not specified navigates the top frame.
       optional FrameId frameId
+      # Referrer-policy used for the navigation.
+      experimental optional ReferrerPolicy referrerPolicy
     returns
       # Frame id that has navigated (or failed to navigate)
       FrameId frameId
@@ -5864,14 +5984,7 @@ domain Page
       # guaranteed to start.
       number delay
       # The reason for the navigation.
-      enum reason
-        formSubmissionGet
-        formSubmissionPost
-        httpHeaderRefresh
-        scriptInitiated
-        metaTagRefresh
-        pageBlockInterstitial
-        reload
+      ClientNavigationReason reason
       # The destination URL for the scheduled navigation.
       string url
 
@@ -6001,11 +6114,18 @@ domain Performance
 
   # Enable collecting and reporting metrics.
   command enable
+    parameters
+      # Time domain to use for collecting and reporting duration metrics.
+      optional enum timeDomain
+        # Use monotonically increasing abstract time (default).
+        timeTicks
+        # Use thread running time.
+        threadTicks
 
   # Sets time domain to use for collecting and reporting duration metrics.
   # Note that this must be called before enabling metrics collection. Calling
   # this method while metrics collection is enabled returns an error.
-  experimental command setTimeDomain
+  experimental deprecated command setTimeDomain
     parameters
       # Time domain
       enum timeDomain
@@ -6667,6 +6787,9 @@ domain Target
   # Creates a new empty BrowserContext. Similar to an incognito profile but you can have more than
   # one.
   experimental command createBrowserContext
+    parameters
+      # If specified, disposes this context when debugging session disconnects.
+      optional boolean disposeOnDetach
     returns
       # The id of the context created.
       Browser.BrowserContextID browserContextId
@@ -6752,8 +6875,6 @@ domain Target
       # We plan to make this the default, deprecate non-flattened mode,
       # and eventually retire it. See crbug.com/991325.
       optional boolean flatten
-      # Auto-attach to the targets created via window.open from current target.
-      experimental optional boolean windowOpen
 
   # Controls whether to discover available targets and notify via
   # `targetCreated/targetInfoChanged/targetDestroyed` events.
@@ -7498,8 +7619,8 @@ experimental domain Media
   # Break out events into different types
   type PlayerEventType extends string
     enum
-      playbackEvent
-      systemEvent
+      errorEvent
+      triggeredEvent
       messageEvent
 
   type PlayerEvent extends object

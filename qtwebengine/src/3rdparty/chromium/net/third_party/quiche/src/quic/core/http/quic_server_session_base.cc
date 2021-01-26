@@ -22,7 +22,7 @@ QuicServerSessionBase::QuicServerSessionBase(
     const ParsedQuicVersionVector& supported_versions,
     QuicConnection* connection,
     Visitor* visitor,
-    QuicCryptoServerStream::Helper* helper,
+    QuicCryptoServerStreamBase::Helper* helper,
     const QuicCryptoServerConfig* crypto_config,
     QuicCompressedCertsCache* compressed_certs_cache)
     : QuicSpdySession(connection, visitor, config, supported_versions),
@@ -36,8 +36,8 @@ QuicServerSessionBase::QuicServerSessionBase(
 QuicServerSessionBase::~QuicServerSessionBase() {}
 
 void QuicServerSessionBase::Initialize() {
-  crypto_stream_.reset(
-      CreateQuicCryptoServerStream(crypto_config_, compressed_certs_cache_));
+  crypto_stream_ =
+      CreateQuicCryptoServerStream(crypto_config_, compressed_certs_cache_);
   QuicSpdySession::Initialize();
 }
 
@@ -201,6 +201,17 @@ bool QuicServerSessionBase::ShouldCreateIncomingStream(QuicStreamId id) {
     return false;
   }
 
+  if (GetQuicReloadableFlag(quic_create_incoming_stream_bug)) {
+    if (QuicUtils::IsServerInitiatedStreamId(transport_version(), id)) {
+      QUIC_RELOADABLE_FLAG_COUNT_N(quic_create_incoming_stream_bug, 1, 2);
+      QUIC_BUG << "ShouldCreateIncomingStream called with server initiated "
+                  "stream ID.";
+      return false;
+    } else {
+      QUIC_RELOADABLE_FLAG_COUNT_N(quic_create_incoming_stream_bug, 2, 2);
+    }
+  }
+
   if (QuicUtils::IsServerInitiatedStreamId(transport_version(), id)) {
     QUIC_DLOG(INFO) << "Invalid incoming even stream_id:" << id;
     connection()->CloseConnection(
@@ -222,16 +233,6 @@ bool QuicServerSessionBase::ShouldCreateOutgoingBidirectionalStream() {
     return false;
   }
 
-  if (!GetQuicReloadableFlag(quic_use_common_stream_check) &&
-      !VersionHasIetfQuicFrames(transport_version())) {
-    if (GetNumOpenOutgoingStreams() >=
-        stream_id_manager().max_open_outgoing_streams()) {
-      QUIC_VLOG(1) << "No more streams should be created. "
-                   << "Already " << GetNumOpenOutgoingStreams() << " open.";
-      return false;
-    }
-  }
-  QUIC_RELOADABLE_FLAG_COUNT_N(quic_use_common_stream_check, 2, 2);
   return CanOpenNextOutgoingBidirectionalStream();
 }
 
@@ -244,16 +245,6 @@ bool QuicServerSessionBase::ShouldCreateOutgoingUnidirectionalStream() {
   if (!crypto_stream_->encryption_established()) {
     QUIC_BUG << "Encryption not established so no outgoing stream created.";
     return false;
-  }
-
-  if (!GetQuicReloadableFlag(quic_use_common_stream_check) &&
-      !VersionHasIetfQuicFrames(transport_version())) {
-    if (GetNumOpenOutgoingStreams() >=
-        stream_id_manager().max_open_outgoing_streams()) {
-      QUIC_VLOG(1) << "No more streams should be created. "
-                   << "Already " << GetNumOpenOutgoingStreams() << " open.";
-      return false;
-    }
   }
 
   return CanOpenNextOutgoingUnidirectionalStream();

@@ -34,9 +34,7 @@ js_library("viewer-bookmark") {
 }
 
 js_library("viewer-error-screen") {
-  deps = [
-    "//ui/webui/resources/cr_elements/cr_dialog:cr_dialog.m",
-  ]
+  deps = [ "//ui/webui/resources/cr_elements/cr_dialog:cr_dialog.m" ]
 }
 
 if (is_chromeos) {
@@ -64,15 +62,11 @@ js_library("viewer-page-indicator") {
 }
 
 js_library("viewer-page-selector") {
-  deps = [
-    "//ui/webui/resources/cr_elements/cr_input:cr_input.m",
-  ]
+  deps = [ "//ui/webui/resources/cr_elements/cr_input:cr_input.m" ]
 }
 
 js_library("viewer-password-screen") {
-  deps = [
-    "//ui/webui/resources/cr_elements/cr_input:cr_input.m",
-  ]
+  deps = [ "//ui/webui/resources/cr_elements/cr_input:cr_input.m" ]
 }
 
 js_library("viewer-pdf-toolbar") {
@@ -95,7 +89,7 @@ js_library("viewer-toolbar-dropdown") {
 js_library("viewer-zoom-toolbar") {
   deps = [
     ":viewer-zoom-button",
-    "..:pdf_fitting_type",
+    "..:constants",
     "//ui/webui/resources/js:assert.m",
   ]
 }
@@ -189,7 +183,7 @@ polymer_modulizer("icons") {
 }
 
 group("polymer3_elements") {
-  deps = [
+  public_deps = [
     ":icons_module",
     ":shared-vars_module",
     ":viewer-bookmark_module",
@@ -203,7 +197,7 @@ group("polymer3_elements") {
     ":viewer-zoom-toolbar_module",
   ]
   if (is_chromeos) {
-    deps += [
+    public_deps += [
       ":viewer-form-warning_module",
       ":viewer-ink-host_module",
       ":viewer-pen-options_module",

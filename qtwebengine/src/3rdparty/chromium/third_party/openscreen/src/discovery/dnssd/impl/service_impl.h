@@ -10,13 +10,11 @@
 #include "discovery/dnssd/impl/publisher_impl.h"
 #include "discovery/dnssd/impl/querier_impl.h"
 #include "discovery/dnssd/public/dns_sd_service.h"
+#include "platform/base/interface_info.h"
 
 namespace openscreen {
-namespace platform {
 
 class TaskRunner;
-
-}
 
 namespace discovery {
 
@@ -24,18 +22,22 @@ class MdnsService;
 
 class ServiceImpl final : public DnsSdService {
  public:
-  explicit ServiceImpl(TaskRunner* task_runner);
+  ServiceImpl(TaskRunner* task_runner,
+              ReportingClient* reporting_client,
+              const Config& config);
   ~ServiceImpl() override;
 
   // DnsSdService overrides.
-  DnsSdQuerier* Querier() override { return &querier_; }
-  DnsSdPublisher* Publisher() override { return &publisher_; }
+  DnsSdQuerier* GetQuerier() override { return querier_.get(); }
+  DnsSdPublisher* GetPublisher() override { return publisher_.get(); }
 
  private:
+  TaskRunner* const task_runner_;
+
   std::unique_ptr<MdnsService> mdns_service_;
 
-  QuerierImpl querier_;
-  PublisherImpl publisher_;
+  std::unique_ptr<QuerierImpl> querier_;
+  std::unique_ptr<PublisherImpl> publisher_;
 };
 
 }  // namespace discovery

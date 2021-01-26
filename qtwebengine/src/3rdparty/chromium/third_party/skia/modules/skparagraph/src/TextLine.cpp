@@ -7,7 +7,6 @@
 #include "include/core/SkMaskFilter.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/effects/SkDiscretePathEffect.h"
-#include "src/core/SkMakeUnique.h"
 
 namespace skia {
 namespace textlayout {
@@ -17,8 +16,8 @@ namespace {
 // TODO: deal with all the intersection functionality
 TextRange intersected(const TextRange& a, const TextRange& b) {
     if (a.start == b.start && a.end == b.end) return a;
-    auto begin = SkTMax(a.start, b.start);
-    auto end = SkTMin(a.end, b.end);
+    auto begin = std::max(a.start, b.start);
+    auto end = std::min(a.end, b.end);
     return end >= begin ? TextRange(begin, end) : EMPTY_TEXT;
 }
 
@@ -29,14 +28,19 @@ SkScalar littleRound(SkScalar a) {
 
 int compareRound(SkScalar a, SkScalar b) {
     // There is a rounding error that gets bigger when maxWidth gets bigger
-    // Currently, with VERY long zalgo text (> 100000) on a VERY long line (> 10000)
-    // it grows bigger that this little trick can hide
-    // TODO: deal with it eventually
+    // VERY long zalgo text (> 100000) on a VERY long line (> 10000)
+    // Canvas scaling affects it
+    // Letter spacing affects it
+    // It has to be relative to be useful
+    auto base = std::max(SkScalarAbs(a), SkScalarAbs(b));
+    auto diff = SkScalarAbs(a - b);
+    if (nearlyZero(base) || diff / base < 0.001f) {
+        return 0;
+    }
+
     auto ra = littleRound(a);
     auto rb = littleRound(b);
-    if (ra == rb) {
-        return 0;
-    } else if (ra < rb) {
+    if (ra < rb) {
         return -1;
     } else {
         return 1;
@@ -97,6 +101,7 @@ TextLine::TextLine(ParagraphImpl* master,
     for (auto runIndex = start.runIndex(); runIndex <= end.runIndex(); ++runIndex) {
         auto& run = fMaster->run(runIndex);
         runLevels.emplace_back(run.fBidiLevel);
+        fMaxRunMetrics.add(InternalLineMetrics(run.fFontMetrics.fAscent, run.fFontMetrics.fDescent, run.fFontMetrics.fLeading));
     }
 
     std::vector<int32_t> logicalOrder(numRuns);
@@ -114,6 +119,71 @@ TextLine::TextLine(ParagraphImpl* master,
             break;
         }
     }
+}
+
+SkRect TextLine::calculateBoundaries() {
+
+    auto boundaries = SkRect::MakeIWH(fAdvance.fX, fAdvance.fY);
+    auto clusters = fMaster->clusters(fClusterRange);
+    Run* run = nullptr;
+    auto runShift = 0.0f;
+    auto clusterShift = 0.0f;
+    for (auto cluster = clusters.begin(); cluster != clusters.end(); ++cluster) {
+        if (run == nullptr || cluster->runIndex() != run->index()) {
+            run = &fMaster->run(cluster->runIndex());
+            runShift += clusterShift;
+            clusterShift = 0;
+        }
+        clusterShift += cluster->width();
+        for (auto i = cluster->startPos(); i < cluster->endPos(); ++i) {
+            auto posX = run->positionX(i);
+            auto posY = run->posY(i);
+            auto bounds = run->getBounds(i);
+            bounds.offset(posX + runShift, posY);
+            boundaries.joinPossiblyEmptyRect(bounds);
+        }
+    }
+
+    // We need to take in account all the shadows when we calculate the boundaries
+    // TODO: Need to find a better solution
+    if (fHasShadows) {
+        SkRect shadowRect = SkRect::MakeEmpty();
+        this->iterateThroughVisualRuns(false,
+            [this, &shadowRect, boundaries]
+            (const Run* run, SkScalar runOffsetInLine, TextRange textRange, SkScalar* runWidthInLine) {
+            *runWidthInLine = this->iterateThroughSingleRunByStyles(
+                run, runOffsetInLine, textRange, StyleType::kShadow,
+                [&shadowRect, boundaries](TextRange textRange, const TextStyle& style, const ClipContext& context) {
+
+                    for (TextShadow shadow : style.getShadows()) {
+                        if (!shadow.hasShadow()) continue;
+                        SkPaint paint;
+                        paint.setColor(shadow.fColor);
+                        if (shadow.fBlurRadius != 0.0) {
+                            auto filter = SkMaskFilter::MakeBlur(
+                                    kNormal_SkBlurStyle,
+                                    SkDoubleToScalar(shadow.fBlurRadius),
+                                    false);
+                            paint.setMaskFilter(filter);
+                            SkRect bound;
+                            paint.doComputeFastBounds(boundaries, &bound, SkPaint::Style::kFill_Style);
+                            shadowRect.joinPossiblyEmptyRect(bound);
+                        }
+                    }
+                });
+            return true;
+            });
+        boundaries.fLeft += shadowRect.fLeft;
+        boundaries.fTop += shadowRect.fTop;
+        boundaries.fRight += shadowRect.fRight;
+        boundaries.fBottom += shadowRect.fBottom;
+    }
+
+    boundaries.offset(this->fOffset);         // Line offset from the beginning of the para
+    boundaries.offset(this->fShift, 0);     // Shift produced by formatting
+    boundaries.offset(0, this->baseline()); // Down by baseline
+
+    return boundaries;
 }
 
 void TextLine::paint(SkCanvas* textCanvas) {
@@ -153,7 +223,7 @@ void TextLine::paint(SkCanvas* textCanvas) {
     this->iterateThroughVisualRuns(false,
             [textCanvas, this]
             (const Run* run, SkScalar runOffsetInLine, TextRange textRange, SkScalar* runWidthInLine) {
-            if (run->placeholder() != nullptr) {
+            if (run->placeholderStyle() != nullptr) {
                 *runWidthInLine = run->advance().fX;
                 return true;
             }
@@ -201,12 +271,9 @@ TextAlign TextLine::assumedTextAlign() const {
         return this->fMaster->paragraphStyle().effective_align();
     }
 
-    if (fClusterRange.empty()) {
-        return TextAlign::kLeft;
-    } else {
-        auto run = this->fMaster->cluster(fClusterRange.end - 1).run();
-        return run->leftToRight() ? TextAlign::kLeft : TextAlign::kRight;
-    }
+    return this->fMaster->paragraphStyle().getTextDirection() == TextDirection::kLtr
+                ? TextAlign::kLeft
+                : TextAlign::kRight;
 }
 
 void TextLine::scanStyles(StyleType styleType, const RunStyleVisitor& visitor) {
@@ -225,9 +292,15 @@ void TextLine::scanStyles(StyleType styleType, const RunStyleVisitor& visitor) {
         });
 }
 
+SkRect TextLine::extendHeight(const ClipContext& context) const {
+    SkRect result = context.clip;
+    result.fBottom += std::max(this->fMaxRunMetrics.height() - this->height(), 0.0f);
+    return result;
+}
+
 void TextLine::paintText(SkCanvas* canvas, TextRange textRange, const TextStyle& style, const ClipContext& context) const {
 
-    if (context.run->placeholder() != nullptr) {
+    if (context.run->placeholderStyle() != nullptr) {
         return;
     }
 
@@ -240,13 +313,13 @@ void TextLine::paintText(SkCanvas* canvas, TextRange textRange, const TextStyle&
 
     // TODO: This is the change for flutter, must be removed later
     SkScalar correctedBaseline = SkScalarFloorToScalar(this->baseline() + 0.5);
-
     SkTextBlobBuilder builder;
     context.run->copyTo(builder, SkToU32(context.pos), context.size, SkVector::Make(0, correctedBaseline));
     canvas->save();
     if (context.clippingNeeded) {
-        canvas->clipRect(context.clip);
+        canvas->clipRect(extendHeight(context));
     }
+
     canvas->translate(context.fTextShift, 0);
     canvas->drawTextBlob(builder.make(), 0, 0, paint);
     canvas->restore();
@@ -277,7 +350,7 @@ void TextLine::paintShadow(SkCanvas* canvas, TextRange textRange, const TextStyl
         SkRect clip = context.clip;
         clip.offset(shadow.fOffset);
         if (context.clippingNeeded) {
-            canvas->clipRect(clip);
+            canvas->clipRect(extendHeight(context));
         }
         canvas->translate(context.fTextShift, 0);
         canvas->drawTextBlob(builder.make(), shadow.fOffset.x(), shadow.fOffset.y(), paint);
@@ -292,7 +365,7 @@ void TextLine::paintDecorations(SkCanvas* canvas, TextRange textRange, const Tex
     }
 
     canvas->save();
-    //canvas->clipRect(context.clip);
+
 
     SkPaint paint;
     paint.setStyle(SkPaint::kStroke_Style);
@@ -486,12 +559,12 @@ void TextLine::justify(SkScalar maxWidth) {
 
         if (ghost) {
             if (leftToRight) {
-                fMaster->shiftCluster(index, ghostShift, ghostShift);
+                shiftCluster(cluster, ghostShift, ghostShift);
             }
             return true;
         }
 
-        auto lastShift = shift;
+        auto prevShift = shift;
         if (cluster->isWhitespaces()) {
             if (!whitespacePatch) {
                 shift += step;
@@ -501,15 +574,36 @@ void TextLine::justify(SkScalar maxWidth) {
         } else {
             whitespacePatch = false;
         }
-        fMaster->shiftCluster(index, shift, lastShift);
+        shiftCluster(cluster, shift, prevShift);
         return true;
     });
 
-    SkAssertResult(SkScalarNearlyEqual(shift, maxWidth - textLen));
+    SkAssertResult(nearlyEqual(shift, maxWidth - textLen));
     SkASSERT(whitespacePatches == 0);
 
     this->fWidthWithSpaces += ghostShift;
     this->fAdvance.fX = maxWidth;
+}
+
+void TextLine::shiftCluster(const Cluster* cluster, SkScalar shift, SkScalar prevShift) {
+
+    auto run = cluster->run();
+    auto start = cluster->startPos();
+    auto end = cluster->endPos();
+
+    if (end == run->size()) {
+        // Set the same shift for the fake last glyph (to avoid all extra checks)
+        ++end;
+    }
+
+    if (run->fJustificationShifts.empty()) {
+        // Do not fill this array until needed
+        run->fJustificationShifts.push_back_n(run->size() + 1, { 0, 0 });
+    }
+
+    for (size_t pos = start; pos < end; ++pos) {
+        run->fJustificationShifts[pos] = { shift, prevShift };
+    }
 }
 
 void TextLine::createEllipsis(SkScalar maxWidth, const SkString& ellipsis, bool) {
@@ -517,7 +611,6 @@ void TextLine::createEllipsis(SkScalar maxWidth, const SkString& ellipsis, bool)
     // Go through the clusters in the reverse logical order
     // taking off cluster by cluster until the ellipsis fits
     SkScalar width = fAdvance.fX;
-    bool noWhitespace = false;
 
     auto attachEllipsis = [&](const Cluster* cluster){
         // Shape the ellipsis
@@ -529,7 +622,6 @@ void TextLine::createEllipsis(SkScalar maxWidth, const SkString& ellipsis, bool)
         if (width + run->advance().fX > maxWidth) {
             width -= cluster->width();
             // Continue if it's not
-            noWhitespace = true;
             return false;
         }
 
@@ -541,15 +633,6 @@ void TextLine::createEllipsis(SkScalar maxWidth, const SkString& ellipsis, bool)
 
     iterateThroughClustersInGlyphsOrder(
         true, false, [&](const Cluster* cluster, ClusterIndex index, bool leftToRight, bool ghost) {
-            if (cluster->isWhitespaces()) {
-                width -= cluster->width();
-                noWhitespace = false;
-                return true;
-            } else if (noWhitespace) {
-                width -= cluster->width();
-                return true;
-            }
-
             return !attachEllipsis(cluster);
         });
 
@@ -582,7 +665,7 @@ Run* TextLine::shapeEllipsis(const SkString& ellipsis, Run* run) {
         void commitRunBuffer(const RunInfo& info) override {
             fRun->fAdvance.fX = info.fAdvance.fX;
             fRun->fAdvance.fY = fRun->advance().fY;
-            fRun->fPlaceholder = nullptr;
+            fRun->fPlaceholderIndex = std::numeric_limits<size_t>::max();
             fRun->fEllipsis = true;
         }
 
@@ -611,7 +694,7 @@ TextLine::ClipContext TextLine::measureTextInsideOneRun(TextRange textRange,
                                                         bool limitToClusters) const {
     ClipContext result = { run, 0, run->size(), 0, SkRect::MakeEmpty(), false };
 
-    if (run->placeholder() != nullptr || run->fEllipsis) {
+    if (run->placeholderStyle() != nullptr || run->fEllipsis) {
         // Both ellipsis and placeholders can only be measured as one glyph
         SkASSERT(textRange == run->textRange());
         result.fTextShift = runOffsetInLine;
@@ -636,7 +719,15 @@ TextLine::ClipContext TextLine::measureTextInsideOneRun(TextRange textRange,
 
     auto textStartInRun = run->positionX(start->startPos());
     auto textStartInLine = runOffsetInLine + textOffsetInRunInLine;
-
+/*
+    if (!run->fJustificationShifts.empty()) {
+        SkDebugf("Justification for [%d:%d)\n", textRange.start, textRange.end);
+        for (auto i = result.pos; i < result.pos + result.size; ++i) {
+            auto j = run->fJustificationShifts[i];
+            SkDebugf("[%d] = %f %f\n", i, j.fX, j.fY);
+        }
+    }
+*/
     // Calculate the clipping rectangle for the text with cluster edges
     // There are 2 cases:
     // EOL (when we expect the last cluster clipped without any spaces)
@@ -662,6 +753,9 @@ TextLine::ClipContext TextLine::measureTextInsideOneRun(TextRange textRange,
     result.clip.offset(textStartInLine, 0);
 
     if (compareRound(result.clip.fRight, fAdvance.fX) > 0 && !includeGhostSpaces) {
+        // There are few cases when we need it.
+        // The most important one: we measure the text with spaces at the end
+        // and we should ignore these spaces
         result.clippingNeeded = true;
         result.clip.fRight = fAdvance.fX;
     }
@@ -679,9 +773,9 @@ void TextLine::iterateThroughClustersInGlyphsOrder(bool reverse,
     for (size_t r = 0; r != fRunsInVisualOrder.size(); ++r) {
         auto& runIndex = fRunsInVisualOrder[reverse ? fRunsInVisualOrder.size() - r - 1 : r];
         auto run = this->fMaster->runs().begin() + runIndex;
-        auto start = SkTMax(run->clusterRange().start, fClusterRange.start);
-        auto end = SkTMin(run->clusterRange().end, fClusterRange.end);
-        auto ghosts = SkTMin(run->clusterRange().end, fGhostClusterRange.end);
+        auto start = std::max(run->clusterRange().start, fClusterRange.start);
+        auto end = std::min(run->clusterRange().end, fClusterRange.end);
+        auto ghosts = std::min(run->clusterRange().end, fGhostClusterRange.end);
 
         if (run->leftToRight() != reverse) {
             for (auto index = start; index < ghosts; ++index) {
@@ -726,6 +820,16 @@ SkScalar TextLine::iterateThroughSingleRunByStyles(const Run* run,
            }
         }
         SkASSERT(false);
+    }
+
+    if (styleType == StyleType::kNone) {
+        ClipContext clipContext = this->measureTextInsideOneRun(textRange, run, runOffset, 0, false, false);
+        if (clipContext.clip.height() > 0) {
+            visitor(textRange, TextStyle(), clipContext);
+            return clipContext.clip.width();
+        } else {
+            return 0;
+        }
     }
 
     TextIndex start = EMPTY_INDEX;
@@ -786,7 +890,6 @@ SkScalar TextLine::iterateThroughSingleRunByStyles(const Run* run,
         start = intersect.start;
         size = intersect.width();
     }
-
     return textOffsetInRun;
 }
 
@@ -795,6 +898,7 @@ void TextLine::iterateThroughVisualRuns(bool includingGhostSpaces, const RunVisi
     // Walk through all the runs that intersect with the line in visual order
     SkScalar width = 0;
     SkScalar runOffset = 0;
+    SkScalar totalWidth = 0;
     auto textRange = includingGhostSpaces ? this->textWithSpaces() : this->trimmedText();
     for (auto& runIndex : fRunsInVisualOrder) {
 
@@ -804,23 +908,37 @@ void TextLine::iterateThroughVisualRuns(bool includingGhostSpaces, const RunVisi
             // TODO: deal with empty runs in a better way
             continue;
         }
+        if (!run->leftToRight() && runOffset == 0 && includingGhostSpaces) {
+            // runOffset does not take in account a possibility
+            // that RTL run could start before the line (trailing spaces)
+            // so we need to do runOffset -= "trailing whitespaces length"
+            TextRange whitespaces = intersected(
+                    TextRange(fTextRange.end, fTextWithWhitespacesRange.end), run->fTextRange);
+            if (whitespaces.width() > 0) {
+                auto whitespacesLen = measureTextInsideOneRun(whitespaces, run, runOffset, 0, true, false).clip.width();
+                runOffset -= whitespacesLen;
+            }
+        }
         runOffset += width;
+        totalWidth += width;
         if (!visitor(run, runOffset, lineIntersection, &width)) {
             return;
         }
     }
 
     runOffset += width;
+    totalWidth += width;
+
     if (this->ellipsis() != nullptr) {
         if (visitor(ellipsis(), runOffset, ellipsis()->textRange(), &width)) {
-            runOffset += width;
+            totalWidth += width;
         }
     }
 
     // This is a very important assert!
     // It asserts that 2 different ways of calculation come with the same results
-    if (!includingGhostSpaces && compareRound(runOffset, this->width()) != 0) {
-        SkDebugf("ASSERT: %f != %f\n", runOffset, this->width());
+    if (!includingGhostSpaces && compareRound(totalWidth, this->width()) != 0) {
+        SkDebugf("ASSERT: %f != %f\n", totalWidth, this->width());
         SkASSERT(false);
     }
 }
@@ -854,7 +972,7 @@ LineMetrics TextLine::getMetrics() const {
     this->iterateThroughVisualRuns(false,
         [this, &result]
         (const Run* run, SkScalar runOffsetInLine, TextRange textRange, SkScalar* runWidthInLine) {
-        if (run->placeholder() != nullptr) {
+        if (run->placeholderStyle() != nullptr) {
             *runWidthInLine = run->advance().fX;
             return true;
         }

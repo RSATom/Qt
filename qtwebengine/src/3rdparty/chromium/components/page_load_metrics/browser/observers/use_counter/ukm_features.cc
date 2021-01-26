@@ -48,7 +48,6 @@ UseCounterPageLoadMetricsObserver::GetAllowedUkmFeatures() {
           WebFeature::kPaymentHandler,
           WebFeature::kPaymentRequestShowWithoutGesture,
           WebFeature::kHTMLImports,
-          WebFeature::kHTMLImportsHasStyleSheets,
           WebFeature::kHTMLImportsOnReverseOriginTrials,
           WebFeature::kElementCreateShadowRoot,
           WebFeature::kElementCreateShadowRootOnReverseOriginTrials,
@@ -58,6 +57,8 @@ UseCounterPageLoadMetricsObserver::GetAllowedUkmFeatures() {
           WebFeature::kCredentialManagerGetPublicKeyCredential,
           WebFeature::kCredentialManagerMakePublicKeyCredentialSuccess,
           WebFeature::kCredentialManagerGetPublicKeyCredentialSuccess,
+          WebFeature::kU2FCryptotokenRegister,
+          WebFeature::kU2FCryptotokenSign,
           WebFeature::kV8AudioContext_Constructor,
           WebFeature::kElementAttachShadow,
           WebFeature::kElementAttachShadowOpen,
@@ -126,6 +127,8 @@ UseCounterPageLoadMetricsObserver::GetAllowedUkmFeatures() {
           WebFeature::kRequestedFileSystemTemporary,
           WebFeature::kRequestedFileSystemPersistent,
           WebFeature::kSMSReceiverStart,
+          WebFeature::kSrcsetWDescriptor,
+          WebFeature::kSrcsetXDescriptor,
           WebFeature::kRequestFileSystem,
           WebFeature::kBaseElement,
           WebFeature::kBaseWithCrossOriginHref,
@@ -144,6 +147,19 @@ UseCounterPageLoadMetricsObserver::GetAllowedUkmFeatures() {
           WebFeature::kCSSSelectorInternalMediaControlsOverlayCastButton,
           WebFeature::kWebBluetoothRequestDevice,
           WebFeature::kWebBluetoothRequestScan,
+          WebFeature::
+              kV8VideoPlaybackQuality_CorruptedVideoFrames_AttributeGetter,
+          WebFeature::kV8MediaSession_Metadata_AttributeSetter,
+          WebFeature::kV8MediaSession_SetActionHandler_Method,
+          WebFeature::kLargeStickyAd,
+          WebFeature::kOverlayInterstitialAd,
+          WebFeature::
+              kElementWithLeftwardOrUpwardOverflowDirection_ScrollLeftOrTopSetPositive,
+          WebFeature::kThirdPartyFileSystem,
+          WebFeature::kThirdPartyIndexedDb,
+          WebFeature::kThirdPartyCacheStorage,
+          WebFeature::kThirdPartyLocalStorage,
+          WebFeature::kThirdPartySessionStorage,
       }));
   return *opt_in_features;
 }

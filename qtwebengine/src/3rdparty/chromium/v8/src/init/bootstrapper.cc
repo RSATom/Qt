@@ -9,6 +9,7 @@
 #include "src/base/ieee754.h"
 #include "src/builtins/accessors.h"
 #include "src/codegen/compiler.h"
+#include "src/common/globals.h"
 #include "src/debug/debug.h"
 #include "src/execution/isolate-inl.h"
 #include "src/execution/microtask-queue.h"
@@ -19,6 +20,9 @@
 #include "src/extensions/ignition-statistics-extension.h"
 #include "src/extensions/statistics-extension.h"
 #include "src/extensions/trigger-failure-extension.h"
+#ifdef ENABLE_VTUNE_TRACEMARK
+#include "src/extensions/vtunedomain-support-extension.h"
+#endif  // ENABLE_VTUNE_TRACEMARK
 #include "src/heap/heap-inl.h"
 #include "src/logging/counters.h"
 #include "src/numbers/math-random.h"
@@ -130,6 +134,10 @@ void Bootstrapper::InitializeOncePerProcess() {
     v8::RegisterExtension(
         std::make_unique<CpuTraceMarkExtension>(FLAG_expose_cputracemark_as));
   }
+#ifdef ENABLE_VTUNE_TRACEMARK
+  v8::RegisterExtension(
+      std::make_unique<VTuneDomainSupportExtension>("vtunedomainmark"));
+#endif  // ENABLE_VTUNE_TRACEMARK
 }
 
 void Bootstrapper::TearDown() {
@@ -436,6 +444,7 @@ V8_NOINLINE Handle<JSFunction> SimpleCreateFunction(Isolate* isolate,
                                                     Builtins::Name call,
                                                     int len, bool adapt) {
   DCHECK(Builtins::HasJSLinkage(call));
+  name = String::Flatten(isolate, name, AllocationType::kOld);
   NewFunctionArgs args = NewFunctionArgs::ForBuiltinWithoutPrototype(
       name, call, LanguageMode::kStrict);
   Handle<JSFunction> fun = isolate->factory()->NewFunction(args);
@@ -605,8 +614,7 @@ Handle<JSFunction> Genesis::CreateEmptyFunction() {
   empty_function->shared().set_raw_scope_info(
       ReadOnlyRoots(isolate()).empty_function_scope_info());
   empty_function->shared().DontAdaptArguments();
-  SharedFunctionInfo::SetScript(handle(empty_function->shared(), isolate()),
-                                script, 1);
+  empty_function->shared().SetScript(ReadOnlyRoots(isolate()), *script, 1);
 
   return empty_function;
 }
@@ -1366,11 +1374,6 @@ static void InstallError(Isolate* isolate, Handle<JSObject> global,
       isolate->native_context()->set_error_to_string(*to_string_fun);
       isolate->native_context()->set_initial_error_prototype(*prototype);
     } else {
-      DCHECK(isolate->native_context()->error_to_string().IsJSFunction());
-
-      JSObject::AddProperty(isolate, prototype, factory->toString_string(),
-                            isolate->error_to_string(), DONT_ENUM);
-
       Handle<JSFunction> global_error = isolate->error_function();
       CHECK(JSReceiver::SetPrototype(error_fun, global_error, false,
                                      kThrowOnError)
@@ -1550,9 +1553,10 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
         isolate_, isolate_->initial_object_prototype(), "toString",
         Builtins::kObjectPrototypeToString, 0, true);
     native_context()->set_object_to_string(*object_to_string);
-    SimpleInstallFunction(isolate_, isolate_->initial_object_prototype(),
-                          "valueOf", Builtins::kObjectPrototypeValueOf, 0,
-                          true);
+    Handle<JSFunction> object_value_of = SimpleInstallFunction(
+        isolate_, isolate_->initial_object_prototype(), "valueOf",
+        Builtins::kObjectPrototypeValueOf, 0, true);
+    native_context()->set_object_value_of_function(*object_value_of);
 
     SimpleInstallGetterSetter(
         isolate_, isolate_->initial_object_prototype(), factory->proto_string(),
@@ -4275,6 +4279,7 @@ EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_top_level_await)
 
 #ifdef V8_INTL_SUPPORT
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_intl_add_calendar_numbering_system)
+EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_intl_displaynames_date_types)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_intl_dateformat_day_period)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(
     harmony_intl_dateformat_fractional_second_digits)
@@ -4303,44 +4308,46 @@ void Genesis::InitializeGlobal_harmony_weak_refs() {
   Handle<JSGlobalObject> global(native_context()->global_object(), isolate());
 
   {
-    // Create %FinalizationGroupPrototype%
-    Handle<String> finalization_group_name =
-        factory->NewStringFromStaticChars("FinalizationGroup");
-    Handle<JSObject> finalization_group_prototype = factory->NewJSObject(
+    // Create %FinalizationRegistryPrototype%
+    Handle<String> finalization_registry_name =
+        factory->NewStringFromStaticChars("FinalizationRegistry");
+    Handle<JSObject> finalization_registry_prototype = factory->NewJSObject(
         isolate()->object_function(), AllocationType::kOld);
 
-    // Create %FinalizationGroup%
-    Handle<JSFunction> finalization_group_fun = CreateFunction(
-        isolate(), finalization_group_name, JS_FINALIZATION_GROUP_TYPE,
-        JSFinalizationGroup::kHeaderSize, 0, finalization_group_prototype,
-        Builtins::kFinalizationGroupConstructor);
+    // Create %FinalizationRegistry%
+    Handle<JSFunction> finalization_registry_fun = CreateFunction(
+        isolate(), finalization_registry_name, JS_FINALIZATION_REGISTRY_TYPE,
+        JSFinalizationRegistry::kHeaderSize, 0, finalization_registry_prototype,
+        Builtins::kFinalizationRegistryConstructor);
     InstallWithIntrinsicDefaultProto(
-        isolate(), finalization_group_fun,
-        Context::JS_FINALIZATION_GROUP_FUNCTION_INDEX);
+        isolate(), finalization_registry_fun,
+        Context::JS_FINALIZATION_REGISTRY_FUNCTION_INDEX);
 
-    finalization_group_fun->shared().DontAdaptArguments();
-    finalization_group_fun->shared().set_length(1);
+    finalization_registry_fun->shared().DontAdaptArguments();
+    finalization_registry_fun->shared().set_length(1);
 
     // Install the "constructor" property on the prototype.
-    JSObject::AddProperty(isolate(), finalization_group_prototype,
-                          factory->constructor_string(), finalization_group_fun,
-                          DONT_ENUM);
+    JSObject::AddProperty(isolate(), finalization_registry_prototype,
+                          factory->constructor_string(),
+                          finalization_registry_fun, DONT_ENUM);
 
-    InstallToStringTag(isolate(), finalization_group_prototype,
-                       finalization_group_name);
+    InstallToStringTag(isolate(), finalization_registry_prototype,
+                       finalization_registry_name);
 
-    JSObject::AddProperty(isolate(), global, finalization_group_name,
-                          finalization_group_fun, DONT_ENUM);
+    JSObject::AddProperty(isolate(), global, finalization_registry_name,
+                          finalization_registry_fun, DONT_ENUM);
 
-    SimpleInstallFunction(isolate(), finalization_group_prototype, "register",
-                          Builtins::kFinalizationGroupRegister, 2, false);
+    SimpleInstallFunction(isolate(), finalization_registry_prototype,
+                          "register", Builtins::kFinalizationRegistryRegister,
+                          2, false);
 
-    SimpleInstallFunction(isolate(), finalization_group_prototype, "unregister",
-                          Builtins::kFinalizationGroupUnregister, 1, false);
+    SimpleInstallFunction(isolate(), finalization_registry_prototype,
+                          "unregister",
+                          Builtins::kFinalizationRegistryUnregister, 1, false);
 
-    SimpleInstallFunction(isolate(), finalization_group_prototype,
+    SimpleInstallFunction(isolate(), finalization_registry_prototype,
                           "cleanupSome",
-                          Builtins::kFinalizationGroupCleanupSome, 0, false);
+                          Builtins::kFinalizationRegistryCleanupSome, 0, false);
   }
   {
     // Create %WeakRefPrototype%
@@ -4379,7 +4386,7 @@ void Genesis::InitializeGlobal_harmony_weak_refs() {
   }
 
   {
-    // Create cleanup iterator for JSFinalizationGroup.
+    // Create cleanup iterator for JSFinalizationRegistry.
     Handle<JSObject> iterator_prototype(
         native_context()->initial_iterator_prototype(), isolate());
 
@@ -4388,17 +4395,17 @@ void Genesis::InitializeGlobal_harmony_weak_refs() {
     JSObject::ForceSetPrototype(cleanup_iterator_prototype, iterator_prototype);
 
     InstallToStringTag(isolate(), cleanup_iterator_prototype,
-                       "FinalizationGroup Cleanup Iterator");
+                       "FinalizationRegistry Cleanup Iterator");
 
     SimpleInstallFunction(isolate(), cleanup_iterator_prototype, "next",
-                          Builtins::kFinalizationGroupCleanupIteratorNext, 0,
+                          Builtins::kFinalizationRegistryCleanupIteratorNext, 0,
                           true);
     Handle<Map> cleanup_iterator_map =
-        factory->NewMap(JS_FINALIZATION_GROUP_CLEANUP_ITERATOR_TYPE,
-                        JSFinalizationGroupCleanupIterator::kHeaderSize);
+        factory->NewMap(JS_FINALIZATION_REGISTRY_CLEANUP_ITERATOR_TYPE,
+                        JSFinalizationRegistryCleanupIterator::kHeaderSize);
     Map::SetPrototype(isolate(), cleanup_iterator_map,
                       cleanup_iterator_prototype);
-    native_context()->set_js_finalization_group_cleanup_iterator_map(
+    native_context()->set_js_finalization_registry_cleanup_iterator_map(
         *cleanup_iterator_map);
   }
 }
@@ -4990,7 +4997,7 @@ bool Genesis::InstallSpecialObjects(Isolate* isolate,
     WasmJs::Install(isolate, true);
   } else if (FLAG_validate_asm) {
     // Install the internal data structures only; these are needed for asm.js
-    // translated to WASM to work correctly.
+    // translated to Wasm to work correctly.
     WasmJs::Install(isolate, false);
   }
 
@@ -5037,6 +5044,10 @@ bool Genesis::InstallExtensions(Isolate* isolate,
                            &extension_states)) &&
          (!isValidCpuTraceMarkFunctionName() ||
           InstallExtension(isolate, "v8/cpumark", &extension_states)) &&
+#ifdef ENABLE_VTUNE_TRACEMARK
+         (!FLAG_enable_vtune_domain_support ||
+          InstallExtension(isolate, "v8/vtunedomain", &extension_states)) &&
+#endif  // ENABLE_VTUNE_TRACEMARK
          InstallRequestedExtensions(isolate, extensions, &extension_states);
 }
 

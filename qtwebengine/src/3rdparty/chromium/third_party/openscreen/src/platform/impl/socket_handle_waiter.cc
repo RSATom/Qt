@@ -11,7 +11,9 @@
 #include "util/logging.h"
 
 namespace openscreen {
-namespace platform {
+
+SocketHandleWaiter::SocketHandleWaiter(ClockNowFunctionPtr now_function)
+    : now_function_(now_function) {}
 
 void SocketHandleWaiter::Subscribe(Subscriber* subscriber,
                                    SocketHandleRef handle) {
@@ -51,6 +53,7 @@ void SocketHandleWaiter::OnHandleDeletion(Subscriber* subscriber,
     if (!disable_locking_for_testing) {
       handles_being_deleted_.push_back(handle);
 
+      OSP_DVLOG << "Starting to block for handle deletion";
       // This code will allow us to block completion of the socket destructor
       // (and subsequent invalidation of pointers to this socket) until we no
       // longer are waiting on a SELECT(...) call to it, since we only signal
@@ -60,25 +63,36 @@ void SocketHandleWaiter::OnHandleDeletion(Subscriber* subscriber,
                          handles_being_deleted_.end(),
                          handle) == handles_being_deleted_.end();
       });
+      OSP_DVLOG << "\tDone blocking for handle deletion!";
     }
   }
 }
 
 void SocketHandleWaiter::ProcessReadyHandles(
-    const std::vector<SocketHandleRef>& handles) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  for (const SocketHandleRef& handle : handles) {
-    auto iterator = handle_mappings_.find(handle);
-    if (iterator == handle_mappings_.end()) {
-      // This is OK: SocketHandle was deleted in the meantime.
-      continue;
+    const std::vector<HandleWithSubscriber>& handles,
+    Clock::duration timeout) {
+  Clock::time_point start_time = now_function_();
+  bool processed_one = false;
+  // TODO(btolsch): Track explicit or implicit time since last handled on each
+  // watched handle so we can sort by it here for better fairness.
+  for (const HandleWithSubscriber& handle : handles) {
+    Clock::time_point current_time = now_function_();
+    if (processed_one && (current_time - start_time) > timeout) {
+      return;
     }
 
-    iterator->second->ProcessReadyHandle(handle);
+    processed_one = true;
+    handle.subscriber->ProcessReadyHandle(handle.handle);
+
+    current_time = now_function_();
+    if ((current_time - start_time) > timeout) {
+      return;
+    }
   }
 }
 
 Error SocketHandleWaiter::ProcessHandles(Clock::duration timeout) {
+  Clock::time_point start_time = now_function_();
   std::vector<SocketHandleRef> handles;
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -90,22 +104,37 @@ Error SocketHandleWaiter::ProcessHandles(Clock::duration timeout) {
     }
   }
 
+  Clock::time_point current_time = now_function_();
+  Clock::duration remaining_timeout = timeout - (current_time - start_time);
   ErrorOr<std::vector<SocketHandleRef>> changed_handles =
-      AwaitSocketsReadable(handles, timeout);
+      AwaitSocketsReadable(handles, remaining_timeout);
 
+  std::vector<HandleWithSubscriber> ready_handles;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     handles_being_deleted_.clear();
     handle_deletion_block_.notify_all();
-  }
+    if (changed_handles) {
+      auto& ch = changed_handles.value();
+      ready_handles.reserve(ch.size());
+      for (const auto& handle : ch) {
+        auto mapping_it = handle_mappings_.find(handle);
+        if (mapping_it != handle_mappings_.end()) {
+          ready_handles.push_back(
+              HandleWithSubscriber{handle, mapping_it->second});
+        }
+      }
+    }
 
-  if (changed_handles.is_error()) {
-    return changed_handles.error();
-  }
+    if (changed_handles.is_error()) {
+      return changed_handles.error();
+    }
 
-  ProcessReadyHandles(changed_handles.value());
+    current_time = now_function_();
+    remaining_timeout = timeout - (current_time - start_time);
+    ProcessReadyHandles(ready_handles, remaining_timeout);
+  }
   return Error::None();
 }
 
-}  // namespace platform
 }  // namespace openscreen

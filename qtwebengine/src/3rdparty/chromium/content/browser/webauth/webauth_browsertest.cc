@@ -47,8 +47,6 @@
 #include "device/fido/virtual_fido_device_factory.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/dns/mock_host_resolver.h"
-#include "services/device/public/mojom/constants.mojom.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/webauthn/authenticator.mojom.h"
@@ -130,7 +128,7 @@ constexpr char kCreatePublicKeyTemplate[] =
     "    displayName: 'Avery A. Jones', "
     "    icon: '$8'},"
     "  pubKeyCredParams: [{ type: 'public-key', alg: '$4'}],"
-    "  timeout: 1000,"
+    "  timeout: _timeout_,"
     "  excludeCredentials: [],"
     "  authenticatorSelection: {"
     "     requireResidentKey: $1,"
@@ -152,7 +150,7 @@ constexpr char kCreatePublicKeyWithAbortSignalTemplate[] =
     "    displayName: 'Avery A. Jones', "
     "    icon: '$8'},"
     "  pubKeyCredParams: [{ type: 'public-key', alg: '$4'}],"
-    "  timeout: 1000,"
+    "  timeout: _timeout_,"
     "  excludeCredentials: [],"
     "  authenticatorSelection: {"
     "     requireResidentKey: $1,"
@@ -169,6 +167,7 @@ constexpr char kPlatform[] = "platform";
 constexpr char kCrossPlatform[] = "cross-platform";
 constexpr char kPreferredVerification[] = "preferred";
 constexpr char kRequiredVerification[] = "required";
+constexpr char kShortTimeout[] = "100";
 
 // Default values for kCreatePublicKeyTemplate.
 struct CreateParameters {
@@ -185,6 +184,7 @@ struct CreateParameters {
   // It can use the |PublicKeyCredential| object named |c| to extract useful
   // fields.
   const char* extra_ok_output = "''";
+  const char* timeout = "1000";
 };
 
 std::string BuildCreateCallWithParameters(const CreateParameters& parameters) {
@@ -198,20 +198,26 @@ std::string BuildCreateCallWithParameters(const CreateParameters& parameters) {
   substitutions.push_back(parameters.rp_icon);
   substitutions.push_back(parameters.user_icon);
 
+  std::string result;
   if (strlen(parameters.signal) == 0) {
     substitutions.push_back(parameters.extra_ok_output);
-    return base::ReplaceStringPlaceholders(kCreatePublicKeyTemplate,
-                                           substitutions, nullptr);
+    result = base::ReplaceStringPlaceholders(kCreatePublicKeyTemplate,
+                                             substitutions, nullptr);
+  } else {
+    substitutions.push_back(parameters.signal);
+    result = base::ReplaceStringPlaceholders(
+        kCreatePublicKeyWithAbortSignalTemplate, substitutions, nullptr);
   }
-  substitutions.push_back(parameters.signal);
-  return base::ReplaceStringPlaceholders(
-      kCreatePublicKeyWithAbortSignalTemplate, substitutions, nullptr);
+
+  base::ReplaceFirstSubstringAfterOffset(&result, 0, "_timeout_",
+                                         parameters.timeout);
+  return result;
 }
 
 constexpr char kGetPublicKeyTemplate[] =
     "navigator.credentials.get({ publicKey: {"
     "  challenge: new TextEncoder().encode('climb a mountain'),"
-    "  timeout: 1000,"
+    "  timeout: $4,"
     "  userVerification: '$1',"
     "  $2}"
     "}).then(c => window.domAutomationController.send('webauth: OK' + $3),"
@@ -221,10 +227,10 @@ constexpr char kGetPublicKeyTemplate[] =
 constexpr char kGetPublicKeyWithAbortSignalTemplate[] =
     "navigator.credentials.get({ publicKey: {"
     "  challenge: new TextEncoder().encode('climb a mountain'),"
-    "  timeout: 1000,"
+    "  timeout: $4,"
     "  userVerification: '$1',"
     "  $2},"
-    "  signal: $4"
+    "  signal: $5"
     "}).catch(c => window.domAutomationController.send("
     "                  'webauth: ' + c.toString()));";
 
@@ -236,6 +242,7 @@ struct GetParameters {
       "     id: new TextEncoder().encode('allowedCredential'),"
       "     transports: ['usb', 'nfc', 'ble']}]";
   const char* signal = "";
+  const char* timeout = "1000";
   // extra_ok_output is a Javascript expression which must evaluate to a string.
   // It can use the |PublicKeyCredential| object named |c| to extract useful
   // fields.
@@ -247,6 +254,7 @@ std::string BuildGetCallWithParameters(const GetParameters& parameters) {
   substitutions.push_back(parameters.user_verification);
   substitutions.push_back(parameters.allow_credentials);
   substitutions.push_back(parameters.extra_ok_output);
+  substitutions.push_back(parameters.timeout);
   if (strlen(parameters.signal) == 0) {
     return base::ReplaceStringPlaceholders(kGetPublicKeyTemplate, substitutions,
                                            nullptr);
@@ -370,8 +378,7 @@ class WebAuthBrowserTestContentBrowserClient : public ContentBrowserClient {
 
   std::unique_ptr<AuthenticatorRequestClientDelegate>
   GetWebAuthenticationRequestDelegate(
-      RenderFrameHost* render_frame_host,
-      const std::string& relying_party_id) override {
+      RenderFrameHost* render_frame_host) override {
     test_state_->delegate_create_count++;
     return std::make_unique<WebAuthBrowserTestClientDelegate>(test_state_);
   }
@@ -388,9 +395,7 @@ class WebAuthBrowserTestBase : public content::ContentBrowserTest {
   WebAuthBrowserTestBase()
       : https_server_(net::EmbeddedTestServer::TYPE_HTTPS) {}
 
-  virtual std::vector<base::Feature> GetFeaturesToEnable() {
-    return {features::kWebAuth, features::kWebAuthBle};
-  }
+  virtual std::vector<base::Feature> GetFeaturesToEnable() { return {}; }
 
   void SetUpOnMainThread() override {
     ContentBrowserTest::SetUpOnMainThread();
@@ -697,7 +702,7 @@ IN_PROC_BROWSER_TEST_F(WebAuthLocalClientBrowserTest,
   // serviced at all, so the fake request should still be pending on the fake
   // factory.
   auto hid_discovery = discovery_factory_->Create(
-      ::device::FidoTransportProtocol::kUsbHumanInterfaceDevice, nullptr);
+      ::device::FidoTransportProtocol::kUsbHumanInterfaceDevice);
   ASSERT_TRUE(!!hid_discovery);
 
   // The next active document should be able to successfully call
@@ -784,7 +789,7 @@ class WebAuthJavascriptClientBrowserTest : public WebAuthBrowserTestBase {
 
  protected:
   std::vector<base::Feature> GetFeaturesToEnable() override {
-    return {features::kWebAuth, device::kWebAuthFeaturePolicy};
+    return {device::kWebAuthFeaturePolicy};
   }
 
  private:
@@ -863,6 +868,7 @@ IN_PROC_BROWSER_TEST_F(WebAuthJavascriptClientBrowserTest,
 
     CreateParameters parameters;
     parameters.user_verification = kRequiredVerification;
+    parameters.timeout = kShortTimeout;
     std::string result;
     ASSERT_TRUE(content::ExecuteScriptAndExtractString(
         shell()->web_contents()->GetMainFrame(),
@@ -900,6 +906,7 @@ IN_PROC_BROWSER_TEST_F(WebAuthJavascriptClientBrowserTest,
 
     CreateParameters parameters;
     parameters.algorithm_identifier = "123";
+    parameters.timeout = kShortTimeout;
     std::string result;
     ASSERT_TRUE(content::ExecuteScriptAndExtractString(
         shell()->web_contents()->GetMainFrame(),
@@ -919,6 +926,7 @@ IN_PROC_BROWSER_TEST_F(WebAuthJavascriptClientBrowserTest,
 
     CreateParameters parameters;
     parameters.authenticator_attachment = kPlatform;
+    parameters.timeout = kShortTimeout;
     std::string result;
     ASSERT_TRUE(content::ExecuteScriptAndExtractString(
         shell()->web_contents()->GetMainFrame(),
@@ -1020,6 +1028,7 @@ IN_PROC_BROWSER_TEST_F(WebAuthJavascriptClientBrowserTest,
       "  id: new TextEncoder().encode('allowedCredential'),"
       "  transports: ['carrierpigeon'],"
       "}]";
+  parameters.timeout = kShortTimeout;
   std::string result;
   ASSERT_TRUE(content::ExecuteScriptAndExtractString(
       shell()->web_contents()->GetMainFrame(),
@@ -1455,42 +1464,6 @@ IN_PROC_BROWSER_TEST_F(WebAuthJavascriptClientBrowserTest,
   }
 }
 #endif
-
-// WebAuthBrowserBleDisabledTest
-// ----------------------------------------------
-
-// A test fixture that does not enable BLE discovery.
-class WebAuthBrowserBleDisabledTest : public WebAuthLocalClientBrowserTest {
- public:
-  WebAuthBrowserBleDisabledTest() {}
-
- protected:
-  std::vector<base::Feature> GetFeaturesToEnable() override {
-    return {features::kWebAuth};
-  }
-
-  device::test::FakeFidoDiscoveryFactory* discovery_factory;
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-  DISALLOW_COPY_AND_ASSIGN(WebAuthBrowserBleDisabledTest);
-};
-
-// Tests that the BLE discovery does not start when the WebAuthnBle feature
-// flag is disabled.
-IN_PROC_BROWSER_TEST_F(WebAuthBrowserBleDisabledTest, CheckBleDisabled) {
-  auto* fake_hid_discovery = discovery_factory_->ForgeNextHidDiscovery();
-  auto* fake_ble_discovery = discovery_factory_->ForgeNextBleDiscovery();
-
-  // Do something that will start discoveries.
-  TestCreateCallbackReceiver create_callback_receiver;
-  authenticator()->MakeCredential(BuildBasicCreateOptions(),
-                                  create_callback_receiver.callback());
-
-  fake_hid_discovery->WaitForCallToStart();
-  EXPECT_TRUE(fake_hid_discovery->is_start_requested());
-  EXPECT_FALSE(fake_ble_discovery->is_start_requested());
-}
 
 class WebAuthLocalClientBackForwardCacheBrowserTest
     : public WebAuthLocalClientBrowserTest {

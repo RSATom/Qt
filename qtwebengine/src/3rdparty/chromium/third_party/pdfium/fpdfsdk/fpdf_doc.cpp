@@ -233,9 +233,7 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFDest_GetDestPageIndex(FPDF_DOCUMENT document,
 }
 
 FPDF_EXPORT unsigned long FPDF_CALLCONV
-FPDFDest_GetView(FPDF_DEST dest,
-                 unsigned long* pNumParams,
-                 FS_FLOAT* pParams) {
+FPDFDest_GetView(FPDF_DEST dest, unsigned long* pNumParams, FS_FLOAT* pParams) {
   if (!dest) {
     *pNumParams = 0;
     return 0;
@@ -367,7 +365,7 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFLink_GetAnnotRect(FPDF_LINK link_annot,
     return false;
 
   CPDF_Dictionary* pAnnotDict = CPDFDictionaryFromFPDFLink(link_annot);
-  *rect = FSRECTFFromCFXFloatRect(pAnnotDict->GetRectFor("Rect"));
+  *rect = FSRectFFromCFXFloatRect(pAnnotDict->GetRectFor("Rect"));
   return true;
 }
 

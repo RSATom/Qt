@@ -24,8 +24,8 @@
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_uint128.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -121,6 +121,8 @@ struct QUIC_EXPORT_PRIVATE QuicPacketHeader {
   QuicPacketHeader(const QuicPacketHeader& other);
   ~QuicPacketHeader();
 
+  QuicPacketHeader& operator=(const QuicPacketHeader& other);
+
   QUIC_EXPORT_PRIVATE friend std::ostream& operator<<(
       std::ostream& os,
       const QuicPacketHeader& header);
@@ -158,7 +160,7 @@ struct QUIC_EXPORT_PRIVATE QuicPacketHeader {
   // carried only by v99 IETF Initial packets.
   QuicVariableLengthIntegerLength retry_token_length_length;
   // Retry token, carried only by v99 IETF Initial packets.
-  QuicStringPiece retry_token;
+  quiche::QuicheStringPiece retry_token;
   // Length of the length variable length integer field,
   // carried only by v99 IETF Initial, 0-RTT and Handshake packets.
   QuicVariableLengthIntegerLength length_length;
@@ -209,14 +211,15 @@ class QUIC_EXPORT_PRIVATE QuicData {
   // Creates a QuicData from a buffer and length,
   // optionally taking ownership of the buffer.
   QuicData(const char* buffer, size_t length, bool owns_buffer);
-  // Creates a QuicData from a QuicStringPiece. Does not own the buffer.
-  QuicData(QuicStringPiece data);
+  // Creates a QuicData from a quiche::QuicheStringPiece. Does not own the
+  // buffer.
+  QuicData(quiche::QuicheStringPiece data);
   QuicData(const QuicData&) = delete;
   QuicData& operator=(const QuicData&) = delete;
   virtual ~QuicData();
 
-  QuicStringPiece AsStringPiece() const {
-    return QuicStringPiece(data(), length());
+  quiche::QuicheStringPiece AsStringPiece() const {
+    return quiche::QuicheStringPiece(data(), length());
   }
 
   const char* data() const { return buffer_; }
@@ -249,8 +252,8 @@ class QUIC_EXPORT_PRIVATE QuicPacket : public QuicData {
   QuicPacket(const QuicPacket&) = delete;
   QuicPacket& operator=(const QuicPacket&) = delete;
 
-  QuicStringPiece AssociatedData(QuicTransportVersion version) const;
-  QuicStringPiece Plaintext(QuicTransportVersion version) const;
+  quiche::QuicheStringPiece AssociatedData(QuicTransportVersion version) const;
+  quiche::QuicheStringPiece Plaintext(QuicTransportVersion version) const;
 
   char* mutable_data() { return buffer_; }
 
@@ -274,9 +277,9 @@ class QUIC_EXPORT_PRIVATE QuicEncryptedPacket : public QuicData {
   // Creates a QuicEncryptedPacket from a buffer and length,
   // optionally taking ownership of the buffer.
   QuicEncryptedPacket(const char* buffer, size_t length, bool owns_buffer);
-  // Creates a QuicEncryptedPacket from a QuicStringPiece.
+  // Creates a QuicEncryptedPacket from a quiche::QuicheStringPiece.
   // Does not own the buffer.
-  QuicEncryptedPacket(QuicStringPiece data);
+  QuicEncryptedPacket(quiche::QuicheStringPiece data);
 
   QuicEncryptedPacket(const QuicEncryptedPacket&) = delete;
   QuicEncryptedPacket& operator=(const QuicEncryptedPacket&) = delete;

@@ -57,7 +57,7 @@ void RunVerification(quic::ProofVerifier* verifier,
                      const uint16_t port,
                      const string& server_config,
                      quic::QuicTransportVersion quic_version,
-                     quic::QuicStringPiece chlo_hash,
+                     quiche::QuicheStringPiece chlo_hash,
                      const std::vector<string>& certs,
                      const string& proof,
                      bool expected_ok) {
@@ -199,7 +199,9 @@ class TestingSignatureCallback : public quic::ProofSource::SignatureCallback {
   TestingSignatureCallback(bool* ok_out, std::string* signature_out)
       : ok_out_(ok_out), signature_out_(signature_out) {}
 
-  void Run(bool ok, std::string signature) override {
+  void Run(bool ok,
+           std::string signature,
+           std::unique_ptr<quic::ProofSource::Details> /*details*/) override {
     *ok_out_ = ok;
     *signature_out_ = std::move(signature);
   }

@@ -201,39 +201,6 @@ public:
     }
 };
 
-class TestServer : public HttpServer
-{
-public:
-    TestServer()
-    {
-        connect(this, &HttpServer::newRequest, this, &TestServer::onNewRequest);
-    }
-
-private:
-    void onNewRequest(HttpReqRep *rr)
-    {
-        const QDir resourceDir(TESTS_SOURCE_DIR "qwebengineurlrequestinterceptor/resources");
-        QString path = rr->requestPath();
-        path.remove(0, 1);
-
-        if (rr->requestMethod() != "GET" || !resourceDir.exists(path))
-        {
-            rr->setResponseStatus(404);
-            rr->sendResponse();
-            return;
-        }
-
-        QFile file(resourceDir.filePath(path));
-        file.open(QIODevice::ReadOnly);
-        QByteArray data = file.readAll();
-        rr->setResponseBody(data);
-        QMimeDatabase db;
-        QMimeType mime = db.mimeTypeForFileNameAndData(file.fileName(), data);
-        rr->setResponseHeader(QByteArrayLiteral("content-type"), mime.name().toUtf8());
-        rr->sendResponse();
-    }
-};
-
 class ConsolePage : public QWebEnginePage {
     Q_OBJECT
 public:
@@ -679,7 +646,6 @@ void tst_QWebEngineUrlRequestInterceptor::passRefererHeader()
         const QByteArray headerValue = rr->requestHeader(kHttpHeaderRefererName);
         QCOMPARE(headerValue, kHttpHeaderReferrerValue);
         succeeded = headerValue == kHttpHeaderReferrerValue;
-        rr->setResponseStatus(200);
         rr->sendResponse();
     });
 
@@ -779,7 +745,8 @@ void tst_QWebEngineUrlRequestInterceptor::jsServiceWorker()
 {
     QFETCH(InterceptorSetter, setter);
 
-    TestServer server;
+    HttpServer server;
+    server.setResourceDirs({ TESTS_SOURCE_DIR "qwebengineurlrequestinterceptor/resources" });
     QVERIFY(server.start());
 
     QWebEngineProfile profile(QStringLiteral("Test"));
@@ -793,7 +760,7 @@ void tst_QWebEngineUrlRequestInterceptor::jsServiceWorker()
     QTRY_COMPARE(page->messages.count(), 1);
     QCOMPARE(page->levels.at(0), QWebEnginePage::InfoMessageLevel);
 
-    QUrl firstPartyUrl = QUrl(server.url().toString() + "sw.js");
+    QUrl firstPartyUrl = QUrl(server.url().toString(QUrl::RemovePort));
     QList<RequestInfo> infos;
     // Service Worker
     QTRY_VERIFY(interceptor.hasUrlRequestForType(QWebEngineUrlRequestInfo::ResourceTypeServiceWorker));

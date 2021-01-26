@@ -58,6 +58,7 @@
         {
             "type": "action",
             "actionId": "components.collect-garbage",
+            "category": "Performance",
             "title": "Collect garbage",
             "iconClass": "largeicon-trash-bin",
             "className": "PerfUI.GCActionDelegate"
@@ -70,7 +71,10 @@
         "source_frame",
         "text_editor"
     ],
-    "scripts": [
+    "scripts": [],
+    "modules": [
+        "perf_ui.js",
+        "perf_ui-legacy.js",
         "ChartViewport.js",
         "FilmStripView.js",
         "FlameChart.js",

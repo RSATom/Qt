@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <algorithm>
 #include <limits>
 
 #include "base/pickle.h"
@@ -19,6 +20,14 @@ SessionCommand::SessionCommand(id_type id, const base::Pickle& pickle)
       contents_(pickle.size(), 0) {
   DCHECK(pickle.size() < std::numeric_limits<size_type>::max());
   memcpy(contents(), pickle.data(), pickle.size());
+}
+
+SessionCommand::size_type SessionCommand::GetSerializedSize() const {
+  const size_type additional_overhead = sizeof(id_type);
+  return std::min(size(),
+                  static_cast<size_type>(std::numeric_limits<size_type>::max() -
+                                         additional_overhead)) +
+         additional_overhead;
 }
 
 bool SessionCommand::GetPayload(void* dest, size_t count) const {

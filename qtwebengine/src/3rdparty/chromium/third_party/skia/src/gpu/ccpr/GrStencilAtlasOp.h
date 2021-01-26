@@ -40,21 +40,26 @@ public:
                                       bool hasMixedSampledCoverage, GrClampType) override {
         return GrProcessorSet::EmptySetAnalysis();
     }
-    CombineResult onCombineIfPossible(GrOp* other, const GrCaps&) override {
+    CombineResult onCombineIfPossible(GrOp* other, GrRecordingContext::Arenas*,
+                                      const GrCaps&) override {
         // We will only make multiple copy ops if they have different source proxies.
         // TODO: make use of texture chaining.
         return CombineResult::kCannotCombine;
     }
-    void onPrepare(GrOpFlushState*) override {}
 
     static std::unique_ptr<GrDrawOp> Make(
             GrRecordingContext*, sk_sp<const GrCCPerFlushResources>, FillBatchID, StrokeBatchID,
             int baseStencilResolveInstance, int endStencilResolveInstance,
             const SkISize& drawBounds);
 
-    void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override;
-
 private:
+    void onPrePrepare(GrRecordingContext*,
+                      const GrSurfaceProxyView* outputView,
+                      GrAppliedClip*,
+                      const GrXferProcessor::DstProxyView&) override {}
+    void onPrepare(GrOpFlushState*) override {}
+    void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
+
     friend class ::GrOpMemoryPool; // for ctor
 
     GrStencilAtlasOp(sk_sp<const GrCCPerFlushResources> resources, FillBatchID fillBatchID,

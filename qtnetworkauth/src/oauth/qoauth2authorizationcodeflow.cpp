@@ -157,6 +157,14 @@ void QOAuth2AuthorizationCodeFlowPrivate::_q_accessTokenRequestFinished(const QV
         Q_EMIT q->expirationAtChanged(expiresAt);
     }
 
+    QVariantMap copy(values);
+    copy.remove(Key::accessToken);
+    copy.remove(Key::expiresIn);
+    copy.remove(Key::refreshToken);
+    copy.remove(Key::scope);
+    copy.remove(Key::tokenType);
+    extraTokens.insert(copy);
+
     setStatus(QAbstractOAuth::Status::Granted);
 }
 
@@ -317,6 +325,8 @@ void QOAuth2AuthorizationCodeFlow::refreshAccessToken()
     parameters.insert(Key::grantType, QStringLiteral("refresh_token"));
     parameters.insert(Key::refreshToken, d->refreshToken);
     parameters.insert(Key::redirectUri, QUrl::toPercentEncoding(callback()));
+    parameters.insert(Key::clientIdentifier, d->clientIdentifier);
+    parameters.insert(Key::clientSharedSecret, d->clientIdentifierSharedKey);
     if (d->modifyParametersFunction)
         d->modifyParametersFunction(Stage::RefreshingAccessToken, &parameters);
     query = QAbstractOAuthPrivate::createQuery(parameters);

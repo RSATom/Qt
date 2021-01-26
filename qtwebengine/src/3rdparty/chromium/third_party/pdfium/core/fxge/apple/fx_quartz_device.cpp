@@ -4,19 +4,18 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include "core/fxge/apple/fx_quartz_device.h"
+
 #include "core/fxcrt/fx_extension.h"
-
-#if !defined _SKIA_SUPPORT_ && !defined _SKIA_SUPPORT_PATHS_
-#include "core/fxge/agg/fx_agg_driver.h"
-#endif
-
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/fx_freetype.h"
 
-#include "core/fxge/apple/apple_int.h"
+#if !defined _SKIA_SUPPORT_ && !defined _SKIA_SUPPORT_PATHS_
+#include "core/fxge/agg/fx_agg_driver.h"
+#endif
 
 #if defined(OS_IOS)
 #include <CoreGraphics/CoreGraphics.h>

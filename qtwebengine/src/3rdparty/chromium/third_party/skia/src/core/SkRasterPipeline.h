@@ -10,6 +10,7 @@
 
 #include "include/core/SkColor.h"
 #include "include/core/SkImageInfo.h"
+#include "include/core/SkMatrix.h"
 #include "include/core/SkTileMode.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkNx.h"
@@ -61,8 +62,8 @@
     M(alpha_to_gray) M(alpha_to_gray_dst) M(bt709_luminance_or_luma_to_alpha)         \
     M(bilerp_clamp_8888) M(bicubic_clamp_8888)                     \
     M(store_u16_be)                                                \
-    M(load_src) M(store_src) M(load_dst) M(store_dst)              \
-    M(scale_u8) M(scale_565) M(scale_1_float)                      \
+    M(load_src) M(store_src) M(store_src_a) M(load_dst) M(store_dst) \
+    M(scale_u8) M(scale_565) M(scale_1_float) M(scale_native)      \
     M( lerp_u8) M( lerp_565) M( lerp_1_float) M(lerp_native)       \
     M(dstatop) M(dstin) M(dstout) M(dstover)                       \
     M(srcatop) M(srcin) M(srcout) M(srcover)                       \
@@ -160,12 +161,15 @@ struct SkRasterPipeline_CallbackCtx {
 };
 
 namespace SkSL {
-class ByteCode;
 class ByteCodeFunction;
+
+template<int width>
+class Interpreter;
 }
 
 struct SkRasterPipeline_InterpreterCtx {
-    const SkSL::ByteCode*         byteCode;
+    static constexpr int VECTOR_WIDTH = 8;
+    SkSL::Interpreter<VECTOR_WIDTH>* interpreter;
     const SkSL::ByteCodeFunction* fn;
 
     SkColor4f   paintColor;

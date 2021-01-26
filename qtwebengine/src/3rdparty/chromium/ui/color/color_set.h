@@ -29,7 +29,7 @@ struct COMPONENT_EXPORT(COLOR) ColorSet {
 
   ColorSet(ColorSetId id, ColorMap&& colors);
   ColorSet(ColorSet&&) noexcept;
-  ColorSet& operator=(ColorSet&&) noexcept;
+  ColorSet& operator=(ColorSet&&);
   ~ColorSet();
 
   ColorSetId id;

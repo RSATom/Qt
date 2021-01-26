@@ -14,6 +14,7 @@
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "components/autofill/core/common/mojom/autofill_types.mojom-shared.h"
+#include "ui/gfx/geometry/rect_f.h"
 
 namespace base {
 class Pickle;
@@ -62,9 +63,6 @@ struct FormFieldData {
   struct IdentityComparator {
     bool operator()(const FormFieldData& a, const FormFieldData& b) const;
   };
-
-  static constexpr uint32_t kNotSetFormControlRendererId =
-      std::numeric_limits<uint32_t>::max();
 
   FormFieldData();
   FormFieldData(const FormFieldData&);
@@ -147,7 +145,7 @@ struct FormFieldData {
   // Unique renderer id returned by WebFormElement::UniqueRendererFormId(). It
   // is not persistent between page loads, so it is not saved and not used in
   // comparison in SameFieldAs().
-  uint32_t unique_renderer_id = kNotSetFormControlRendererId;
+  uint32_t unique_renderer_id = std::numeric_limits<uint32_t>::max();
 
   // The ax node id of the form control in the accessibility tree.
   int32_t form_control_ax_id = 0;
@@ -183,6 +181,11 @@ struct FormFieldData {
   // Password Manager doesn't use labels nor client side nor server side, so
   // label_source isn't in serialize methods.
   LabelSource label_source = LabelSource::kUnknown;
+
+  // The bounds of this field in current frame coordinates at the parse time. It
+  // is valid if not empty, will not be synced to the server side or be used for
+  // field comparison and isn't in serialize methods.
+  gfx::RectF bounds;
 };
 
 // Serialize and deserialize FormFieldData. These are used when FormData objects

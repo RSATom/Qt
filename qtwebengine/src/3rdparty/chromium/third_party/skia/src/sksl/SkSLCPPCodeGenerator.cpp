@@ -208,11 +208,11 @@ void CPPCodeGenerator::writeRuntimeValue(const Type& type, const Layout& layout,
                 fFormatArgs.push_back(cppCode + ".fB");
                 fFormatArgs.push_back(cppCode + ".fA");
                 break;
-            case Layout::CType::kSkVector4:
-                fFormatArgs.push_back(cppCode + ".fData[0]");
-                fFormatArgs.push_back(cppCode + ".fData[1]");
-                fFormatArgs.push_back(cppCode + ".fData[2]");
-                fFormatArgs.push_back(cppCode + ".fData[3]");
+            case Layout::CType::kSkV4:
+                fFormatArgs.push_back(cppCode + ".x");
+                fFormatArgs.push_back(cppCode + ".y");
+                fFormatArgs.push_back(cppCode + ".z");
+                fFormatArgs.push_back(cppCode + ".w");
                 break;
             case Layout::CType::kSkRect: // fall through
             case Layout::CType::kDefault:
@@ -444,7 +444,7 @@ void CPPCodeGenerator::writeFunctionCall(const FunctionCall& c) {
 
         // Write the output handling after the possible input handling
         String childName = "_sample" + to_string(c.fOffset);
-        addExtraEmitCodeLine("SkString " + childName + "(\"" + childName + "\");");
+        addExtraEmitCodeLine("SkString " + childName + ";");
         String coordsName;
         if (hasCoords) {
             coordsName = "_coords" + to_string(c.fOffset);
@@ -454,23 +454,22 @@ void CPPCodeGenerator::writeFunctionCall(const FunctionCall& c) {
             addExtraEmitCodeLine("if (_outer." + String(child.fName) + "_index >= 0) {\n    ");
         }
         if (hasCoords) {
-            addExtraEmitCodeLine("this->invokeChild(_outer." + String(child.fName) + "_index" +
-                                 inputArg + ", &" + childName + ", args, " + coordsName +
-                                 ".c_str());");
+            addExtraEmitCodeLine(childName + " = this->invokeChild(_outer." + String(child.fName) +
+                                 "_index" + inputArg + ", args, " + coordsName + ".c_str());");
         } else {
-            addExtraEmitCodeLine("this->invokeChild(_outer." + String(child.fName) + "_index" +
-                                 inputArg + ", &" + childName + ", args);");
+            addExtraEmitCodeLine(childName + " = this->invokeChild(_outer." + String(child.fName) +
+                                 "_index" + inputArg + ", args);");
         }
 
         if (c.fArguments[0]->fType.kind() == Type::kNullable_Kind) {
             // Null FPs are not emitted, but their output can still be referenced in dependent
-            // expressions - thus we always declare the variable.
+            // expressions - thus we always fill the variable with something.
             // Note: this is essentially dead code required to satisfy the compiler, because
             // 'process' function calls should always be guarded at a higher level, in the .fp
             // source.
             addExtraEmitCodeLine(
                 "} else {"
-                "   fragBuilder->codeAppendf(\"half4 %s;\", " + childName + ".c_str());"
+                "    " + childName + " = \"half4(1)\";"
                 "}");
         }
         this->write("%s");
@@ -510,6 +509,10 @@ static const char* glsltype_string(const Context& context, const Type& type) {
         return "kFloat2_GrSLType";
     } else if (type == *context.fHalf2_Type) {
         return "kHalf2_GrSLType";
+    } else if (type == *context.fFloat3_Type) {
+        return "kFloat3_GrSLType";
+    } else if (type == *context.fHalf3_Type) {
+        return "kHalf3_GrSLType";
     } else if (type == *context.fFloat4_Type) {
         return "kFloat4_GrSLType";
     } else if (type == *context.fHalf4_Type) {
@@ -520,6 +523,8 @@ static const char* glsltype_string(const Context& context, const Type& type) {
         return "kHalf4x4_GrSLType";
     } else if (type == *context.fVoid_Type) {
         return "kVoid_GrSLType";
+    } else if (type.kind() == Type::kEnum_Kind) {
+        return "int";
     }
     SkASSERT(false);
     return nullptr;
@@ -1018,10 +1023,10 @@ void CPPCodeGenerator::writeSetData(std::vector<const Variable*>& uniforms) {
                     String nameString(decl.fVar->fName);
                     const char* name = nameString.c_str();
                     if (decl.fVar->fType.kind() == Type::kSampler_Kind) {
-                        this->writef("        GrSurfaceProxy& %sProxy = "
-                                     "*_outer.textureSampler(%d).proxy();\n",
+                        this->writef("        const GrSurfaceProxyView& %sView = "
+                                     "_outer.textureSampler(%d).view();\n",
                                      name, samplerIndex);
-                        this->writef("        GrTexture& %s = *%sProxy.peekTexture();\n",
+                        this->writef("        GrTexture& %s = *%sView.proxy()->peekTexture();\n",
                                      name, name);
                         this->writef("        (void) %s;\n", name);
                         ++samplerIndex;
@@ -1106,13 +1111,18 @@ void CPPCodeGenerator::writeClone() {
             } else if (param->fType.nonnullable() == *fContext.fFragmentProcessor_Type) {
                 String fieldName = HCodeGenerator::FieldName(String(param->fName).c_str());
                 if (param->fType.kind() == Type::kNullable_Kind) {
-                    this->writef("    if (%s_index >= 0) {\n    ", fieldName.c_str());
+                    this->writef("    if (%s_index >= 0) {\n", fieldName.c_str());
+                } else {
+                    this->write("    {\n");
                 }
-                this->writef("    this->registerChildProcessor(src.childProcessor(%s_index)."
-                             "clone());\n", fieldName.c_str());
-                if (param->fType.kind() == Type::kNullable_Kind) {
-                    this->writef("    }\n");
-                }
+                this->writef(
+                        "        auto clone = src.childProcessor(%s_index).clone();\n"
+                        "        clone->setSampledWithExplicitCoords(\n"
+                        "                 "
+                        "src.childProcessor(%s_index).isSampledWithExplicitCoords());\n"
+                        "        this->registerChildProcessor(std::move(clone));\n"
+                        "    }\n",
+                        fieldName.c_str(), fieldName.c_str());
             }
         }
         if (samplerCount) {
@@ -1282,7 +1292,7 @@ bool CPPCodeGenerator::generateCode() {
     this->writef(kFragmentProcessorHeader, fullName);
     this->writef("#include \"%s.h\"\n\n", fullName);
     this->writeSection(CPP_SECTION);
-    this->writef("#include \"include/gpu/GrTexture.h\"\n"
+    this->writef("#include \"src/gpu/GrTexture.h\"\n"
                  "#include \"src/gpu/glsl/GrGLSLFragmentProcessor.h\"\n"
                  "#include \"src/gpu/glsl/GrGLSLFragmentShaderBuilder.h\"\n"
                  "#include \"src/gpu/glsl/GrGLSLProgramBuilder.h\"\n"

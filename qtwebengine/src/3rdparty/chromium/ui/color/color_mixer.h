@@ -35,8 +35,8 @@ class COMPONENT_EXPORT(COLOR) ColorMixer {
   explicit ColorMixer(const ColorMixer* previous_mixer = nullptr);
   // ColorMixer is movable since it holds both sets and recipes, each of which
   // might be expensive to copy.
-  ColorMixer(ColorMixer&&) noexcept;
-  ColorMixer& operator=(ColorMixer&&) noexcept;
+  ColorMixer(ColorMixer&&);
+  ColorMixer& operator=(ColorMixer&&);
   ~ColorMixer();
 
   // Adds a recipe for |id| if it does not exist.

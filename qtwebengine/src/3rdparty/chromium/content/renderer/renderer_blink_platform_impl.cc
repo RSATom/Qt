@@ -25,6 +25,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -79,7 +80,6 @@
 #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom.h"
 #include "third_party/blink/public/platform/blame_context.h"
 #include "third_party/blink/public/platform/file_path_conversion.h"
-#include "third_party/blink/public/platform/interface_provider.h"
 #include "third_party/blink/public/platform/modules/video_capture/web_video_capture_impl_manager.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/url_conversion.h"
@@ -91,7 +91,6 @@
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/web/web_local_frame.h"
-#include "third_party/blink/public/web/web_user_media_request.h"
 #include "third_party/sqlite/sqlite3.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/gl/buildflags.h"
@@ -292,12 +291,6 @@ blink::WebThemeEngine* RendererBlinkPlatformImpl::ThemeEngine() {
       GetContentClient()->renderer()->OverrideThemeEngine();
   if (!theme_engine)
     theme_engine = BlinkPlatformImpl::ThemeEngine();
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kForceHighContrast))
-    theme_engine->SetForcedColors(blink::ForcedColors::kActive);
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kForceDarkMode))
-    theme_engine->SetPreferredColorScheme(blink::PreferredColorScheme::kDark);
   return theme_engine;
 }
 
@@ -504,7 +497,7 @@ RendererBlinkPlatformImpl::NewAudioCapturerSource(
 #endif
 }
 
-viz::ContextProvider*
+viz::RasterContextProvider*
 RendererBlinkPlatformImpl::SharedMainThreadContextProvider() {
   return RenderThreadImpl::current()->SharedMainThreadContextProvider().get();
 }
@@ -573,14 +566,14 @@ bool RendererBlinkPlatformImpl::IsWebRtcStunOriginEnabled() {
       switches::kEnableWebRtcStunOrigin);
 }
 
-base::Optional<std::string>
+base::Optional<blink::WebString>
 RendererBlinkPlatformImpl::WebRtcStunProbeTrialParameter() {
   const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   if (!cmd_line->HasSwitch(switches::kWebRtcStunProbeTrialParameter))
     return base::nullopt;
 
-  return cmd_line->GetSwitchValueASCII(
-      switches::kWebRtcStunProbeTrialParameter);
+  return blink::WebString::FromASCII(
+      cmd_line->GetSwitchValueASCII(switches::kWebRtcStunProbeTrialParameter));
 }
 
 media::MediaPermission* RendererBlinkPlatformImpl::GetWebRTCMediaPermission(
@@ -861,18 +854,6 @@ blink::WebString RendererBlinkPlatformImpl::ConvertIDNToUnicode(
 
 //------------------------------------------------------------------------------
 
-void RendererBlinkPlatformImpl::RecordRappor(const char* metric,
-                                             const blink::WebString& sample) {
-  GetContentClient()->renderer()->RecordRappor(metric, sample.Utf8());
-}
-
-void RendererBlinkPlatformImpl::RecordRapporURL(const char* metric,
-                                                const blink::WebURL& url) {
-  GetContentClient()->renderer()->RecordRapporURL(metric, url);
-}
-
-//------------------------------------------------------------------------------
-
 std::unique_ptr<blink::WebDedicatedWorkerHostFactoryClient>
 RendererBlinkPlatformImpl::CreateDedicatedWorkerHostFactoryClient(
     blink::WebDedicatedWorker* worker,
@@ -928,8 +909,8 @@ blink::mojom::CodeCacheHost& RendererBlinkPlatformImpl::GetCodeCacheHost() {
   if (!code_cache_host_) {
     code_cache_host_ = mojo::SharedRemote<blink::mojom::CodeCacheHost>(
         std::move(code_cache_host_remote_),
-        base::CreateSequencedTaskRunner(
-            {base::ThreadPool(), base::WithBaseSyncPrimitives()}));
+        base::ThreadPool::CreateSequencedTaskRunner(
+            {base::WithBaseSyncPrimitives()}));
   }
   return *code_cache_host_;
 }

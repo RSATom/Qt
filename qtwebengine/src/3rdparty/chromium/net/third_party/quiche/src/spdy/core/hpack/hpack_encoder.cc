@@ -56,10 +56,12 @@ class HpackEncoder::RepresentationIterator {
 namespace {
 
 // The default header listener.
-void NoOpListener(SpdyStringPiece /*name*/, SpdyStringPiece /*value*/) {}
+void NoOpListener(quiche::QuicheStringPiece /*name*/,
+                  quiche::QuicheStringPiece /*value*/) {}
 
 // The default HPACK indexing policy.
-bool DefaultPolicy(SpdyStringPiece name, SpdyStringPiece /* value */) {
+bool DefaultPolicy(quiche::QuicheStringPiece name,
+                   quiche::QuicheStringPiece /* value */) {
   if (name.empty()) {
     return false;
   }
@@ -188,7 +190,7 @@ void HpackEncoder::EmitLiteral(const Representation& representation) {
   EmitString(representation.second);
 }
 
-void HpackEncoder::EmitString(SpdyStringPiece str) {
+void HpackEncoder::EmitString(quiche::QuicheStringPiece str) {
   size_t encoded_size =
       enable_compression_ ? huffman_table_.EncodedSize(str) : str.size();
   if (encoded_size < str.size()) {
@@ -229,19 +231,21 @@ void HpackEncoder::CookieToCrumbs(const Representation& cookie,
   // See Section 8.1.2.5. "Compressing the Cookie Header Field" in the HTTP/2
   // specification at https://tools.ietf.org/html/draft-ietf-httpbis-http2-14.
   // Cookie values are split into individually-encoded HPACK representations.
-  SpdyStringPiece cookie_value = cookie.second;
+  quiche::QuicheStringPiece cookie_value = cookie.second;
   // Consume leading and trailing whitespace if present.
-  SpdyStringPiece::size_type first = cookie_value.find_first_not_of(" \t");
-  SpdyStringPiece::size_type last = cookie_value.find_last_not_of(" \t");
-  if (first == SpdyStringPiece::npos) {
-    cookie_value = SpdyStringPiece();
+  quiche::QuicheStringPiece::size_type first =
+      cookie_value.find_first_not_of(" \t");
+  quiche::QuicheStringPiece::size_type last =
+      cookie_value.find_last_not_of(" \t");
+  if (first == quiche::QuicheStringPiece::npos) {
+    cookie_value = quiche::QuicheStringPiece();
   } else {
     cookie_value = cookie_value.substr(first, (last - first) + 1);
   }
   for (size_t pos = 0;;) {
     size_t end = cookie_value.find(";", pos);
 
-    if (end == SpdyStringPiece::npos) {
+    if (end == quiche::QuicheStringPiece::npos) {
       out->push_back(std::make_pair(cookie.first, cookie_value.substr(pos)));
       break;
     }
@@ -261,26 +265,21 @@ void HpackEncoder::DecomposeRepresentation(const Representation& header_field,
                                            Representations* out) {
   size_t pos = 0;
   size_t end = 0;
-  while (end != SpdyStringPiece::npos) {
+  while (end != quiche::QuicheStringPiece::npos) {
     end = header_field.second.find('\0', pos);
     out->push_back(std::make_pair(
         header_field.first,
         header_field.second.substr(
-            pos, end == SpdyStringPiece::npos ? end : end - pos)));
+            pos, end == quiche::QuicheStringPiece::npos ? end : end - pos)));
     pos = end + 1;
   }
-}
-
-// static
-void HpackEncoder::GatherRepresentation(const Representation& header_field,
-                                        Representations* out) {
-  out->push_back(std::make_pair(header_field.first, header_field.second));
 }
 
 // Iteratively encodes a SpdyHeaderBlock.
 class HpackEncoder::Encoderator : public ProgressiveEncoder {
  public:
   Encoderator(const SpdyHeaderBlock& header_set, HpackEncoder* encoder);
+  Encoderator(const Representations& representations, HpackEncoder* encoder);
 
   // Encoderator is neither copyable nor movable.
   Encoderator(const Encoderator&) = delete;
@@ -305,7 +304,6 @@ HpackEncoder::Encoderator::Encoderator(const SpdyHeaderBlock& header_set,
                                        HpackEncoder* encoder)
     : encoder_(encoder), has_next_(true) {
   // Separate header set into pseudo-headers and regular headers.
-  const bool use_compression = encoder_->enable_compression_;
   bool found_cookie = false;
   for (const auto& header : header_set) {
     if (!found_cookie && header.first == "cookie") {
@@ -315,11 +313,28 @@ HpackEncoder::Encoderator::Encoderator(const SpdyHeaderBlock& header_set,
       CookieToCrumbs(header, &regular_headers_);
     } else if (!header.first.empty() &&
                header.first[0] == kPseudoHeaderPrefix) {
-      use_compression ? DecomposeRepresentation(header, &pseudo_headers_)
-                      : GatherRepresentation(header, &pseudo_headers_);
+      DecomposeRepresentation(header, &pseudo_headers_);
     } else {
-      use_compression ? DecomposeRepresentation(header, &regular_headers_)
-                      : GatherRepresentation(header, &regular_headers_);
+      DecomposeRepresentation(header, &regular_headers_);
+    }
+  }
+  header_it_ = std::make_unique<RepresentationIterator>(pseudo_headers_,
+                                                        regular_headers_);
+
+  encoder_->MaybeEmitTableSize();
+}
+
+HpackEncoder::Encoderator::Encoderator(const Representations& representations,
+                                       HpackEncoder* encoder)
+    : encoder_(encoder), has_next_(true) {
+  for (const auto& header : representations) {
+    if (header.first == "cookie") {
+      CookieToCrumbs(header, &regular_headers_);
+    } else if (!header.first.empty() &&
+               header.first[0] == kPseudoHeaderPrefix) {
+      pseudo_headers_.push_back(header);
+    } else {
+      regular_headers_.push_back(header);
     }
   }
   header_it_ = std::make_unique<RepresentationIterator>(pseudo_headers_,
@@ -361,6 +376,11 @@ void HpackEncoder::Encoderator::Next(size_t max_encoded_bytes,
 std::unique_ptr<HpackEncoder::ProgressiveEncoder> HpackEncoder::EncodeHeaderSet(
     const SpdyHeaderBlock& header_set) {
   return std::make_unique<Encoderator>(header_set, this);
+}
+
+std::unique_ptr<HpackEncoder::ProgressiveEncoder>
+HpackEncoder::EncodeRepresentations(const Representations& representations) {
+  return std::make_unique<Encoderator>(representations, this);
 }
 
 }  // namespace spdy

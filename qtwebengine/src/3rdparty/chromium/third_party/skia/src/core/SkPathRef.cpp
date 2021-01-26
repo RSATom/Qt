@@ -52,8 +52,6 @@ void SkPath::shrinkToFit() {
 SkPathRef::~SkPathRef() {
     // Deliberately don't validate() this path ref, otherwise there's no way
     // to read one that's not valid and then free its memory without asserting.
-    this->callGenIDChangeListeners();
-    SkASSERT(fGenIDChangeListeners.empty());  // These are raw ptrs.
     SkDEBUGCODE(fGenerationID = 0xEEEEEEEE;)
     SkDEBUGCODE(fEditorsAttached.store(0x7777777);)
 }
@@ -332,6 +330,32 @@ void SkPathRef::interpolate(const SkPathRef& ending, SkScalar weight, SkPathRef*
     out->fIsRRect = false;
 }
 
+std::tuple<SkPoint*, SkScalar*> SkPathRef::growForVerbsInPath(const SkPathRef& path) {
+    SkDEBUGCODE(this->validate();)
+
+    fSegmentMask |= path.fSegmentMask;
+    fBoundsIsDirty = true;  // this also invalidates fIsFinite
+    fIsOval = false;
+    fIsRRect = false;
+
+    if (int numVerbs = path.countVerbs()) {
+        memcpy(fVerbs.append(numVerbs), path.fVerbs.begin(), numVerbs * sizeof(fVerbs[0]));
+    }
+
+    SkPoint* pts = nullptr;
+    if (int numPts = path.countPoints()) {
+        pts = fPoints.append(numPts);
+    }
+
+    SkScalar* weights = nullptr;
+    if (int numConics = path.countWeights()) {
+        weights = fConicWeights.append(numConics);
+    }
+
+    SkDEBUGCODE(this->validate();)
+    return std::make_tuple(pts, weights);
+}
+
 SkPoint* SkPathRef::growForRepeatedVerb(int /*SkPath::Verb*/ verb,
                                         int numVbs,
                                         SkScalar** weights) {
@@ -451,49 +475,20 @@ uint32_t SkPathRef::genID() const {
     return fGenerationID;
 }
 
-void SkPathRef::addGenIDChangeListener(sk_sp<GenIDChangeListener> listener) {
-    if (nullptr == listener || this == gEmpty) {
+void SkPathRef::addGenIDChangeListener(sk_sp<SkIDChangeListener> listener) {
+    if (this == gEmpty) {
         return;
     }
-
-    SkAutoMutexExclusive lock(fGenIDChangeListenersMutex);
-
-    // Clean out any stale listeners before we append the new one.
-    for (int i = 0; i < fGenIDChangeListeners.count(); ++i) {
-        if (fGenIDChangeListeners[i]->shouldUnregisterFromPath()) {
-            fGenIDChangeListeners[i]->unref();
-            fGenIDChangeListeners.removeShuffle(i--);  // No need to preserve the order after i.
-        }
-    }
-
-    SkASSERT(!listener->shouldUnregisterFromPath());
-    *fGenIDChangeListeners.append() = listener.release();
+    bool singleThreaded = this->unique();
+    fGenIDChangeListeners.add(std::move(listener), singleThreaded);
 }
+
+int SkPathRef::genIDChangeListenerCount() { return fGenIDChangeListeners.count(); }
 
 // we need to be called *before* the genID gets changed or zerod
 void SkPathRef::callGenIDChangeListeners() {
-    auto visit = [this]() {
-        for (GenIDChangeListener* listener : fGenIDChangeListeners) {
-            if (!listener->shouldUnregisterFromPath()) {
-                listener->onChange();
-            }
-            // Listeners get at most one shot, so whether these triggered or not, blow them away.
-            listener->unref();
-        }
-        fGenIDChangeListeners.reset();
-    };
-
-    // Acquiring the mutex is relatively expensive, compared to operations like moveTo, etc.
-    // Thus we want to skip it if we're unique. This is safe because the only purpose of the
-    // mutex is to keep the listener-list intact while we iterate/edit it, and if we're unique,
-    // no one else can modify fGenIDChangeListeners.
-
-    if (this->unique()) {
-        visit();
-    } else {
-        SkAutoMutexExclusive lock(fGenIDChangeListenersMutex);
-        visit();
-    }
+    bool singleThreaded = this->unique();
+    fGenIDChangeListeners.changed(singleThreaded);
 }
 
 SkRRect SkPathRef::getRRect() const {

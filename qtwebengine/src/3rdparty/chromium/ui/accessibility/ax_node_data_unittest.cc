@@ -127,6 +127,7 @@ TEST(AXNodeDataTest, TestIsClickable) {
       ax::mojom::Role::kMenuItemRadio,
       ax::mojom::Role::kMenuListOption,
       ax::mojom::Role::kMenuListPopup,
+      ax::mojom::Role::kPdfActionableHighlight,
       ax::mojom::Role::kPopUpButton,
       ax::mojom::Role::kRadioButton,
       ax::mojom::Role::kSwitch,
@@ -264,6 +265,13 @@ TEST(AXNodeDataTest, TestSupportsExpandCollapse) {
     else
       EXPECT_FALSE(supports_expand_collapse);
   }
+}
+
+TEST(AXNodeDataTest, BitFieldsSanityCheck) {
+  EXPECT_LT(static_cast<size_t>(ax::mojom::State::kMaxValue),
+            sizeof(AXNodeData::state) * 8);
+  EXPECT_LT(static_cast<size_t>(ax::mojom::Action::kMaxValue),
+            sizeof(AXNodeData::actions) * 8);
 }
 
 }  // namespace ui

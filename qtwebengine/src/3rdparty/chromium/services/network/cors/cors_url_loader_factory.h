@@ -16,6 +16,7 @@
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/cors/origin_access_list.h"
+#include "services/network/public/cpp/initiator_lock_compatibility.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 
@@ -49,10 +50,11 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoaderFactory final
   void DestroyURLLoader(mojom::URLLoader* loader);
 
   // Clears the bindings for this factory, but does not touch any in-progress
-  // URLLoaders.
+  // URLLoaders. Calling this may delete this factory and remove it from the
+  // network context.
   void ClearBindings();
 
-  uint32_t process_id() const { return process_id_; }
+  int32_t process_id() const { return process_id_; }
 
   // Set whether the factory allows CORS preflights. See IsSane.
   static void SetAllowExternalPreflightsForTesting(bool allow) {
@@ -79,6 +81,11 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoaderFactory final
               const ResourceRequest& request,
               uint32_t options);
 
+  InitiatorLockCompatibility VerifyRequestInitiatorLockWithPluginCheck(
+      uint32_t process_id,
+      const base::Optional<url::Origin>& request_initiator_site_lock,
+      const base::Optional<url::Origin>& request_initiator);
+
   mojo::ReceiverSet<mojom::URLLoaderFactory> receivers_;
 
   // Used when constructed by NetworkContext.
@@ -91,8 +98,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoaderFactory final
 
   // Retained from URLLoaderFactoryParams:
   const bool disable_web_security_;
-  const uint32_t process_id_ = mojom::kInvalidProcessId;
+  const int32_t process_id_ = mojom::kInvalidProcessId;
   const base::Optional<url::Origin> request_initiator_site_lock_;
+  const bool ignore_isolated_world_origin_;
 
   // Relative order of |network_loader_factory_| and |loaders_| matters -
   // URLLoaderFactory needs to live longer than URLLoaders created using the

@@ -784,8 +784,6 @@ class FloatRect {
   PP_FloatRect rect_;
 };
 
-}  // namespace pp
-
 /// This function determines whether the x, y, width, and height values of two
 /// rectangles and are equal.
 ///
@@ -793,7 +791,7 @@ class FloatRect {
 /// @param[in] rhs The <code>Rect</code> on the right-hand side of the equation.
 ///
 /// @return true if they are equal, false if unequal.
-inline bool operator==(const pp::Rect& lhs, const pp::Rect& rhs) {
+inline bool operator==(const Rect& lhs, const Rect& rhs) {
   return lhs.x() == rhs.x() &&
          lhs.y() == rhs.y() &&
          lhs.width() == rhs.width() &&
@@ -807,7 +805,7 @@ inline bool operator==(const pp::Rect& lhs, const pp::Rect& rhs) {
 /// equation.
 ///
 /// @return true if the given Rects are equal, otherwise false.
-inline bool operator!=(const pp::Rect& lhs, const pp::Rect& rhs) {
+inline bool operator!=(const Rect& lhs, const Rect& rhs) {
   return !(lhs == rhs);
 }
 
@@ -820,7 +818,7 @@ inline bool operator!=(const pp::Rect& lhs, const pp::Rect& rhs) {
 /// equation.
 ///
 /// @return true if they are equal, false if unequal.
-inline bool operator==(const pp::FloatRect& lhs, const pp::FloatRect& rhs) {
+inline bool operator==(const FloatRect& lhs, const FloatRect& rhs) {
   return lhs.x() == rhs.x() &&
          lhs.y() == rhs.y() &&
          lhs.width() == rhs.width() &&
@@ -835,9 +833,11 @@ inline bool operator==(const pp::FloatRect& lhs, const pp::FloatRect& rhs) {
 /// equation.
 ///
 /// @return true if the given Rects are equal, otherwise false.
-inline bool operator!=(const pp::FloatRect& lhs, const pp::FloatRect& rhs) {
+inline bool operator!=(const FloatRect& lhs, const FloatRect& rhs) {
   return !(lhs == rhs);
 }
+
+}  // namespace pp
 
 #endif
 

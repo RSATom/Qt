@@ -290,8 +290,9 @@ IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
   RunEventTest(FILE_PATH_LITERAL("aria-grabbed-changed.html"));
 }
 
+// crbug.com/1047282: disabled due to flakiness.
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
-                       AccessibilityEventsAriaHasPopupChanged) {
+                       DISABLED_AccessibilityEventsAriaHasPopupChanged) {
   RunEventTest(FILE_PATH_LITERAL("aria-haspopup-changed.html"));
 }
 
@@ -410,8 +411,10 @@ IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
   RunEventTest(FILE_PATH_LITERAL("aria-slider-valuetext-change.html"));
 }
 
-IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
-                       AccessibilityEventsAriaSpinButtonValueBothChange) {
+// crbug.com/1047282: disabled due to flakiness.
+IN_PROC_BROWSER_TEST_P(
+    DumpAccessibilityEventsTest,
+    DISABLED_AccessibilityEventsAriaSpinButtonValueBothChange) {
   RunEventTest(FILE_PATH_LITERAL("aria-spinbutton-value-both-change.html"));
 }
 
@@ -478,8 +481,16 @@ IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
   RunEventTest(FILE_PATH_LITERAL("checkbox-validity.html"));
 }
 
+// Flaky on TSAN, see https://crbug.com/1066702
+#if defined(THREAD_SANITIZER)
+#define MAYBE_AccessibilityEventsCaretBrowsingEnabled \
+  DISABLED_AccessibilityEventsCaretBrowsingEnabled
+#else
+#define MAYBE_AccessibilityEventsCaretBrowsingEnabled \
+  AccessibilityEventsCaretBrowsingEnabled
+#endif
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
-                       AccessibilityEventsCaretBrowsingEnabled) {
+                       MAYBE_AccessibilityEventsCaretBrowsingEnabled) {
   // Add command line switch that forces caret browsing on.
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableCaretBrowsing);
@@ -502,6 +513,11 @@ IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
 }
 
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
+                       AccessibilityEventsCSSFlexTextUpdate) {
+  RunEventTest(FILE_PATH_LITERAL("css-flex-text-update.html"));
+}
+
+IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
                        AccessibilityEventsCSSVisibility) {
   RunEventTest(FILE_PATH_LITERAL("css-visibility.html"));
 }
@@ -516,13 +532,16 @@ IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
   RunEventTest(FILE_PATH_LITERAL("description-change.html"));
 }
 
+// crbug.com/1046298.
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
-                       AccessibilityEventsDescriptionChangeIndirect) {
+                       DISABLED_AccessibilityEventsDescriptionChangeIndirect) {
   RunEventTest(FILE_PATH_LITERAL("description-change-indirect.html"));
 }
 
-IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
-                       AccessibilityEventsDescriptionChangeNoRelation) {
+// crbug.com/1046298.
+IN_PROC_BROWSER_TEST_P(
+    DumpAccessibilityEventsTest,
+    DISABLED_AccessibilityEventsDescriptionChangeNoRelation) {
   RunEventTest(FILE_PATH_LITERAL("description-change-no-relation.html"));
 }
 
@@ -536,8 +555,9 @@ IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
   RunEventTest(FILE_PATH_LITERAL("expanded-changed.html"));
 }
 
+// crbug.com/1047282: disabled due to flakiness.
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
-                       AccessibilityEventsFormRequiredChanged) {
+                       DISABLED_AccessibilityEventsFormRequiredChanged) {
   RunEventTest(FILE_PATH_LITERAL("form-required-changed.html"));
 }
 
@@ -784,18 +804,8 @@ IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
   RunEventTest(FILE_PATH_LITERAL("visibility-hidden-changed.html"));
 }
 
-// Even with the deflaking in WaitForAccessibilityTreeToContainNodeWithName,
-// this test is still flaky on Windows.
-// TODO(aboxhall, dmazzoni, meredithl): re-enable with better fix for above.
-#if defined(OS_WIN)
-#define MAYBE_AccessibilityEventsAriaSelectedChanged \
-  DISABLED_AccessibilityEventsAriaSelectedChanged
-#else
-#define MAYBE_AccessibilityEventsAriaSelectedChanged \
-  AccessibilityEventsAriaSelectedChanged
-#endif
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
-                       MAYBE_AccessibilityEventsAriaSelectedChanged) {
+                       AccessibilityEventsAriaSelectedChanged) {
   RunEventTest(FILE_PATH_LITERAL("aria-selected-changed.html"));
 }
 
@@ -843,13 +853,15 @@ IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
   RunEventTest(FILE_PATH_LITERAL("menu-opened-closed.html"));
 }
 
+// crbug.com/1047282: disabled due to flakiness.
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
-                       AccessibilityEventsAriaFlowToChange) {
+                       DISABLED_AccessibilityEventsAriaFlowToChange) {
   RunEventTest(FILE_PATH_LITERAL("aria-flow-to.html"));
 }
 
+// crbug.com/1047282: disabled due to flakiness.
 IN_PROC_BROWSER_TEST_P(DumpAccessibilityEventsTest,
-                       AccessibilityEventsSelectAddRemove) {
+                       DISABLED_AccessibilityEventsSelectAddRemove) {
   RunEventTest(FILE_PATH_LITERAL("select-selected-add-remove.html"));
 }
 

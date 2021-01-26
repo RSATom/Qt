@@ -22,6 +22,7 @@
 #include "printing/page_size_margins.h"
 #include "printing/print_job_constants.h"
 #include "third_party/blink/public/web/web_print_scaling_option.h"
+#include "ui/accessibility/ax_param_traits.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/ipc/geometry/gfx_param_traits.h"
@@ -75,14 +76,6 @@ struct PrintMsg_PrintPages_Params {
 
   PrintMsg_Print_Params params;
   std::vector<int> pages;
-};
-
-struct PrintMsg_PrintFrame_Params {
-  PrintMsg_PrintFrame_Params();
-  ~PrintMsg_PrintFrame_Params();
-
-  gfx::Rect printable_area;
-  int document_cookie;
 };
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
@@ -261,15 +254,6 @@ IPC_STRUCT_TRAITS_BEGIN(PrintMsg_PrintPages_Params)
   IPC_STRUCT_TRAITS_MEMBER(pages)
 IPC_STRUCT_TRAITS_END()
 
-IPC_STRUCT_TRAITS_BEGIN(PrintMsg_PrintFrame_Params)
-  // Physical printable area of the page in pixels according to dpi.
-  IPC_STRUCT_TRAITS_MEMBER(printable_area)
-
-  // Cookie that is unique for each print request.
-  // It is used to associate the printed frame with its original print request.
-  IPC_STRUCT_TRAITS_MEMBER(document_cookie)
-IPC_STRUCT_TRAITS_END()
-
 // Holds the printed content information.
 // The printed content is in shared memory, and passed as a region.
 // A map on out-of-process subframe contents is also included so the printed
@@ -358,23 +342,6 @@ IPC_STRUCT_BEGIN(PrintHostMsg_ScriptedPrint_Params)
 IPC_STRUCT_END()
 
 
-// Messages sent from the browser to the renderer.
-
-// Tells the RenderFrame to initiate printing or print preview for a particular
-// node, depending on which mode the RenderFrame is in.
-IPC_MESSAGE_ROUTED0(PrintMsg_PrintNodeUnderContextMenu)
-
-// Print content of an out-of-process subframe.
-IPC_MESSAGE_ROUTED1(PrintMsg_PrintFrameContent, PrintMsg_PrintFrame_Params)
-
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-// Tells the RenderFrame to switch the CSS to print media type, renders every
-// requested pages for print preview using the given |settings|. This gets
-// called multiple times as the user updates settings.
-IPC_MESSAGE_ROUTED1(PrintMsg_PrintPreview,
-                    base::DictionaryValue /* settings */)
-#endif
-
 // Messages sent from the renderer to the browser.
 
 // Tells the browser that the renderer is done calculating the number of
@@ -404,6 +371,14 @@ IPC_SYNC_MESSAGE_ROUTED1_1(PrintHostMsg_DidPrintDocument,
 IPC_MESSAGE_ROUTED2(PrintHostMsg_DidPrintFrameContent,
                     int /* rendered document cookie */,
                     PrintHostMsg_DidPrintContent_Params)
+
+#if BUILDFLAG(ENABLE_TAGGED_PDF)
+// Sends the accessibility tree corresponding to a document being
+// printed, needed for a tagged (accessible) PDF.
+IPC_MESSAGE_ROUTED2(PrintHostMsg_AccessibilityTree,
+                    int /* rendered document cookie */,
+                    ui::AXTreeUpdate)
+#endif
 
 // The renderer wants to know the default print settings.
 IPC_SYNC_MESSAGE_ROUTED0_1(PrintHostMsg_GetDefaultPrintSettings,

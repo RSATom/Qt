@@ -47,7 +47,9 @@ std::string GetWhitelistEntries() {
 bool IsWhitelistedSourceId(SourceId source_id) {
   return GetSourceIdType(source_id) == SourceIdType::NAVIGATION_ID ||
          GetSourceIdType(source_id) == SourceIdType::APP_ID ||
-         GetSourceIdType(source_id) == SourceIdType::HISTORY_ID;
+         GetSourceIdType(source_id) == SourceIdType::HISTORY_ID ||
+         GetSourceIdType(source_id) == SourceIdType::WEBAPK_ID ||
+         GetSourceIdType(source_id) == SourceIdType::PAYMENT_APP_ID;
 }
 
 // Gets the maximum number of Sources we'll keep in memory before discarding any
@@ -320,7 +322,9 @@ void UkmRecorderImpl::StoreRecordingsInReport(Report* report) {
     // Don't keep sources of these types after current report because their
     // entries are logged only at source creation time.
     if (GetSourceIdType(kv.first) == base::UkmSourceId::Type::APP_ID ||
-        GetSourceIdType(kv.first) == base::UkmSourceId::Type::HISTORY_ID) {
+        GetSourceIdType(kv.first) == base::UkmSourceId::Type::HISTORY_ID ||
+        GetSourceIdType(kv.first) == base::UkmSourceId::Type::WEBAPK_ID ||
+        GetSourceIdType(kv.first) == SourceIdType::PAYMENT_APP_ID) {
       MarkSourceForDeletion(kv.first);
     }
     // If the source id is not whitelisted, don't send it unless it has

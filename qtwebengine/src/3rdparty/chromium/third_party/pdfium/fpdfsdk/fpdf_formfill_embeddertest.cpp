@@ -523,12 +523,21 @@ class FPDFFormFillListBoxFormEmbedderTest
   static constexpr float kSingleFormLastSelectedYSecondVisibleOption = 108.0;
 };
 
+class FPDFFormFillTextFormEmbedderTestVersion2
+    : public FPDFFormFillTextFormEmbedderTest {
+  void SetUp() override {
+    SetFormFillInfoVersion(2);
+    FPDFFormFillInteractiveEmbedderTest::SetUp();
+  }
+};
+
 TEST_F(FPDFFormFillEmbedderTest, FirstTest) {
   EmbedderTestMockDelegate mock;
   EXPECT_CALL(mock, Alert(_, _, _, _)).Times(0);
   EXPECT_CALL(mock, UnsupportedHandler(_)).Times(0);
   EXPECT_CALL(mock, SetTimer(_, _)).Times(0);
   EXPECT_CALL(mock, KillTimer(_)).Times(0);
+  EXPECT_CALL(mock, OnFocusChange(_, _, _)).Times(0);
   SetDelegate(&mock);
 
   EXPECT_TRUE(OpenDocument("hello_world.pdf"));
@@ -627,6 +636,93 @@ TEST_F(FPDFFormFillEmbedderTest, BUG_901654_2) {
                                 nullptr);
   }
   UnloadPage(page);
+}
+
+TEST_F(FPDFFormFillEmbedderTest, GetFocusedAnnotation) {
+  ASSERT_TRUE(OpenDocument("annotiter.pdf"));
+  std::vector<FPDF_PAGE> pages;
+  for (size_t i = 0; i < 3; ++i) {
+    pages.push_back(LoadPage(i));
+    ASSERT_TRUE(pages.back());
+  }
+
+  // Ensure that there is no focused annotation.
+  FPDF_ANNOTATION annot = nullptr;
+  int page_index = -2;
+  ASSERT_TRUE(FORM_GetFocusedAnnot(form_handle(), &page_index, &annot));
+  EXPECT_FALSE(annot);
+  EXPECT_EQ(-1, page_index);
+
+  // Validate that nullptr values are handled properly.
+  EXPECT_FALSE(FORM_GetFocusedAnnot(nullptr, &page_index, &annot));
+  EXPECT_FALSE(FORM_GetFocusedAnnot(form_handle(), &page_index, nullptr));
+  EXPECT_FALSE(FORM_GetFocusedAnnot(form_handle(), nullptr, &annot));
+
+  const CFX_PointF right_bottom_annot_point(410.0f, 210.0f);
+  constexpr int kExpectedAnnotIndex = 3;
+
+  for (size_t i = 0; i < pages.size(); ++i) {
+    // Invoke click on the form field to bring it to focus.
+    FORM_OnMouseMove(form_handle(), pages[i], 0, right_bottom_annot_point.x,
+                     right_bottom_annot_point.y);
+    FORM_OnLButtonDown(form_handle(), pages[i], 0, right_bottom_annot_point.x,
+                       right_bottom_annot_point.y);
+    FORM_OnLButtonUp(form_handle(), pages[i], 0, right_bottom_annot_point.x,
+                     right_bottom_annot_point.y);
+
+    ASSERT_TRUE(FORM_GetFocusedAnnot(form_handle(), &page_index, &annot));
+    ASSERT_TRUE(annot);
+
+    EXPECT_EQ(kExpectedAnnotIndex, FPDFPage_GetAnnotIndex(pages[i], annot));
+    EXPECT_EQ(static_cast<int>(i), page_index);
+
+    FPDFPage_CloseAnnot(annot);
+  }
+
+  for (FPDF_PAGE page : pages)
+    UnloadPage(page);
+}
+
+TEST_F(FPDFFormFillEmbedderTest, SetFocusedAnnotation) {
+  ASSERT_TRUE(OpenDocument("annotiter.pdf"));
+  std::vector<FPDF_PAGE> pages;
+  for (size_t i = 0; i < 3; ++i) {
+    pages.push_back(LoadPage(i));
+    ASSERT_TRUE(pages.back());
+  }
+
+  // Ensure that there is no focused annotation.
+  FPDF_ANNOTATION annot = nullptr;
+  int page_index = -2;
+  ASSERT_TRUE(FORM_GetFocusedAnnot(form_handle(), &page_index, &annot));
+  EXPECT_FALSE(annot);
+  EXPECT_EQ(-1, page_index);
+
+  // Validate that nullptr values are handled properly.
+  EXPECT_FALSE(FORM_SetFocusedAnnot(nullptr, pages[0], annot));
+  EXPECT_FALSE(FORM_SetFocusedAnnot(form_handle(), nullptr, annot));
+  EXPECT_FALSE(FORM_SetFocusedAnnot(form_handle(), pages[0], nullptr));
+
+  constexpr int kExpectedAnnotIndex = 2;
+
+  for (size_t i = 0; i < pages.size(); ++i) {
+    // Setting focus on an annotation on page i.
+    ScopedFPDFAnnotation focused_annot(
+        FPDFPage_GetAnnot(pages[i], kExpectedAnnotIndex));
+    ASSERT_TRUE(focused_annot);
+
+    ASSERT_TRUE(
+        FORM_SetFocusedAnnot(form_handle(), pages[i], focused_annot.get()));
+
+    ASSERT_TRUE(FORM_GetFocusedAnnot(form_handle(), &page_index, &annot));
+    EXPECT_EQ(kExpectedAnnotIndex, FPDFPage_GetAnnotIndex(pages[i], annot));
+    EXPECT_EQ(static_cast<int>(i), page_index);
+
+    FPDFPage_CloseAnnot(annot);
+  }
+
+  for (FPDF_PAGE page : pages)
+    UnloadPage(page);
 }
 
 class DoURIActionBlockedDelegate final : public EmbedderTest::Delegate {
@@ -892,9 +988,9 @@ TEST_F(FPDFFormFillEmbedderTest, BUG_765384) {
 #endif
 TEST_F(FPDFFormFillEmbedderTest, MAYBE_FormText) {
 #if defined(OS_MACOSX)
-  const char md5_1[] = "5f11dbe575fe197a37c3fb422559f8ff";
-  const char md5_2[] = "35b1a4b679eafc749a0b6fda750c0e8d";
-  const char md5_3[] = "65c64a7c355388f719a752aa1e23f6fe";
+  const char md5_1[] = "d485541d958fef08d24e8eca3e537023";
+  const char md5_2[] = "c6e4a2fb10661116771ee74f54d9c5e0";
+  const char md5_3[] = "e0c8d5099301d7c10ed831a43e974d9d";
 #elif defined(OS_WIN)
   const char md5_1[] = "d3204faa62b607f0bd3893c9c22cabcb";
   const char md5_2[] = "29d1c3fd226ca6a69597f75937690320";
@@ -973,6 +1069,42 @@ TEST_F(FPDFFormFillEmbedderTest, MAYBE_BUG_1281) {
       RenderLoadedPageWithFlags(page, FPDF_REVERSE_BYTE_ORDER);
   CompareBitmap(bitmap_reverse_byte_order.get(), 200, 200,
                 kMd5ReverseByteOrder);
+
+  UnloadPage(page);
+}
+
+#if defined(_SKIA_SUPPORT_) || defined(_SKIA_SUPPORT_PATHS_)
+#define MAYBE_RemoveFormFieldHighlight DISABLED_RemoveFormFieldHighlight
+#else
+#define MAYBE_RemoveFormFieldHighlight RemoveFormFieldHighlight
+#endif
+TEST_F(FPDFFormFillEmbedderTest, MAYBE_RemoveFormFieldHighlight) {
+#if defined(OS_MACOSX)
+  const char kMd5Normal[] = "d485541d958fef08d24e8eca3e537023";
+  const char kMd5NoHighlight[] = "5e4b87c5b304c6fa9bd5f6311260494e";
+#elif defined(OS_WIN)
+  const char kMd5Normal[] = "d3204faa62b607f0bd3893c9c22cabcb";
+  const char kMd5NoHighlight[] = "3ec0938828e0a37ef23f687ee95a80e1";
+#else
+  const char kMd5Normal[] = "b890950d4b9bc163b1a96797f3004b53";
+  const char kMd5NoHighlight[] = "006010c318457810a518aa5e0b33c498";
+#endif
+
+  EXPECT_TRUE(OpenDocument("text_form.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+  ScopedFPDFBitmap bitmap1 = RenderLoadedPage(page);
+  CompareBitmap(bitmap1.get(), 300, 300, kMd5Normal);
+
+  // Removing the highlight changes the rendering.
+  FPDF_RemoveFormFieldHighlight(form_handle());
+  ScopedFPDFBitmap bitmap2 = RenderLoadedPage(page);
+  CompareBitmap(bitmap2.get(), 300, 300, kMd5NoHighlight);
+
+  // Restoring it gives the original rendering.
+  SetInitialFormFieldHighlight(form_handle());
+  ScopedFPDFBitmap bitmap3 = RenderLoadedPage(page);
+  CompareBitmap(bitmap3.get(), 300, 300, kMd5Normal);
 
   UnloadPage(page);
 }
@@ -2020,6 +2152,30 @@ TEST_F(FPDFFormFillTextFormEmbedderTest, DoubleClickInTextField) {
   CheckSelection(L"Hello World");
 }
 
+TEST_F(FPDFFormFillTextFormEmbedderTest, FocusAnnotationUpdateToEmbedder) {
+  testing::NiceMock<EmbedderTestMockDelegate> mock;
+  SetDelegate(&mock);
+  CheckFocusedFieldText(L"");
+
+#ifdef PDF_ENABLE_XFA
+  EXPECT_CALL(mock, OnFocusChange(_, _, 0)).Times(1);
+#else   // PDF_ENABLE_XFA
+  EXPECT_CALL(mock, OnFocusChange(_, _, 0)).Times(0);
+#endif  // PDF_ENABLE_XFA
+
+  ClickOnFormFieldAtPoint(RegularFormBegin());
+}
+
+TEST_F(FPDFFormFillTextFormEmbedderTestVersion2,
+       FocusAnnotationUpdateToEmbedder) {
+  testing::NiceMock<EmbedderTestMockDelegate> mock;
+  SetDelegate(&mock);
+  CheckFocusedFieldText(L"");
+
+  EXPECT_CALL(mock, OnFocusChange(_, _, 0)).Times(1);
+  ClickOnFormFieldAtPoint(RegularFormBegin());
+}
+
 TEST_F(FPDFFormFillTextFormEmbedderTest, FocusChanges) {
   static const CFX_PointF kNonFormPoint(1, 1);
   CheckFocusedFieldText(L"");
@@ -2483,4 +2639,36 @@ TEST_F(FPDFFormFillTextFormEmbedderTest, ReplaceSelection) {
   CheckFocusedFieldText(L"XYZB");
   CheckCanUndo(true);
   CheckCanRedo(false);
+}
+
+class FPDFXFAFormBug1055869EmbedderTest
+    : public FPDFFormFillInteractiveEmbedderTest {
+ protected:
+  FPDFXFAFormBug1055869EmbedderTest() = default;
+  ~FPDFXFAFormBug1055869EmbedderTest() override = default;
+
+  const char* GetDocumentName() const override { return "bug_1055869.pdf"; }
+  int GetFormType() const override { return FORMTYPE_XFA_FULL; }
+};
+
+TEST_F(FPDFXFAFormBug1055869EmbedderTest, Paste) {
+  ScopedFPDFWideString text_to_insert = GetFPDFWideString(L"XYZ");
+  DoubleClickOnFormFieldAtPoint(CFX_PointF(100, 100));
+  FORM_ReplaceSelection(form_handle(), page(), text_to_insert.get());
+}
+
+class FPDFXFAFormBug1058653EmbedderTest
+    : public FPDFFormFillInteractiveEmbedderTest {
+ protected:
+  FPDFXFAFormBug1058653EmbedderTest() = default;
+  ~FPDFXFAFormBug1058653EmbedderTest() override = default;
+
+  const char* GetDocumentName() const override { return "bug_1058653.pdf"; }
+  int GetFormType() const override { return FORMTYPE_XFA_FULL; }
+};
+
+TEST_F(FPDFXFAFormBug1058653EmbedderTest, Paste) {
+  ScopedFPDFWideString text_to_insert = GetFPDFWideString(L"");
+  DoubleClickOnFormFieldAtPoint(CFX_PointF(22, 22));
+  FORM_ReplaceSelection(form_handle(), page(), text_to_insert.get());
 }

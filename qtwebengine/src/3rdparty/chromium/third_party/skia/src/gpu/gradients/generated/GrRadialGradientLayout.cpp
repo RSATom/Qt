@@ -10,7 +10,7 @@
  **************************************************************************************************/
 #include "GrRadialGradientLayout.h"
 
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
@@ -84,7 +84,7 @@ std::unique_ptr<GrFragmentProcessor> GrRadialGradientLayout::TestCreate(GrProces
 std::unique_ptr<GrFragmentProcessor> GrRadialGradientLayout::Make(const SkRadialGradient& grad,
                                                                   const GrFPArgs& args) {
     SkMatrix matrix;
-    if (!grad.totalLocalMatrix(args.fPreLocalMatrix, args.fPostLocalMatrix)->invert(&matrix)) {
+    if (!grad.totalLocalMatrix(args.fPreLocalMatrix)->invert(&matrix)) {
         return nullptr;
     }
     matrix.postConcat(grad.getGradientMatrix());

@@ -28,10 +28,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-export default class PopoverHelper {
+import {GlassPane, MarginBehavior, SizeBehavior} from './GlassPane.js';
+
+export class PopoverHelper {
   /**
    * @param {!Element} container
-   * @param {function(!MouseEvent):?UI.PopoverRequest} getRequest
+   * @param {function(!MouseEvent):?PopoverRequest} getRequest
    */
   constructor(container, getRequest) {
     this._disableOnClick = false;
@@ -130,7 +132,7 @@ export default class PopoverHelper {
   }
 
   /**
-   * @param {!UI.GlassPane} popover
+   * @param {!GlassPane} popover
    * @param {!Event} event
    */
   _popoverMouseOut(popover, event) {
@@ -219,10 +221,10 @@ export default class PopoverHelper {
    * @param {!Document} document
    */
   _showPopover(document) {
-    const popover = new UI.GlassPane();
+    const popover = new GlassPane();
     popover.registerRequiredCSS('ui/popover.css');
-    popover.setSizeBehavior(UI.GlassPane.SizeBehavior.MeasureContent);
-    popover.setMarginBehavior(UI.GlassPane.MarginBehavior.Arrow);
+    popover.setSizeBehavior(SizeBehavior.MeasureContent);
+    popover.setMarginBehavior(MarginBehavior.Arrow);
     const request = this._scheduledRequest;
     request.show.call(null, popover).then(success => {
       if (!success) {
@@ -278,14 +280,5 @@ export default class PopoverHelper {
   }
 }
 
-/** @typedef {{box: !AnchorBox, show:(function(!UI.GlassPane):!Promise<boolean>), hide:(function()|undefined)}} */
-UI.PopoverRequest;
-
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.PopoverHelper = PopoverHelper;
+/** @typedef {{box: !AnchorBox, show:(function(!GlassPane):!Promise<boolean>), hide:(function()|undefined)}} */
+export let PopoverRequest;

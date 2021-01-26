@@ -7,6 +7,10 @@
     "scripts": [],
     "modules": [
         "cookie_table.js",
+        "cookie_table-legacy.js",
         "CookiesTable.js"
+    ],
+    "resources": [
+        "cookiesTable.css"
     ]
 }

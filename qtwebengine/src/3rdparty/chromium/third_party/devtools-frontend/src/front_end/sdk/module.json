@@ -3,7 +3,7 @@
         "common",
         "host",
         "platform",
-        "protocol"
+        "protocol_client"
     ],
     "extensions": [
         {
@@ -302,19 +302,61 @@
           "storageType": "session",
           "defaultValue": "",
           "options": [
-              {
-                  "title": "Do not emulate CSS prefers-reduced-motion",
-                  "text": "No emulation",
-                  "value": ""
-              },
-              {
-                  "title": "Emulate CSS prefers-reduced-motion: reduce",
-                  "text": "prefers-reduced-motion: reduce",
-                  "value": "reduce"
-              }
+            {
+              "title": "Do not emulate CSS prefers-reduced-motion",
+              "text": "No emulation",
+              "value": ""
+            },
+            {
+              "title": "Emulate CSS prefers-reduced-motion: reduce",
+              "text": "prefers-reduced-motion: reduce",
+              "value": "reduce"
+            }
           ],
           "tags": "query",
           "title": "Emulate CSS media feature prefers-reduced-motion"
+        },
+        {
+          "type": "setting",
+          "category": "Rendering",
+          "settingName": "emulatedVisionDeficiency",
+          "settingType": "enum",
+          "storageType": "session",
+          "defaultValue": "",
+          "options": [
+            {
+              "title": "Do not emulate any vision deficiency",
+              "text": "No emulation",
+              "value": "none"
+            },
+            {
+              "title": "Emulate blurred vision",
+              "text": "Blurred vision",
+              "value": "blurredVision"
+            },
+            {
+              "title": "Emulate protanopia",
+              "text": "Protanopia",
+              "value": "protanopia"
+            },
+            {
+              "title": "Emulate deuteranopia",
+              "text": "Deuteranopia",
+              "value": "deuteranopia"
+            },
+            {
+              "title": "Emulate tritanopia",
+              "text": "Tritanopia",
+              "value": "tritanopia"
+            },
+            {
+              "title": "Emulate achromatopsia",
+              "text": "Achromatopsia",
+              "value": "achromatopsia"
+            }
+          ],
+          "tags": "query",
+          "title": "Emulate vision deficiencies"
         },
         {
             "type": "setting",
@@ -366,16 +408,19 @@
     ],
     "scripts": [],
     "modules": [
+        "../generated/SupportedCSSProperties.js",
         "sdk.js",
+        "sdk-legacy.js",
         "SDKModel.js",
-        "Target.js",
-        "TargetManager.js",
         "Connections.js",
         "CompilerSourceMappingContentProvider.js",
+        "Cookie.js",
         "CookieModel.js",
         "CookieParser.js",
         "ProfileTreeModel.js",
+        "Issue.js",
         "IssuesModel.js",
+        "RelatedIssue.js",
         "ServerTiming.js",
         "CPUProfileDataModel.js",
         "CPUProfilerModel.js",
@@ -416,14 +461,11 @@
         "PaintProfiler.js",
         "HeapProfilerModel.js",
         "PerformanceMetricsModel.js",
-        "../SupportedCSSProperties.js",
         "FilmStripModel.js",
         "ConsoleModel.js",
-        "wasm_source_map/pkg/wasm_source_map.js",
-        "wasm_source_map/types.js"
+        "wasm_source_map/pkg/wasm_source_map.js"
     ],
     "skip_compilation": [
-        "../SupportedCSSProperties.js",
         "wasm_source_map/pkg/wasm_source_map.js"
     ]
 }

@@ -6,11 +6,11 @@
 #define UTIL_LOGGING_H_
 
 #include <sstream>
+#include <utility>
 
 #include "platform/api/logging.h"
 
 namespace openscreen {
-namespace platform {
 namespace internal {
 
 // The stream-based logging macros below are adapted from Chromium's
@@ -21,7 +21,7 @@ class LogMessage {
       : level_(level), file_(file), line_(line) {}
 
   ~LogMessage() {
-    LogWithLevel(level_, file_, line_, stream_.str());
+    LogWithLevel(level_, file_, line_, std::move(stream_));
     if (level_ == LogLevel::kFatal) {
       Break();
     }
@@ -37,7 +37,7 @@ class LogMessage {
   // creating a copy should be safe.
   const char* const file_;
   const int line_;
-  std::ostringstream stream_;
+  std::stringstream stream_;
 };
 
 // Used by the OSP_LAZY_STREAM macro to return void after evaluating an ostream
@@ -48,17 +48,15 @@ class Voidify {
 };
 
 }  // namespace internal
-}  // namespace platform
 }  // namespace openscreen
 
 #define OSP_LAZY_STREAM(condition, stream) \
-  !(condition) ? (void)0 : openscreen::platform::internal::Voidify() & (stream)
-#define OSP_LOG_IS_ON(level_enum)    \
-  openscreen::platform::IsLoggingOn( \
-      openscreen::platform::LogLevel::level_enum, __FILE__)
-#define OSP_LOG_STREAM(level_enum)                                    \
-  openscreen::platform::internal::LogMessage(                         \
-      openscreen::platform::LogLevel::level_enum, __FILE__, __LINE__) \
+  !(condition) ? (void)0 : openscreen::internal::Voidify() & (stream)
+#define OSP_LOG_IS_ON(level_enum) \
+  openscreen::IsLoggingOn(openscreen::LogLevel::level_enum, __FILE__)
+#define OSP_LOG_STREAM(level_enum)                                             \
+  openscreen::internal::LogMessage(openscreen::LogLevel::level_enum, __FILE__, \
+                                   __LINE__)                                   \
       .stream()
 
 #define OSP_VLOG \

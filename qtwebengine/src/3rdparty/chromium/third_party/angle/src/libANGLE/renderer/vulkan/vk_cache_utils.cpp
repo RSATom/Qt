@@ -186,6 +186,7 @@ void UnpackBlendAttachmentState(const vk::PackedColorBlendAttachmentState &packe
 void SetPipelineShaderStageInfo(const VkStructureType type,
                                 const VkShaderStageFlagBits stage,
                                 const VkShaderModule module,
+                                const VkSpecializationInfo &specializationInfo,
                                 VkPipelineShaderStageCreateInfo *shaderStage)
 {
     shaderStage->sType               = type;
@@ -193,7 +194,7 @@ void SetPipelineShaderStageInfo(const VkStructureType type,
     shaderStage->stage               = stage;
     shaderStage->module              = module;
     shaderStage->pName               = "main";
-    shaderStage->pSpecializationInfo = nullptr;
+    shaderStage->pSpecializationInfo = &specializationInfo;
 }
 
 angle::Result InitializeRenderPassFromDesc(vk::Context *context,
@@ -294,6 +295,29 @@ angle::Result InitializeRenderPassFromDesc(vk::Context *context,
     return angle::Result::Continue;
 }
 
+void InitializeSpecializationInfo(
+    vk::SpecializationConstantBitSet specConsts,
+    vk::SpecializationConstantMap<VkSpecializationMapEntry> *specializationEntriesOut,
+    vk::SpecializationConstantMap<VkBool32> *specializationValuesOut,
+    VkSpecializationInfo *specializationInfoOut)
+{
+    // Collect specialization constants.
+    for (const sh::vk::SpecializationConstantId id :
+         angle::AllEnums<sh::vk::SpecializationConstantId>())
+    {
+        const uint32_t offset                      = static_cast<uint32_t>(id);
+        (*specializationValuesOut)[id]             = specConsts.test(id);
+        (*specializationEntriesOut)[id].constantID = offset;
+        (*specializationEntriesOut)[id].offset     = offset;
+        (*specializationEntriesOut)[id].size       = sizeof(VkBool32);
+    }
+
+    specializationInfoOut->mapEntryCount = static_cast<uint32_t>(specializationEntriesOut->size());
+    specializationInfoOut->pMapEntries   = specializationEntriesOut->data();
+    specializationInfoOut->dataSize      = specializationEntriesOut->size() * sizeof(VkBool32);
+    specializationInfoOut->pData         = specializationValuesOut->data();
+}
+
 // Utility for setting a value on a packed 4-bit integer array.
 template <typename SrcT>
 void Int4Array_Set(uint8_t *arrayBytes, uint32_t arrayIndex, SrcT value)
@@ -328,11 +352,6 @@ DestT Int4Array_Get(const uint8_t *arrayBytes, uint32_t arrayIndex)
         return static_cast<DestT>(arrayBytes[byteIndex] >> 4);
     }
 }
-
-// Helper macro that casts to a bitfield type then verifies no bits were dropped.
-#define SetBitField(lhs, rhs)                                         \
-    lhs = static_cast<typename std::decay<decltype(lhs)>::type>(rhs); \
-    ASSERT(static_cast<decltype(rhs)>(lhs) == (rhs))
 
 // When converting a byte number to a transition bit index we can shift instead of divide.
 constexpr size_t kTransitionByteShift = Log2(kGraphicsPipelineDirtyBitBytes);
@@ -617,6 +636,7 @@ angle::Result GraphicsPipelineDesc::initializePipeline(
     const ShaderModule *vertexModule,
     const ShaderModule *fragmentModule,
     const ShaderModule *geometryModule,
+    vk::SpecializationConstantBitSet specConsts,
     Pipeline *pipelineOut) const
 {
     angle::FixedVector<VkPipelineShaderStageCreateInfo, 3> shaderStages;
@@ -629,13 +649,20 @@ angle::Result GraphicsPipelineDesc::initializePipeline(
     std::array<VkPipelineColorBlendAttachmentState, gl::IMPLEMENTATION_MAX_DRAW_BUFFERS>
         blendAttachmentState;
     VkPipelineColorBlendStateCreateInfo blendState = {};
+    VkSpecializationInfo specializationInfo        = {};
     VkGraphicsPipelineCreateInfo createInfo        = {};
+
+    vk::SpecializationConstantMap<VkSpecializationMapEntry> specializationEntries;
+    vk::SpecializationConstantMap<VkBool32> specializationValues;
+    InitializeSpecializationInfo(specConsts, &specializationEntries, &specializationValues,
+                                 &specializationInfo);
 
     // Vertex shader is always expected to be present.
     ASSERT(vertexModule != nullptr);
     VkPipelineShaderStageCreateInfo vertexStage = {};
     SetPipelineShaderStageInfo(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                               VK_SHADER_STAGE_VERTEX_BIT, vertexModule->getHandle(), &vertexStage);
+                               VK_SHADER_STAGE_VERTEX_BIT, vertexModule->getHandle(),
+                               specializationInfo, &vertexStage);
     shaderStages.push_back(vertexStage);
 
     if (geometryModule)
@@ -643,7 +670,7 @@ angle::Result GraphicsPipelineDesc::initializePipeline(
         VkPipelineShaderStageCreateInfo geometryStage = {};
         SetPipelineShaderStageInfo(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                                    VK_SHADER_STAGE_GEOMETRY_BIT, geometryModule->getHandle(),
-                                   &geometryStage);
+                                   specializationInfo, &geometryStage);
         shaderStages.push_back(geometryStage);
     }
 
@@ -654,7 +681,7 @@ angle::Result GraphicsPipelineDesc::initializePipeline(
         VkPipelineShaderStageCreateInfo fragmentStage = {};
         SetPipelineShaderStageInfo(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                                    VK_SHADER_STAGE_FRAGMENT_BIT, fragmentModule->getHandle(),
-                                   &fragmentStage);
+                                   specializationInfo, &fragmentStage);
         shaderStages.push_back(fragmentStage);
     }
 
@@ -794,7 +821,7 @@ angle::Result GraphicsPipelineDesc::initializePipeline(
 
     VkPipelineRasterizationLineStateCreateInfoEXT rasterLineState = {};
     rasterLineState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT;
-    // Always enable Bresenham line rasterization if available.
+    // Enable Bresenham line rasterization if available and not multisampling.
     if (rasterAndMS.bits.rasterizationSamples <= 1 &&
         contextVk->getFeatures().bresenhamLineRasterization.enabled)
     {
@@ -812,6 +839,13 @@ angle::Result GraphicsPipelineDesc::initializePipeline(
         provokingVertexState.provokingVertexMode = VK_PROVOKING_VERTEX_MODE_LAST_VERTEX_EXT;
         *pNextPtr                                = &provokingVertexState;
         pNextPtr                                 = &provokingVertexState.pNext;
+    }
+    VkPipelineRasterizationStateStreamCreateInfoEXT rasterStreamState = {};
+    rasterStreamState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_STREAM_CREATE_INFO_EXT;
+    if (contextVk->getFeatures().supportsTransformFeedbackExtension.enabled)
+    {
+        rasterStreamState.rasterizationStream = 0;
+        rasterState.pNext                     = &rasterLineState;
     }
 
     // Multisample state.
@@ -981,6 +1015,11 @@ void GraphicsPipelineDesc::updateRasterizerDiscardEnabled(
     mRasterizationAndMultisampleStateInfo.bits.rasterizationDiscardEnable =
         static_cast<uint32_t>(rasterizerDiscardEnabled);
     transition->set(ANGLE_GET_TRANSITION_BIT(mRasterizationAndMultisampleStateInfo, bits));
+}
+
+uint32_t GraphicsPipelineDesc::getRasterizationSamples() const
+{
+    return mRasterizationAndMultisampleStateInfo.bits.rasterizationSamples;
 }
 
 void GraphicsPipelineDesc::setRasterizationSamples(uint32_t rasterizationSamples)
@@ -1606,6 +1645,37 @@ bool TextureDescriptorDesc::operator==(const TextureDescriptorDesc &other) const
     return memcmp(mSerials.data(), other.mSerials.data(), sizeof(TexUnitSerials) * mMaxIndex) == 0;
 }
 
+FramebufferDesc::FramebufferDesc()
+{
+    reset();
+}
+
+FramebufferDesc::~FramebufferDesc()                            = default;
+FramebufferDesc::FramebufferDesc(const FramebufferDesc &other) = default;
+FramebufferDesc &FramebufferDesc::operator=(const FramebufferDesc &other) = default;
+
+void FramebufferDesc::update(uint32_t index, AttachmentSerial serial)
+{
+    ASSERT(index < kMaxFramebufferAttachments);
+    mSerials[index] = serial;
+}
+
+size_t FramebufferDesc::hash() const
+{
+    return angle::ComputeGenericHash(&mSerials,
+                                     sizeof(AttachmentSerial) * kMaxFramebufferAttachments);
+}
+
+void FramebufferDesc::reset()
+{
+    memset(&mSerials, 0, sizeof(AttachmentSerial) * kMaxFramebufferAttachments);
+}
+
+bool FramebufferDesc::operator==(const FramebufferDesc &other) const
+{
+    return memcmp(&mSerials, &other.mSerials, sizeof(Serial) * kMaxFramebufferAttachments) == 0;
+}
+
 }  // namespace vk
 
 // RenderPassCache implementation.
@@ -1742,6 +1812,7 @@ angle::Result GraphicsPipelineCache::insertPipeline(
     const vk::ShaderModule *vertexModule,
     const vk::ShaderModule *fragmentModule,
     const vk::ShaderModule *geometryModule,
+    vk::SpecializationConstantBitSet specConsts,
     const vk::GraphicsPipelineDesc &desc,
     const vk::GraphicsPipelineDesc **descPtrOut,
     vk::PipelineHelper **pipelineOut)
@@ -1755,7 +1826,7 @@ angle::Result GraphicsPipelineCache::insertPipeline(
         ANGLE_TRY(desc.initializePipeline(contextVk, pipelineCacheVk, compatibleRenderPass,
                                           pipelineLayout, activeAttribLocationsMask,
                                           programAttribsTypeMask, vertexModule, fragmentModule,
-                                          geometryModule, &newPipeline));
+                                          geometryModule, specConsts, &newPipeline));
     }
 
     // The Serial will be updated outside of this query.

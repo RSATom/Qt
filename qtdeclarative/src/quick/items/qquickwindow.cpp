@@ -1063,6 +1063,23 @@ static inline bool windowHasFocus(QQuickWindow *win)
     return win == focusWindow || QQuickRenderControl::renderWindowFor(win) == focusWindow;
 }
 
+#ifdef Q_OS_WEBOS
+// Temporary fix for webOS until multi-seat is implemented see QTBUG-85272
+static inline bool singleWindowOnScreen(QQuickWindow *win)
+{
+    const QWindowList windowList = QGuiApplication::allWindows();
+    for (int i = 0; i < windowList.count(); i++) {
+        QWindow *ii = windowList.at(i);
+        if (ii == win)
+            continue;
+        if (ii->screen() == win->screen())
+            return false;
+    }
+
+    return true;
+}
+#endif
+
 /*!
 Set the focus inside \a scope to be \a item.
 If the scope contains the active focus item, it will be changed to \a item.
@@ -1137,7 +1154,14 @@ void QQuickWindowPrivate::setFocusInScope(QQuickItem *scope, QQuickItem *item, Q
     }
 
     if (!(options & DontChangeFocusProperty)) {
-        if (item != contentItem || windowHasFocus(q)) {
+        if (item != contentItem
+                || windowHasFocus(q)
+#ifdef Q_OS_WEBOS
+        // Allow focused if there is only one window in the screen where it belongs.
+        // Temporary fix for webOS until multi-seat is implemented see QTBUG-85272
+                || singleWindowOnScreen(q)
+#endif
+                ) {
             itemPrivate->focus = true;
             changed << item;
         }
@@ -4025,7 +4049,7 @@ bool QQuickWindow::isSceneGraphInitialized() const
     connected to the signal, the behavior will be different: Quick will print
     the \a message, or show a message box, and terminate the application.
 
-    This signal will be emitted from the gui thread.
+    This signal will be emitted from the GUI thread.
 
     \since 5.3
  */
@@ -4577,10 +4601,10 @@ QQmlIncubationController *QQuickWindow::incubationController() const
 /*!
     \fn void QQuickWindow::afterAnimating()
 
-    This signal is emitted on the gui thread before requesting the render thread to
+    This signal is emitted on the GUI thread before requesting the render thread to
     perform the synchronization of the scene graph.
 
-    Unlike the other similar signals, this one is emitted on the gui thread
+    Unlike the other similar signals, this one is emitted on the GUI thread
     instead of the render thread. It can be used to synchronize external
     animation systems with the QML content. At the same time this means that
     this signal is not suitable for triggering graphics operations.
@@ -4591,7 +4615,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
 /*!
     \qmlsignal QtQuick.Window::Window::afterAnimating()
 
-    This signal is emitted on the gui thread before requesting the render thread to
+    This signal is emitted on the GUI thread before requesting the render thread to
     perform the synchronization of the scene graph.
 
     You can implement onAfterAnimating to do additional processing after each animation step.
@@ -4602,7 +4626,7 @@ QQmlIncubationController *QQuickWindow::incubationController() const
 /*!
     \fn void QQuickWindow::openglContextCreated(QOpenGLContext *context)
 
-    This signal is emitted on the gui thread when the OpenGL \a context
+    This signal is emitted on the GUI thread when the OpenGL \a context
     for this window is created, before it is made current.
 
     Some implementations will share the same OpenGL context between

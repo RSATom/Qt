@@ -9,18 +9,20 @@
 #include "base/optional.h"
 #include "services/network/public/mojom/restricted_cookie_manager.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_cookie_list_item.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_cookie_store_delete_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_cookie_store_get_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_cookie_store_set_extra_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_cookie_store_set_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/modules/cookie_store/cookie_change_event.h"
-#include "third_party/blink/renderer/modules/cookie_store/cookie_list_item.h"
-#include "third_party/blink/renderer/modules/cookie_store/cookie_store_delete_options.h"
-#include "third_party/blink/renderer/modules/cookie_store/cookie_store_get_options.h"
-#include "third_party/blink/renderer/modules/cookie_store/cookie_store_set_extra_options.h"
-#include "third_party/blink/renderer/modules/cookie_store/cookie_store_set_options.h"
 #include "third_party/blink/renderer/modules/event_modules.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/service_worker/service_worker_global_scope.h"
 #include "third_party/blink/renderer/modules/service_worker/service_worker_registration.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/cookie/canonical_cookie.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -40,8 +42,6 @@ network::mojom::blink::CookieManagerGetOptionsPtr ToBackendOptions(
     const CookieStoreGetOptions* options,
     ExceptionState& exception_state) {
   auto backend_options = network::mojom::blink::CookieManagerGetOptions::New();
-
-  // TODO(crbug.com/729800): Handle the url option.
 
   if (options->matchType() == "starts-with") {
     backend_options->match_type =
@@ -105,6 +105,17 @@ base::Optional<CanonicalCookie> ToCanonicalCookie(
     domain = cookie_url_host;
   }
 
+  String path = options->path();
+  if (!path.IsEmpty()) {
+    if (!path.StartsWith("/")) {
+      exception_state.ThrowTypeError("Cookie path must start with \"/\"");
+      return base::nullopt;
+    }
+    if (!path.EndsWith("/")) {
+      path = path + String("/");
+    }
+  }
+
   // Although the Cookie Store API spec always defaults the "secure" cookie
   // attribute to true, we only default to true on cryptographically secure
   // origins, where only secure cookies may be written, and to false otherwise,
@@ -140,41 +151,76 @@ base::Optional<CanonicalCookie> ToCanonicalCookie(
   } else if (options->sameSite() == "lax") {
     same_site = network::mojom::CookieSameSite::LAX_MODE;
   } else {
-    DCHECK_EQ(options->sameSite(), "unrestricted");
+    DCHECK_EQ(options->sameSite(), "none");
     same_site = network::mojom::CookieSameSite::NO_RESTRICTION;
   }
 
   return CanonicalCookie::Create(
-      name, value, domain, options->path(), base::Time() /*creation*/, expires,
+      name, value, domain, path, base::Time() /*creation*/, expires,
       base::Time() /*last_access*/, secure, false /*http_only*/, same_site,
       CanonicalCookie::kDefaultPriority, source_scheme_enum);
 }
 
-const KURL& DefaultCookieURL(ExecutionContext* execution_context) {
+const KURL DefaultCookieURL(ExecutionContext* execution_context) {
   DCHECK(execution_context);
 
-  if (auto* document = DynamicTo<Document>(execution_context))
+  if (auto* document = Document::DynamicFrom(execution_context))
     return document->CookieURL();
 
-  auto* scope = To<ServiceWorkerGlobalScope>(execution_context);
-  return scope->Url();
+  return KURL(To<ServiceWorkerGlobalScope>(execution_context)
+                  ->serviceWorker()
+                  ->scriptURL());
 }
 
-KURL DefaultSiteForCookies(ExecutionContext* execution_context) {
+// Return empty KURL if and only if an exception is thrown.
+KURL CookieUrlForRead(const CookieStoreGetOptions* options,
+                      const KURL& default_cookie_url,
+                      ScriptState* script_state,
+                      ExceptionState& exception_state) {
+  ExecutionContext* context = ExecutionContext::From(script_state);
+
+  if (!options->hasUrl())
+    return default_cookie_url;
+
+  KURL cookie_url = KURL(default_cookie_url, options->url());
+
+  if (context->IsDocument()) {
+    DCHECK_EQ(default_cookie_url, Document::From(context)->CookieURL());
+
+    if (cookie_url.GetString() != default_cookie_url.GetString()) {
+      exception_state.ThrowTypeError("URL must match the document URL");
+      return KURL();
+    }
+  } else {
+    DCHECK(context->IsServiceWorkerGlobalScope());
+    DCHECK_EQ(
+        default_cookie_url.GetString(),
+        To<ServiceWorkerGlobalScope>(context)->serviceWorker()->scriptURL());
+
+    if (!cookie_url.GetString().StartsWith(default_cookie_url.GetString())) {
+      exception_state.ThrowTypeError("URL must be within Service Worker scope");
+      return KURL();
+    }
+  }
+
+  return cookie_url;
+}
+
+net::SiteForCookies DefaultSiteForCookies(ExecutionContext* execution_context) {
   DCHECK(execution_context);
 
-  if (auto* document = DynamicTo<Document>(execution_context))
+  if (auto* document = Document::DynamicFrom(execution_context))
     return document->SiteForCookies();
 
   auto* scope = To<ServiceWorkerGlobalScope>(execution_context);
-  return scope->Url();
+  return net::SiteForCookies::FromUrl(scope->Url());
 }
 
 scoped_refptr<SecurityOrigin> DefaultTopFrameOrigin(
     ExecutionContext* execution_context) {
   DCHECK(execution_context);
 
-  if (auto* document = DynamicTo<Document>(execution_context)) {
+  if (auto* document = Document::DynamicFrom(execution_context)) {
     // Can we avoid the copy? TopFrameOrigin is returned as const& but we need
     // a scoped_refptr.
     return document->TopFrameOrigin()->IsolatedCopy();
@@ -189,8 +235,9 @@ scoped_refptr<SecurityOrigin> DefaultTopFrameOrigin(
 CookieStore::CookieStore(
     ExecutionContext* execution_context,
     mojo::Remote<network::mojom::blink::RestrictedCookieManager> backend)
-    : ContextLifecycleObserver(execution_context),
+    : ExecutionContextLifecycleObserver(execution_context),
       backend_(std::move(backend)),
+      change_listener_receiver_(this, execution_context),
       default_cookie_url_(DefaultCookieURL(execution_context)),
       default_site_for_cookies_(DefaultSiteForCookies(execution_context)),
       default_top_frame_origin_(DefaultTopFrameOrigin(execution_context)) {
@@ -291,13 +338,13 @@ ScriptPromise CookieStore::Delete(ScriptState* script_state,
   return DoWrite(script_state, set_options, exception_state);
 }
 
-void CookieStore::Trace(blink::Visitor* visitor) {
+void CookieStore::Trace(Visitor* visitor) {
+  visitor->Trace(change_listener_receiver_);
   EventTargetWithInlineData::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
-void CookieStore::ContextDestroyed(ExecutionContext* execution_context) {
-  StopObserving();
+void CookieStore::ContextDestroyed() {
   backend_.reset();
 }
 
@@ -306,7 +353,7 @@ const AtomicString& CookieStore::InterfaceName() const {
 }
 
 ExecutionContext* CookieStore::GetExecutionContext() const {
-  return ContextLifecycleObserver::GetExecutionContext();
+  return ExecutionContextLifecycleObserver::GetExecutionContext();
 }
 
 void CookieStore::RemoveAllEventListeners() {
@@ -352,7 +399,9 @@ ScriptPromise CookieStore::DoRead(
     ExceptionState& exception_state) {
   network::mojom::blink::CookieManagerGetOptionsPtr backend_options =
       ToBackendOptions(options, exception_state);
-  if (backend_options.is_null()) {
+  KURL cookie_url = CookieUrlForRead(options, default_cookie_url_, script_state,
+                                     exception_state);
+  if (backend_options.is_null() || cookie_url.IsNull()) {
     DCHECK(exception_state.HadException());
     return ScriptPromise();
   }
@@ -365,7 +414,7 @@ ScriptPromise CookieStore::DoRead(
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   backend_->GetAllForUrl(
-      default_cookie_url_, default_site_for_cookies_, default_top_frame_origin_,
+      cookie_url, default_site_for_cookies_, default_top_frame_origin_,
       std::move(backend_options),
       WTF::Bind(backend_result_converter, WrapPersistent(resolver)));
   return resolver->Promise();
@@ -378,6 +427,7 @@ void CookieStore::GetAllForUrlToGetAllResult(
   ScriptState* script_state = resolver->GetScriptState();
   if (!script_state->ContextIsValid())
     return;
+  ScriptState::Scope scope(script_state);
 
   HeapVector<Member<CookieListItem>> cookies;
   cookies.ReserveInitialCapacity(backend_cookies.size());
@@ -396,6 +446,7 @@ void CookieStore::GetAllForUrlToGetResult(
   ScriptState* script_state = resolver->GetScriptState();
   if (!script_state->ContextIsValid())
     return;
+  ScriptState::Scope scope(script_state);
 
   if (backend_cookies.IsEmpty()) {
     resolver->Resolve(v8::Null(script_state->GetIsolate()));
@@ -439,10 +490,11 @@ void CookieStore::OnSetCanonicalCookieResult(ScriptPromiseResolver* resolver,
   ScriptState* script_state = resolver->GetScriptState();
   if (!script_state->ContextIsValid())
     return;
+  ScriptState::Scope scope(script_state);
 
   if (!backend_success) {
-    resolver->Reject(MakeGarbageCollected<DOMException>(
-        DOMExceptionCode::kUnknownError,
+    resolver->Reject(V8ThrowDOMException::CreateOrEmpty(
+        script_state->GetIsolate(), DOMExceptionCode::kUnknownError,
         "An unknown error occured while writing the cookie."));
     return;
   }

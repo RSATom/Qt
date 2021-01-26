@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
@@ -140,8 +141,8 @@ blink::mojom::ServiceWorkerClientInfoPtr GetWindowClientInfoOnUI(
   return blink::mojom::ServiceWorkerClientInfo::New(
       render_frame_host->GetLastCommittedURL(),
       render_frame_host->GetParent()
-          ? network::mojom::RequestContextFrameType::kNested
-          : network::mojom::RequestContextFrameType::kTopLevel,
+          ? blink::mojom::RequestContextFrameType::kNested
+          : blink::mojom::RequestContextFrameType::kTopLevel,
       client_uuid, blink::mojom::ServiceWorkerClientType::kWindow, page_hidden,
       render_frame_host->IsFocused(),
       render_frame_host->IsFrozen()
@@ -207,11 +208,13 @@ void DidOpenURLOnUI(WindowType type,
                       rfhi->frame_tree_node()->frame_tree_node_id(),
                       std::move(callback));
 
+#ifndef TOOLKIT_QT
   if (type == WindowType::PAYMENT_HANDLER_WINDOW) {
     // Set the opened web_contents to payment app provider to manage its life
     // cycle.
     PaymentAppProvider::GetInstance()->SetOpenedWindow(web_contents);
   }
+#endif
 }
 
 void OpenWindowOnUI(
@@ -315,7 +318,7 @@ void NavigateClientOnUI(const GURL& url,
 }
 
 void AddWindowClient(
-    ServiceWorkerContainerHost* container_host,
+    const ServiceWorkerContainerHost* container_host,
     std::vector<std::tuple<int, int, base::TimeTicks, std::string>>*
         client_info) {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
@@ -331,7 +334,7 @@ void AddWindowClient(
 }
 
 void AddNonWindowClient(
-    ServiceWorkerContainerHost* container_host,
+    const ServiceWorkerContainerHost* container_host,
     blink::mojom::ServiceWorkerClientType client_type,
     std::vector<blink::mojom::ServiceWorkerClientInfoPtr>* out_clients) {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
@@ -348,7 +351,7 @@ void AddNonWindowClient(
   // TODO(dtapuska): Need to get frozen state for dedicated workers from
   // DedicatedWorkerHost. crbug.com/968417
   auto client_info = blink::mojom::ServiceWorkerClientInfo::New(
-      container_host->url(), network::mojom::RequestContextFrameType::kNone,
+      container_host->url(), blink::mojom::RequestContextFrameType::kNone,
       container_host->client_uuid(), host_client_type,
       /*page_hidden=*/true,
       /*is_focused=*/false,
@@ -431,12 +434,13 @@ void GetNonWindowClients(
     std::vector<blink::mojom::ServiceWorkerClientInfoPtr> clients) {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   if (!options->include_uncontrolled) {
-    for (auto& controllee : controller->controllee_map())
+    for (const auto& controllee : controller->controllee_map())
       AddNonWindowClient(controllee.second, options->client_type, &clients);
   } else if (controller->context()) {
     GURL origin = controller->script_url().GetOrigin();
     for (auto it = controller->context()->GetClientContainerHostIterator(
-             origin, false /* include_reserved_clients */);
+             origin, false /* include_reserved_clients */,
+             false /* include_back_forward_cached_clients */);
          !it->IsAtEnd(); it->Advance()) {
       AddNonWindowClient(it->GetContainerHost(), options->client_type,
                          &clients);
@@ -471,12 +475,13 @@ void GetWindowClients(
 
   std::vector<std::tuple<int, int, base::TimeTicks, std::string>> clients_info;
   if (!options->include_uncontrolled) {
-    for (auto& controllee : controller->controllee_map())
+    for (const auto& controllee : controller->controllee_map())
       AddWindowClient(controllee.second, &clients_info);
   } else if (controller->context()) {
     GURL origin = controller->script_url().GetOrigin();
     for (auto it = controller->context()->GetClientContainerHostIterator(
-             origin, false /* include_reserved_clients */);
+             origin, false /* include_reserved_clients */,
+             false /* include_back_forward_cached_clients */);
          !it->IsAtEnd(); it->Advance()) {
       AddWindowClient(it->GetContainerHost(), &clients_info);
     }
@@ -627,7 +632,7 @@ void GetClient(ServiceWorkerContainerHost* container_host,
   // TODO(dtapuska): Need to get frozen state for dedicated workers from
   // DedicatedWorkerHost. crbug.com/968417
   auto client_info = blink::mojom::ServiceWorkerClientInfo::New(
-      container_host->url(), network::mojom::RequestContextFrameType::kNone,
+      container_host->url(), blink::mojom::RequestContextFrameType::kNone,
       container_host->client_uuid(), container_host->client_type(),
       /*page_hidden=*/true,
       /*is_focused=*/false,
@@ -682,7 +687,8 @@ void DidNavigate(const base::WeakPtr<ServiceWorkerContextCore>& context,
 
   for (std::unique_ptr<ServiceWorkerContextCore::ContainerHostIterator> it =
            context->GetClientContainerHostIterator(
-               origin, true /* include_reserved_clients */);
+               origin, true /* include_reserved_clients */,
+               false /* include_back_forward_cached_clients */);
        !it->IsAtEnd(); it->Advance()) {
     ServiceWorkerContainerHost* container_host = it->GetContainerHost();
     DCHECK(container_host->IsContainerForClient());

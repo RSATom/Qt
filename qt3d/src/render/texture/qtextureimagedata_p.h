@@ -53,6 +53,7 @@
 
 #include "qtextureimagedata.h"
 #include <Qt3DRender/private/qt3drender_global_p.h>
+#include <functional>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,6 +65,9 @@ public:
     QTextureImageDataPrivate();
 
     void setData(const QByteArray &data, int blockSize, bool isCompressed);
+    void setData(const QByteArray &data,
+                 std::function<QByteArray(QByteArray, int, int, int)> dataExtractor,
+                 bool isCompressed);
 
     bool setCompressedFile(const QString &source);
 
@@ -76,6 +80,7 @@ public:
     int m_faces;
     int m_mipLevels;
     int m_blockSize;
+    int m_alignment;
 
     QOpenGLTexture::Target m_target;
     QOpenGLTexture::TextureFormat m_format;
@@ -89,6 +94,7 @@ public:
     // public API changes. Consider https://codereview.qt-project.org/#/c/178474/ for Qt 6.
     bool m_isKtx;
     QByteArray m_data;
+    std::function<QByteArray(QByteArray rawData, int layer, int face, int mipmapLevel)> m_dataExtractor;
 
     static QTextureImageDataPrivate *get(QTextureImageData *imageData);
 

@@ -1,4 +1,4 @@
-TARGET = poly2tri
+TARGET = qt_poly2tri
 
 CONFIG += staticlib warn_off optimize_full
 

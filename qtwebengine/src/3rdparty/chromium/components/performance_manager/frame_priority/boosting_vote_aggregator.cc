@@ -95,7 +95,7 @@ namespace {
 
 // Converts a non-default priority level to a zero-based index.
 constexpr size_t PriorityToIndex(base::TaskPriority priority) {
-  DCHECK_NE(base::TaskPriority::LOWEST, priority);
+//  DCHECK_NE(base::TaskPriority::LOWEST, priority);
   return static_cast<size_t>(static_cast<int>(priority) -
                              static_cast<int>(base::TaskPriority::LOWEST)) -
          1;

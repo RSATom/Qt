@@ -169,11 +169,13 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // this case). If this returns true, execution continues on to Run().
   virtual bool PreRunValidation(std::string* error);
 
-  // Runs the extension function if PreRunValidation() succeeds.
+  // Runs the extension function if PreRunValidation() succeeds. This should be
+  // called at most once over the lifetime of an ExtensionFunction.
   ResponseAction RunWithValidation();
 
   // Runs the function and returns the action to take when the caller is ready
-  // to respond.
+  // to respond. Callers can expect this is called at most once for the lifetime
+  // of an ExtensionFunction.
   //
   // Typical return values might be:
   //   * RespondNow(NoArguments())
@@ -226,7 +228,7 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
 
   // Specifies the name of the function. A long-lived string (such as a string
   // literal) must be provided.
-  void set_name(const char* name) { name_ = name; }
+  virtual void SetName(const char* name);
   const char* name() const { return name_; }
 
   void set_profile_id(void* profile_id) { profile_id_ = profile_id; }
@@ -518,6 +520,12 @@ class ExtensionFunction : public base::RefCountedThreadSafe<
   // Any class that gets a malformed message should set this to true before
   // returning.  Usually we want to kill the message sending process.
   bool bad_message_ = false;
+
+#if DCHECK_IS_ON()
+  // Set to true when RunWithValidation() is called, to look for callers using
+  // the method more than once on a single ExtensionFunction.
+  bool did_run_ = false;
+#endif
 
   // The sample value to record with the histogram API when the function
   // is invoked.

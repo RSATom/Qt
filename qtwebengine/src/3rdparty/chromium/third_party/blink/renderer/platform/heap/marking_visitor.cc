@@ -10,19 +10,12 @@
 
 namespace blink {
 
-namespace {
-
-ALWAYS_INLINE bool IsHashTableDeleteValue(const void* value) {
-  return value == reinterpret_cast<void*>(-1);
-}
-
-}  // namespace
-
 MarkingVisitorCommon::MarkingVisitorCommon(ThreadState* state,
                                            MarkingMode marking_mode,
                                            int task_id)
     : Visitor(state),
       marking_worklist_(Heap().GetMarkingWorklist(), task_id),
+      write_barrier_worklist_(Heap().GetWriteBarrierWorklist(), task_id),
       not_fully_constructed_worklist_(Heap().GetNotFullyConstructedWorklist(),
                                       task_id),
       weak_callback_worklist_(Heap().GetWeakCallbackWorklist(), task_id),
@@ -35,38 +28,38 @@ MarkingVisitorCommon::MarkingVisitorCommon(ThreadState* state,
       task_id_(task_id) {}
 
 void MarkingVisitorCommon::FlushCompactionWorklists() {
+  if (marking_mode_ != kGlobalMarkingWithCompaction)
+    return;
   movable_reference_worklist_.FlushToGlobal();
   backing_store_callback_worklist_.FlushToGlobal();
 }
 
 void MarkingVisitorCommon::RegisterWeakCallback(WeakCallback callback,
-                                                void* object) {
+                                                const void* object) {
   weak_callback_worklist_.Push({callback, object});
 }
 
-void MarkingVisitorCommon::RegisterBackingStoreReference(void** slot) {
+void MarkingVisitorCommon::RegisterBackingStoreReference(
+    const void* const* slot) {
   if (marking_mode_ != kGlobalMarkingWithCompaction)
     return;
-  MovableReference* movable_reference =
-      reinterpret_cast<MovableReference*>(slot);
-  if (Heap().ShouldRegisterMovingAddress(
-          reinterpret_cast<Address>(movable_reference))) {
-    movable_reference_worklist_.Push(movable_reference);
+  if (Heap().ShouldRegisterMovingAddress()) {
+    movable_reference_worklist_.Push(slot);
   }
 }
 
 void MarkingVisitorCommon::RegisterBackingStoreCallback(
-    void* backing,
+    const void* backing,
     MovingObjectCallback callback) {
   if (marking_mode_ != kGlobalMarkingWithCompaction)
     return;
-  if (Heap().ShouldRegisterMovingAddress(reinterpret_cast<Address>(backing))) {
+  if (Heap().ShouldRegisterMovingAddress()) {
     backing_store_callback_worklist_.Push({backing, callback});
   }
 }
 
-void MarkingVisitorCommon::VisitWeak(void* object,
-                                     void* object_weak_ref,
+void MarkingVisitorCommon::VisitWeak(const void* object,
+                                     const void* object_weak_ref,
                                      TraceDescriptor desc,
                                      WeakCallback callback) {
   // Filter out already marked values. The write barrier for WeakMember
@@ -79,9 +72,10 @@ void MarkingVisitorCommon::VisitWeak(void* object,
   RegisterWeakCallback(callback, object_weak_ref);
 }
 
-void MarkingVisitorCommon::VisitBackingStoreStrongly(void* object,
-                                                     void** object_slot,
-                                                     TraceDescriptor desc) {
+void MarkingVisitorCommon::VisitBackingStoreStrongly(
+    const void* object,
+    const void* const* object_slot,
+    TraceDescriptor desc) {
   RegisterBackingStoreReference(object_slot);
   if (!object)
     return;
@@ -90,24 +84,30 @@ void MarkingVisitorCommon::VisitBackingStoreStrongly(void* object,
 
 // All work is registered through RegisterWeakCallback.
 void MarkingVisitorCommon::VisitBackingStoreWeakly(
-    void* object,
-    void** object_slot,
+    const void* object,
+    const void* const* object_slot,
     TraceDescriptor strong_desc,
     TraceDescriptor weak_desc,
     WeakCallback weak_callback,
-    void* weak_callback_parameter) {
+    const void* weak_callback_parameter) {
   RegisterBackingStoreReference(object_slot);
+
+  // In case there's no object present, weakness processing is omitted. The GC
+  // relies on the fact that in such cases touching the weak data structure will
+  // strongify its references.
   if (!object)
     return;
-  RegisterWeakCallback(weak_callback, weak_callback_parameter);
 
+  // Register final weak processing of the backing store.
+  RegisterWeakCallback(weak_callback, weak_callback_parameter);
+  // Register ephemeron callbacks if necessary.
   if (weak_desc.callback)
     weak_table_worklist_.Push(weak_desc);
 }
 
 bool MarkingVisitorCommon::VisitEphemeronKeyValuePair(
-    void* key,
-    void* value,
+    const void* key,
+    const void* value,
     EphemeronTracingCallback key_trace_callback,
     EphemeronTracingCallback value_trace_callback) {
   const bool key_is_dead = key_trace_callback(this, key);
@@ -118,8 +118,9 @@ bool MarkingVisitorCommon::VisitEphemeronKeyValuePair(
   return false;
 }
 
-void MarkingVisitorCommon::VisitBackingStoreOnly(void* object,
-                                                 void** object_slot) {
+void MarkingVisitorCommon::VisitBackingStoreOnly(
+    const void* object,
+    const void* const* object_slot) {
   RegisterBackingStoreReference(object_slot);
   if (!object)
     return;
@@ -129,19 +130,9 @@ void MarkingVisitorCommon::VisitBackingStoreOnly(void* object,
 }
 
 // static
-bool MarkingVisitor::WriteBarrierSlow(void* value) {
-  if (!value || IsHashTableDeleteValue(value))
-    return false;
-
-  // It is guaranteed that managed references point to either GarbageCollected
-  // or GarbageCollectedMixin. Mixins are restricted to regular objects sizes.
-  // It is thus possible to get to the page header by aligning properly.
-  BasePage* base_page = PageFromObject(value);
-
-  ThreadState* const thread_state = base_page->thread_state();
-  if (!thread_state->IsIncrementalMarking())
-    return false;
-
+bool MarkingVisitor::MarkValue(void* value,
+                               BasePage* base_page,
+                               ThreadState* thread_state) {
   HeapObjectHeader* header;
   if (LIKELY(!base_page->IsLargeObjectPage())) {
     header = reinterpret_cast<HeapObjectHeader*>(
@@ -169,7 +160,47 @@ bool MarkingVisitor::WriteBarrierSlow(void* value) {
   return true;
 }
 
-void MarkingVisitor::TraceMarkedBackingStoreSlow(void* value) {
+// static
+bool MarkingVisitor::WriteBarrierSlow(void* value) {
+  if (!value || IsHashTableDeleteValue(value))
+    return false;
+
+  // It is guaranteed that managed references point to either GarbageCollected
+  // or GarbageCollectedMixin. Mixins are restricted to regular objects sizes.
+  // It is thus possible to get to the page header by aligning properly.
+  BasePage* base_page = PageFromObject(value);
+
+  ThreadState* const thread_state = base_page->thread_state();
+  if (!thread_state->IsIncrementalMarking())
+    return false;
+
+  return MarkValue(value, base_page, thread_state);
+}
+
+void MarkingVisitor::GenerationalBarrierSlow(Address slot,
+                                             ThreadState* thread_state) {
+  BasePage* slot_page = thread_state->Heap().LookupPageForAddress(slot);
+  DCHECK(slot_page);
+
+  if (UNLIKELY(slot_page->IsLargeObjectPage())) {
+    auto* large_page = static_cast<LargeObjectPage*>(slot_page);
+    if (UNLIKELY(large_page->ObjectHeader()->IsOld())) {
+      large_page->SetRemembered(true);
+    }
+    return;
+  }
+
+  auto* normal_page = static_cast<NormalPage*>(slot_page);
+  const HeapObjectHeader* source_header = reinterpret_cast<HeapObjectHeader*>(
+      normal_page->object_start_bit_map()->FindHeader(slot));
+  DCHECK_LT(0u, source_header->GcInfoIndex());
+  DCHECK_GT(source_header->PayloadEnd(), slot);
+  if (UNLIKELY(source_header->IsOld())) {
+    normal_page->MarkCard(slot);
+  }
+}
+
+void MarkingVisitor::TraceMarkedBackingStoreSlow(const void* value) {
   if (!value)
     return;
 
@@ -183,33 +214,29 @@ void MarkingVisitor::TraceMarkedBackingStoreSlow(void* value) {
   DCHECK(thread_state->CurrentVisitor());
   // No weak handling for write barriers. Modifying weakly reachable objects
   // strongifies them for the current cycle.
-  GCInfoTable::Get()
-      .GCInfoFromIndex(header->GcInfoIndex())
-      ->trace(thread_state->CurrentVisitor(), value);
+
+  GCInfo::From(header->GcInfoIndex())
+      .trace(thread_state->CurrentVisitor(), value);
 }
 
 MarkingVisitor::MarkingVisitor(ThreadState* state, MarkingMode marking_mode)
-    : MarkingVisitorBase(state, marking_mode, WorklistTaskId::MutatorThread),
-      write_barrier_worklist_(Heap().GetWriteBarrierWorklist(),
-                              WorklistTaskId::MutatorThread) {
+    : MarkingVisitorBase(state, marking_mode, WorklistTaskId::MutatorThread) {
   DCHECK(state->InAtomicMarkingPause());
   DCHECK(state->CheckThread());
 }
 
-void MarkingVisitor::DynamicallyMarkAddress(Address address) {
+void MarkingVisitor::DynamicallyMarkAddress(ConstAddress address) {
   HeapObjectHeader* const header = HeapObjectHeader::FromInnerAddress(address);
   DCHECK(header);
   DCHECK(!IsInConstruction(header));
-  const GCInfo* gc_info =
-      GCInfoTable::Get().GCInfoFromIndex(header->GcInfoIndex());
   if (MarkHeaderNoTracing(header)) {
-    marking_worklist_.Push(
-        {reinterpret_cast<void*>(header->Payload()), gc_info->trace});
+    marking_worklist_.Push({reinterpret_cast<void*>(header->Payload()),
+                            GCInfo::From(header->GcInfoIndex()).trace});
   }
 }
 
 void MarkingVisitor::ConservativelyMarkAddress(BasePage* page,
-                                               Address address) {
+                                               ConstAddress address) {
 #if DCHECK_IS_ON()
   DCHECK(page->Contains(address));
 #endif
@@ -223,10 +250,9 @@ void MarkingVisitor::ConservativelyMarkAddress(BasePage* page,
 
   // Simple case for fully constructed objects. This just adds the object to the
   // regular marking worklist.
-  const GCInfo* gc_info =
-      GCInfoTable::Get().GCInfoFromIndex(header->GcInfoIndex());
   if (!IsInConstruction(header)) {
-    MarkHeader(header, {header->Payload(), gc_info->trace});
+    MarkHeader(header,
+               {header->Payload(), GCInfo::From(header->GcInfoIndex()).trace});
     return;
   }
 
@@ -260,14 +286,18 @@ void MarkingVisitor::ConservativelyMarkAddress(BasePage* page,
   AccountMarkedBytes(header);
 }
 
-void MarkingVisitor::FlushMarkingWorklist() {
+void MarkingVisitor::FlushMarkingWorklists() {
   marking_worklist_.FlushToGlobal();
+  write_barrier_worklist_.FlushToGlobal();
 }
 
 ConcurrentMarkingVisitor::ConcurrentMarkingVisitor(ThreadState* state,
                                                    MarkingMode marking_mode,
                                                    int task_id)
-    : MarkingVisitorBase(state, marking_mode, task_id) {
+    : MarkingVisitorBase(state, marking_mode, task_id),
+      not_safe_to_concurrently_trace_worklist_(
+          Heap().GetNotSafeToConcurrentlyTraceWorklist(),
+          task_id) {
   DCHECK(!state->CheckThread());
   DCHECK_NE(WorklistTaskId::MutatorThread, task_id);
 }
@@ -275,12 +305,16 @@ ConcurrentMarkingVisitor::ConcurrentMarkingVisitor(ThreadState* state,
 void ConcurrentMarkingVisitor::FlushWorklists() {
   // Flush marking worklists for further marking on the mutator thread.
   marking_worklist_.FlushToGlobal();
+  write_barrier_worklist_.FlushToGlobal();
   not_fully_constructed_worklist_.FlushToGlobal();
   weak_callback_worklist_.FlushToGlobal();
   weak_table_worklist_.FlushToGlobal();
+  not_safe_to_concurrently_trace_worklist_.FlushToGlobal();
   // Flush compaction worklists.
-  movable_reference_worklist_.FlushToGlobal();
-  backing_store_callback_worklist_.FlushToGlobal();
+  if (marking_mode_ == kGlobalMarkingWithCompaction) {
+    movable_reference_worklist_.FlushToGlobal();
+    backing_store_callback_worklist_.FlushToGlobal();
+  }
 }
 
 }  // namespace blink

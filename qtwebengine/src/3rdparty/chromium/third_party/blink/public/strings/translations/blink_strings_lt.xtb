@@ -4,6 +4,7 @@
 <translation id="1018939186200882850">meniu elementas</translation>
 <translation id="10623998915015855">perjungimo mygtukas</translation>
 <translation id="1088086359088493902">Sekundės</translation>
+<translation id="1142001580032786438">Rodyti savaitės rinkiklį</translation>
 <translation id="1171774979989969504">Įveskite el. pašto adresą.</translation>
 <translation id="1178581264944972037">Pristabdyti</translation>
 <translation id="1188858454923323853">papildomas</translation>
@@ -11,6 +12,7 @@
 <translation id="1206693055195146388">šliaužiklis</translation>
 <translation id="1211441953136645838">išnaša</translation>
 <translation id="1281252709823657822">dialogo langas</translation>
+<translation id="1306460908038601864">Išjungta</translation>
 <translation id="1335095011850992622">titrai</translation>
 <translation id="1342835525016946179">artikelis</translation>
 <translation id="1359897965706325498">reklamjuostė</translation>
@@ -21,6 +23,7 @@
 <translation id="1727886345390570319">slėpti subtitrų meniu</translation>
 <translation id="1729654308190250600">Įveskite el. pašto adresą (nepalikite lauko tuščio).</translation>
 <translation id="1758486001363313524">Kita...</translation>
+<translation id="1787192514241997742">bendras laikas: <ph name="REMAINING_TIME" /></translation>
 <translation id="1806710327868736751">alert_dialog</translation>
 <translation id="1821985195704844674">medžio tinklelis</translation>
 <translation id="1822429046913737220">iki pietų / po pietų</translation>
@@ -82,7 +85,6 @@
 <translation id="3822383571486410024">Pailginkite šį tekstą iki <ph name="MIN_CHARACTERS" /> simb. ar daugiau (šiuo metu naudojate <ph name="CURRENT_LENGTH" /> simb.).</translation>
 <translation id="383465348367842624">Prieš „<ph name="ATSIGN" />“ esančioje dalyje neturėtų būti simbolio „<ph name="INVALIDCHARACTER" />“.</translation>
 <translation id="3846214748874656680">Išjungti viso ekrano režimą</translation>
-<translation id="3889183436948184105">taisymas</translation>
 <translation id="3920932319529768807">išvada</translation>
 <translation id="3924558731517983934">programa</translation>
 <translation id="3944740393230681990">prologas</translation>
@@ -100,7 +102,6 @@
 <translation id="4444765639179266822">Tai tikriausiai reiškia: <ph name="OCR_TEXT" /></translation>
 <translation id="4446524499724042288">aiškinamojo terminų žodyno nuoroda</translation>
 <translation id="4522570452068850558">Išsami informacija</translation>
-<translation id="4542388879936266156">likęs laikas: <ph name="REMAINING_TIME" /></translation>
 <translation id="4597532268155981612">forma</translation>
 <translation id="4661075872484491155">tree</translation>
 <translation id="4664250907885839816">Po „<ph name="ATSIGN" />“ esančioje dalyje neturėtų būti simbolio „<ph name="INVALIDCHARACTER" />“.</translation>
@@ -114,7 +115,10 @@
 <translation id="479989351350248267">ieškoti</translation>
 <translation id="4812940957355064477">Įveskite skaičių.</translation>
 <translation id="4912536737030637138">bibliografijos įrašas</translation>
+<translation id="4915360478455618802">Rodyti laiko rinkiklį</translation>
 <translation id="492244087561876220">komentaras</translation>
+<translation id="4950364064308314478">Rodyti vietos datą ir laiko rinkiklį</translation>
+<translation id="4971739861736909480"><ph name="ACCNAME" /> pasirinkta</translation>
 <translation id="4975562563186953947">Pasirinkta: <ph name="SELECTED_COUNT" /></translation>
 <translation id="4992066212339426712">Įjungti garsą</translation>
 <translation id="49969490063480558">Įveskite dalį po „<ph name="ATSIGN" />“. „<ph name="INVALIDADDRESS" />“ nėra visas el. pašto adresas.</translation>
@@ -129,6 +133,7 @@
 <translation id="520299402983819650"><ph name="QUANTITY" /> PB</translation>
 <translation id="5307600278924710095">Įveskite el. pašto adreso dalį iki „<ph name="ATSIGN" />“. „<ph name="INVALIDADDRESS" />“ nėra visas el. pašto adresas.</translation>
 <translation id="5334352251556557839">Nepavyko paleisti medijos.</translation>
+<translation id="537648784377940524">Anksčiausia data (<ph name="MIN_DATE_OR_TIME" />) turi būti prieš vėliausią datą (<ph name="MAX_DATE_OR_TIME" />).</translation>
 <translation id="5406322316791861025">iliustracija</translation>
 <translation id="5453733299334684579">medžio elementas</translation>
 <translation id="5466621249238537318">Pasirinkite bent vieną failą.</translation>
@@ -144,7 +149,6 @@
 <translation id="5677946354068040947">daugiau parinkčių</translation>
 <translation id="576709008726043716">įžanga</translation>
 <translation id="57838592816432529">Nutildyti</translation>
-<translation id="5860033963881614850">Išjungta</translation>
 <translation id="588258955323874662">Visas ekranas</translation>
 <translation id="5888666972993069672">Dabar perduodama į „<ph name="DEVICE_FRIENDLY_NAME" />“</translation>
 <translation id="591047860372322273">paieškos laukelis</translation>
@@ -219,6 +223,7 @@
 <translation id="7888071071722539607">Į el. pašto adresą įtraukite „<ph name="ATSIGN" />“. „<ph name="INVALIDADDRESS" />“ trūksta „<ph name="ATSIGN" />“.</translation>
 <translation id="7891486169920085145">skaidiklis</translation>
 <translation id="795667975304826397">Nepasirinktas joks failas</translation>
+<translation id="7962328325860248200"><ph name="ACCNAME" /> nepasirinkta</translation>
 <translation id="8034303206267677282">svarbus</translation>
 <translation id="8053789581856978548">paieškos teksto laukas</translation>
 <translation id="8057695513531652401">pranešimas</translation>
@@ -231,6 +236,7 @@
 <translation id="8284326494547611709">Subtitrai</translation>
 <translation id="8346634859695247203">skiltis</translation>
 <translation id="835897206747267392">Neteisinga vertė.</translation>
+<translation id="839593075537728968">Vertė turi būti nuo <ph name="MINIMUM_TIME" /> iki <ph name="MAXIMUM_TIME" />.</translation>
 <translation id="8403857369060869934">praėjęs laikas: <ph name="ELAPSED_TIME" /></translation>
 <translation id="8415319359811155763">dalis</translation>
 <translation id="8433900881053900389">įrankių juosta</translation>
@@ -247,6 +253,7 @@
 <translation id="860475260694818407">turinys</translation>
 <translation id="8613126697340063924">valdyti nuotolinį atkūrimą</translation>
 <translation id="862370744433916922">paantraštė</translation>
+<translation id="8634971699417195529">Rodyti mėnesio rinkiklį</translation>
 <translation id="8711688047404765493">išvestis</translation>
 <translation id="8750798805984357768">Pasirinkite vieną iš šių parinkčių.</translation>
 <translation id="8808573423886751634">skyrius</translation>
@@ -257,7 +264,6 @@
 <translation id="8987927404178983737">Mėnuo</translation>
 <translation id="901493112792887934">dabartinis laikas sekundėmis</translation>
 <translation id="901834265349196618">El. paštas</translation>
-<translation id="9023835124071926463">komentarų skiltis</translation>
 <translation id="9048119486235211610">naršymas</translation>
 <translation id="9062295712474918030">dokumentas</translation>
 <translation id="9093215626363556771">išeiti iš vaizdo vaizde</translation>

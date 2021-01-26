@@ -8,8 +8,8 @@
 #include "base/task/post_task.h"
 #include "content/browser/appcache/appcache_request_handler.h"
 #include "content/browser/loader/navigation_loader_interceptor.h"
-#include "content/browser/service_worker/service_worker_navigation_handle.h"
-#include "content/browser/service_worker/service_worker_navigation_handle_core.h"
+#include "content/browser/service_worker/service_worker_main_resource_handle.h"
+#include "content/browser/service_worker/service_worker_main_resource_handle_core.h"
 #include "content/browser/service_worker/service_worker_request_handler.h"
 #include "content/browser/worker_host/worker_script_fetch_initiator.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -26,7 +26,7 @@ WorkerScriptLoader::WorkerScriptLoader(
     uint32_t options,
     const network::ResourceRequest& resource_request,
     mojo::PendingRemote<network::mojom::URLLoaderClient> client,
-    base::WeakPtr<ServiceWorkerNavigationHandle> service_worker_handle,
+    base::WeakPtr<ServiceWorkerMainResourceHandle> service_worker_handle,
     base::WeakPtr<AppCacheHost> appcache_host,
     const BrowserContextGetter& browser_context_getter,
     scoped_refptr<network::SharedURLLoaderFactory> default_loader_factory,
@@ -322,7 +322,7 @@ void WorkerScriptLoader::CommitCompleted(
     // TODO(https://crbug.com/999049): Parse the COEP header and pass it to
     // the service worker handle.
     service_worker_handle_->OnBeginWorkerCommit(
-        network::mojom::CrossOriginEmbedderPolicy::kNone);
+        network::CrossOriginEmbedderPolicy());
   }
 
   client_->OnComplete(status);

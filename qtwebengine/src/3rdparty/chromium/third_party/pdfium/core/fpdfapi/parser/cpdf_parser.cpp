@@ -91,12 +91,6 @@ CPDF_Parser::ObjectType CPDF_Parser::GetObjectType(uint32_t objnum) const {
   return info ? info->type : ObjectType::kFree;
 }
 
-uint16_t CPDF_Parser::GetObjectGenNum(uint32_t objnum) const {
-  ASSERT(IsValidObjectNumber(objnum));
-  const auto* info = m_CrossRefTable->GetObjectInfo(objnum);
-  return (info && info->type == ObjectType::kNormal) ? info->gennum : 0;
-}
-
 bool CPDF_Parser::IsObjectFreeOrNull(uint32_t objnum) const {
   switch (GetObjectType(objnum)) {
     case ObjectType::kFree:
@@ -252,7 +246,7 @@ CPDF_Parser::Error CPDF_Parser::SetEncryptHandler() {
     return HANDLER_ERROR;
 
   auto pSecurityHandler = pdfium::MakeRetain<CPDF_SecurityHandler>();
-  if (!pSecurityHandler->OnInit(pEncryptDict, GetIDArray(), m_Password))
+  if (!pSecurityHandler->OnInit(pEncryptDict, GetIDArray(), GetPassword()))
     return PASSWORD_ERROR;
 
   m_pSecurityHandler = std::move(pSecurityHandler);
@@ -826,8 +820,16 @@ const CPDF_Dictionary* CPDF_Parser::GetEncryptDict() const {
   return nullptr;
 }
 
+ByteString CPDF_Parser::GetEncodedPassword() const {
+  return GetSecurityHandler()->GetEncodedPassword(GetPassword().AsStringView());
+}
+
 const CPDF_Dictionary* CPDF_Parser::GetTrailer() const {
   return m_CrossRefTable->trailer();
+}
+
+CPDF_Dictionary* CPDF_Parser::GetMutableTrailerForTesting() {
+  return m_CrossRefTable->GetMutableTrailerForTesting();
 }
 
 RetainPtr<CPDF_Dictionary> CPDF_Parser::GetCombinedTrailer() const {
@@ -936,7 +938,7 @@ uint32_t CPDF_Parser::GetFirstPageNo() const {
   return m_pLinearized ? m_pLinearized->GetFirstPageNo() : 0;
 }
 
-void CPDF_Parser::SetLinearizedHeader(
+void CPDF_Parser::SetLinearizedHeaderForTesting(
     std::unique_ptr<CPDF_LinearizedHeader> pLinearized) {
   m_pLinearized = std::move(pLinearized);
 }

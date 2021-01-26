@@ -51,8 +51,7 @@ class CodecImageTest : public testing::Test {
 
     gl::init::InitializeStaticGLBindingsImplementation(
         gl::kGLImplementationEGLGLES2, false);
-    gl::init::InitializeGLOneOffPlatformImplementation(false, false, false,
-                                                       false);
+    gl::init::InitializeGLOneOffPlatformImplementation(false, false, false);
 
     surface_ = new gl::PbufferGLSurfaceEGL(gfx::Size(320, 240));
     surface_->Initialize();
@@ -421,6 +420,14 @@ TEST_F(CodecImageTest, GetCropRect) {
   i->GetCropRect();
   EXPECT_EQ(
       codec_buffer_wait_coordinator_->texture_owner()->get_crop_rect_count, 1);
+}
+
+TEST_F(CodecImageTest, RenderAfterUnusedDoesntCrash) {
+  auto i = NewImage(kTextureOwner);
+  i->NotifyUnused();
+  EXPECT_FALSE(i->RenderToTextureOwnerBackBuffer());
+  EXPECT_FALSE(i->RenderToTextureOwnerFrontBuffer(
+      CodecImage::BindingsMode::kEnsureTexImageBound));
 }
 
 }  // namespace media

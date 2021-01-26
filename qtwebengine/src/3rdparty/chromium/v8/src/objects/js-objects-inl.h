@@ -7,6 +7,7 @@
 
 #include "src/objects/js-objects.h"
 
+#include "src/diagnostics/code-tracer.h"
 #include "src/heap/heap-write-barrier.h"
 #include "src/objects/elements.h"
 #include "src/objects/embedder-data-slot-inl.h"
@@ -71,7 +72,7 @@ MaybeHandle<Object> JSReceiver::GetElement(Isolate* isolate,
 
 Handle<Object> JSReceiver::GetDataProperty(Handle<JSReceiver> object,
                                            Handle<Name> name) {
-  LookupIterator it(object, name, object,
+  LookupIterator it(object->GetIsolate(), object, name, object,
                     LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   if (!it.IsFound()) return it.factory()->undefined_value();
   return GetDataProperty(&it);
@@ -456,6 +457,10 @@ ACCESSORS(JSFunction, raw_feedback_cell, FeedbackCell, kFeedbackCellOffset)
 ACCESSORS(JSGlobalObject, native_context, NativeContext, kNativeContextOffset)
 ACCESSORS(JSGlobalObject, global_proxy, JSGlobalProxy, kGlobalProxyOffset)
 
+DEF_GETTER(JSGlobalObject, native_context_unchecked, Object) {
+  return TaggedField<Object, kNativeContextOffset>::load(isolate, *this);
+}
+
 FeedbackVector JSFunction::feedback_vector() const {
   DCHECK(has_feedback_vector());
   return FeedbackVector::cast(raw_feedback_cell().value());
@@ -569,10 +574,12 @@ void JSFunction::set_shared(SharedFunctionInfo value, WriteBarrierMode mode) {
 void JSFunction::ClearOptimizedCodeSlot(const char* reason) {
   if (has_feedback_vector() && feedback_vector().has_optimized_code()) {
     if (FLAG_trace_opt) {
-      PrintF("[evicting entry from optimizing code feedback slot (%s) for ",
+      CodeTracer::Scope scope(GetIsolate()->GetCodeTracer());
+      PrintF(scope.file(),
+             "[evicting entry from optimizing code feedback slot (%s) for ",
              reason);
-      ShortPrint();
-      PrintF("]\n");
+      ShortPrint(scope.file());
+      PrintF(scope.file(), "]\n");
     }
     feedback_vector().ClearOptimizedCode();
   }
@@ -938,8 +945,9 @@ DEF_GETTER(JSReceiver, property_array, PropertyArray) {
 
 Maybe<bool> JSReceiver::HasProperty(Handle<JSReceiver> object,
                                     Handle<Name> name) {
-  LookupIterator it = LookupIterator::PropertyOrElement(object->GetIsolate(),
-                                                        object, name, object);
+  Isolate* isolate = object->GetIsolate();
+  LookupIterator::Key key(isolate, name);
+  LookupIterator it(isolate, object, key, object);
   return HasProperty(&it);
 }
 
@@ -961,15 +969,17 @@ Maybe<bool> JSReceiver::HasOwnProperty(Handle<JSReceiver> object,
 
 Maybe<PropertyAttributes> JSReceiver::GetPropertyAttributes(
     Handle<JSReceiver> object, Handle<Name> name) {
-  LookupIterator it = LookupIterator::PropertyOrElement(object->GetIsolate(),
-                                                        object, name, object);
+  Isolate* isolate = object->GetIsolate();
+  LookupIterator::Key key(isolate, name);
+  LookupIterator it(isolate, object, key, object);
   return GetPropertyAttributes(&it);
 }
 
 Maybe<PropertyAttributes> JSReceiver::GetOwnPropertyAttributes(
     Handle<JSReceiver> object, Handle<Name> name) {
-  LookupIterator it = LookupIterator::PropertyOrElement(
-      object->GetIsolate(), object, name, object, LookupIterator::OWN);
+  Isolate* isolate = object->GetIsolate();
+  LookupIterator::Key key(isolate, name);
+  LookupIterator it(isolate, object, key, object, LookupIterator::OWN);
   return GetPropertyAttributes(&it);
 }
 
@@ -1015,8 +1025,6 @@ inline int JSGlobalProxy::SizeWithEmbedderFields(int embedder_field_count) {
 
 ACCESSORS(JSIteratorResult, value, Object, kValueOffset)
 ACCESSORS(JSIteratorResult, done, Object, kDoneOffset)
-
-TQ_SMI_ACCESSORS(JSStringIterator, index)
 
 // If the fast-case backing storage takes up much more memory than a dictionary
 // backing storage would, the object should have slow elements.

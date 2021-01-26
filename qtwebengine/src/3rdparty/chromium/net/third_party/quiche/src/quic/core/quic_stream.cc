@@ -15,14 +15,17 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_optional.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
+using quiche::QuicheOptional;
 using spdy::SpdyPriority;
 
 namespace quic {
 
 #define ENDPOINT \
-  (session_->perspective() == Perspective::IS_SERVER ? "Server: " : "Client: ")
+  (perspective_ == Perspective::IS_SERVER ? "Server: " : "Client: ")
 
 namespace {
 
@@ -105,9 +108,13 @@ size_t GetReceivedFlowControlWindow(QuicSession* session,
 // static
 const SpdyPriority QuicStream::kDefaultPriority;
 
+// static
+const int QuicStream::kDefaultUrgency;
+
 PendingStream::PendingStream(QuicStreamId id, QuicSession* session)
     : id_(id),
       session_(session),
+      stream_delegate_(session),
       stream_bytes_read_(0),
       fin_received_(false),
       connection_flow_controller_(session->flow_controller()),
@@ -139,24 +146,16 @@ void PendingStream::AddBytesConsumed(QuicByteCount bytes) {
 void PendingStream::Reset(QuicRstStreamErrorCode /*error*/) {
   // Currently PendingStream is only read-unidirectional. It shouldn't send
   // Reset.
-  DCHECK_EQ(READ_UNIDIRECTIONAL,
-            QuicUtils::GetStreamType(id_, session_->perspective(),
-                                     /*peer_initiated = */ true));
   QUIC_NOTREACHED();
 }
 
-void PendingStream::CloseConnectionWithDetails(QuicErrorCode error,
-                                               const std::string& details) {
-  session_->connection()->CloseConnection(
-      error, details, ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+void PendingStream::OnUnrecoverableError(QuicErrorCode error,
+                                         const std::string& details) {
+  stream_delegate_->OnStreamError(error, details);
 }
 
 QuicStreamId PendingStream::id() const {
   return id_;
-}
-
-const QuicSocketAddress& PendingStream::PeerAddressOfLatestPacket() const {
-  return session_->connection()->last_packet_source_address();
 }
 
 void PendingStream::OnStreamFrame(const QuicStreamFrame& frame) {
@@ -170,16 +169,15 @@ void PendingStream::OnStreamFrame(const QuicStreamFrame& frame) {
     QUIC_PEER_BUG
         << "Receive stream frame reaches max stream length. frame offset "
         << frame.offset << " length " << frame.data_length;
-    CloseConnectionWithDetails(
-        QUIC_STREAM_LENGTH_OVERFLOW,
-        "Peer sends more data than allowed on this stream.");
+    OnUnrecoverableError(QUIC_STREAM_LENGTH_OVERFLOW,
+                         "Peer sends more data than allowed on this stream.");
     return;
   }
 
   if (frame.offset + frame.data_length > sequencer_.close_offset()) {
-    CloseConnectionWithDetails(
+    OnUnrecoverableError(
         QUIC_STREAM_DATA_BEYOND_CLOSE_OFFSET,
-        QuicStrCat(
+        quiche::QuicheStrCat(
             "Stream ", id_,
             " received data with offset: ", frame.offset + frame.data_length,
             ", which is beyond close offset: ", sequencer()->close_offset()));
@@ -202,9 +200,8 @@ void PendingStream::OnStreamFrame(const QuicStreamFrame& frame) {
     // violation of flow control.
     if (flow_controller_.FlowControlViolation() ||
         connection_flow_controller_->FlowControlViolation()) {
-      CloseConnectionWithDetails(
-          QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
-          "Flow control violation after increasing offset");
+      OnUnrecoverableError(QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
+                           "Flow control violation after increasing offset");
       return;
     }
   }
@@ -217,8 +214,8 @@ void PendingStream::OnRstStreamFrame(const QuicRstStreamFrame& frame) {
 
   if (frame.byte_offset > kMaxStreamLength) {
     // Peer are not suppose to write bytes more than maxium allowed.
-    CloseConnectionWithDetails(QUIC_STREAM_LENGTH_OVERFLOW,
-                               "Reset frame stream offset overflow.");
+    OnUnrecoverableError(QUIC_STREAM_LENGTH_OVERFLOW,
+                         "Reset frame stream offset overflow.");
     return;
   }
 
@@ -226,21 +223,20 @@ void PendingStream::OnRstStreamFrame(const QuicRstStreamFrame& frame) {
       std::numeric_limits<QuicStreamOffset>::max();
   if (sequencer()->close_offset() != kMaxOffset &&
       frame.byte_offset != sequencer()->close_offset()) {
-    CloseConnectionWithDetails(
+    OnUnrecoverableError(
         QUIC_STREAM_MULTIPLE_OFFSET,
-        QuicStrCat("Stream ", id_,
-                   " received new final offset: ", frame.byte_offset,
-                   ", which is different from close offset: ",
-                   sequencer()->close_offset()));
+        quiche::QuicheStrCat("Stream ", id_,
+                             " received new final offset: ", frame.byte_offset,
+                             ", which is different from close offset: ",
+                             sequencer()->close_offset()));
     return;
   }
 
   MaybeIncreaseHighestReceivedOffset(frame.byte_offset);
   if (flow_controller_.FlowControlViolation() ||
       connection_flow_controller_->FlowControlViolation()) {
-    CloseConnectionWithDetails(
-        QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
-        "Flow control violation after increasing offset");
+    OnUnrecoverableError(QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
+                         "Flow control violation after increasing offset");
     return;
   }
 }
@@ -285,15 +281,15 @@ QuicStream::QuicStream(PendingStream* pending, StreamType type, bool is_static)
 
 namespace {
 
-QuicOptional<QuicFlowController> FlowController(QuicStreamId id,
-                                                QuicSession* session,
-                                                StreamType type) {
+QuicheOptional<QuicFlowController> FlowController(QuicStreamId id,
+                                                  QuicSession* session,
+                                                  StreamType type) {
   if (type == CRYPTO) {
     // The only QuicStream with a StreamType of CRYPTO is QuicCryptoStream, when
     // it is using crypto frames instead of stream frames. The QuicCryptoStream
     // doesn't have any flow control in that case, so we don't create a
     // QuicFlowController for it.
-    return QuicOptional<QuicFlowController>();
+    return QuicheOptional<QuicFlowController>();
   }
   return QuicFlowController(
       session, id,
@@ -328,17 +324,13 @@ QuicStream::QuicStream(QuicStreamId id,
                        StreamType type,
                        uint64_t stream_bytes_read,
                        bool fin_received,
-                       QuicOptional<QuicFlowController> flow_controller,
+                       QuicheOptional<QuicFlowController> flow_controller,
                        QuicFlowController* connection_flow_controller)
     : sequencer_(std::move(sequencer)),
       id_(id),
       session_(session),
-      precedence_(
-          session->use_http2_priority_write_scheduler()
-              ? spdy::SpdyStreamPrecedence(0,
-                                           spdy::kHttp2DefaultStreamWeight,
-                                           false)
-              : spdy::SpdyStreamPrecedence(kDefaultPriority)),
+      stream_delegate_(session),
+      precedence_(CalculateDefaultPriority(session)),
       stream_bytes_read_(stream_bytes_read),
       stream_error_(QUIC_STREAM_NO_ERROR),
       connection_error_(QUIC_NO_ERROR),
@@ -366,7 +358,8 @@ QuicStream::QuicStream(QuicStreamId id,
                 ? QuicUtils::GetStreamType(id_,
                                            session->perspective(),
                                            session->IsIncomingStream(id_))
-                : type) {
+                : type),
+      perspective_(session->perspective()) {
   if (type_ == WRITE_UNIDIRECTIONAL) {
     set_fin_received(true);
     CloseReadSide();
@@ -375,7 +368,7 @@ QuicStream::QuicStream(QuicStreamId id,
     CloseWriteSide();
   }
   if (type_ != CRYPTO) {
-    session_->RegisterStreamPriority(id, is_static_, precedence_);
+    stream_delegate_->RegisterStreamPriority(id, is_static_, precedence_);
   }
 }
 
@@ -387,8 +380,8 @@ QuicStream::~QuicStream() {
         << send_buffer_.stream_bytes_outstanding()
         << ", fin_outstanding: " << fin_outstanding_;
   }
-  if (session_ != nullptr && type_ != CRYPTO) {
-    session_->UnregisterStreamPriority(id(), is_static_);
+  if (stream_delegate_ != nullptr && type_ != CRYPTO) {
+    stream_delegate_->UnregisterStreamPriority(id(), is_static_);
   }
 }
 
@@ -397,10 +390,15 @@ void QuicStream::OnStreamFrame(const QuicStreamFrame& frame) {
 
   DCHECK(!(read_side_closed_ && write_side_closed_));
 
+  if (frame.fin && is_static_) {
+    OnUnrecoverableError(QUIC_INVALID_STREAM_ID,
+                         "Attempt to close a static stream");
+    return;
+  }
+
   if (type_ == WRITE_UNIDIRECTIONAL) {
-    CloseConnectionWithDetails(
-        QUIC_DATA_RECEIVED_ON_WRITE_UNIDIRECTIONAL_STREAM,
-        "Data received on write unidirectional stream");
+    OnUnrecoverableError(QUIC_DATA_RECEIVED_ON_WRITE_UNIDIRECTIONAL_STREAM,
+                         "Data received on write unidirectional stream");
     return;
   }
 
@@ -413,23 +411,19 @@ void QuicStream::OnStreamFrame(const QuicStreamFrame& frame) {
                   << " reaches max stream length. frame offset " << frame.offset
                   << " length " << frame.data_length << ". "
                   << sequencer_.DebugString();
-    CloseConnectionWithDetails(
+    OnUnrecoverableError(
         QUIC_STREAM_LENGTH_OVERFLOW,
-        QuicStrCat("Peer sends more data than allowed on stream ", id_,
-                   ". frame: offset = ", frame.offset, ", length = ",
-                   frame.data_length, ". ", sequencer_.DebugString()));
+        quiche::QuicheStrCat("Peer sends more data than allowed on stream ",
+                             id_, ". frame: offset = ", frame.offset,
+                             ", length = ", frame.data_length, ". ",
+                             sequencer_.DebugString()));
     return;
   }
 
   if (frame.offset + frame.data_length > sequencer_.close_offset()) {
-    if (!GetQuicReloadableFlag(quic_close_connection_on_wrong_offset)) {
-      Reset(QUIC_DATA_AFTER_CLOSE_OFFSET);
-      return;
-    }
-    QUIC_RELOADABLE_FLAG_COUNT_N(quic_close_connection_on_wrong_offset, 1, 2);
-    CloseConnectionWithDetails(
+    OnUnrecoverableError(
         QUIC_STREAM_DATA_BEYOND_CLOSE_OFFSET,
-        QuicStrCat(
+        quiche::QuicheStrCat(
             "Stream ", id_,
             " received data with offset: ", frame.offset + frame.data_length,
             ", which is beyond close offset: ", sequencer_.close_offset()));
@@ -463,14 +457,35 @@ void QuicStream::OnStreamFrame(const QuicStreamFrame& frame) {
     // violation of flow control.
     if (flow_controller_->FlowControlViolation() ||
         connection_flow_controller_->FlowControlViolation()) {
-      CloseConnectionWithDetails(
-          QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
-          "Flow control violation after increasing offset");
+      OnUnrecoverableError(QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
+                           "Flow control violation after increasing offset");
       return;
     }
   }
 
   sequencer_.OnStreamFrame(frame);
+}
+
+bool QuicStream::OnStopSending(uint16_t code) {
+  // Do not reset the stream if all data has been sent and acknowledged.
+  if (write_side_closed() && !IsWaitingForAcks()) {
+    QUIC_DVLOG(1) << ENDPOINT
+                  << "Ignoring STOP_SENDING for a write closed stream, id: "
+                  << id_;
+    return false;
+  }
+
+  if (is_static_) {
+    QUIC_DVLOG(1) << ENDPOINT
+                  << "Received STOP_SENDING for a static stream, id: " << id_
+                  << " Closing connection";
+    OnUnrecoverableError(QUIC_INVALID_STREAM_ID,
+                         "Received STOP_SENDING for a static stream");
+    return false;
+  }
+
+  stream_error_ = static_cast<QuicRstStreamErrorCode>(code);
+  return true;
 }
 
 int QuicStream::num_frames_received() const {
@@ -485,33 +500,29 @@ void QuicStream::OnStreamReset(const QuicRstStreamFrame& frame) {
   rst_received_ = true;
   if (frame.byte_offset > kMaxStreamLength) {
     // Peer are not suppose to write bytes more than maxium allowed.
-    CloseConnectionWithDetails(QUIC_STREAM_LENGTH_OVERFLOW,
-                               "Reset frame stream offset overflow.");
+    OnUnrecoverableError(QUIC_STREAM_LENGTH_OVERFLOW,
+                         "Reset frame stream offset overflow.");
     return;
   }
 
-  if (GetQuicReloadableFlag(quic_close_connection_on_wrong_offset)) {
-    QUIC_RELOADABLE_FLAG_COUNT_N(quic_close_connection_on_wrong_offset, 2, 2);
-    const QuicStreamOffset kMaxOffset =
-        std::numeric_limits<QuicStreamOffset>::max();
-    if (sequencer()->close_offset() != kMaxOffset &&
-        frame.byte_offset != sequencer()->close_offset()) {
-      CloseConnectionWithDetails(
-          QUIC_STREAM_MULTIPLE_OFFSET,
-          QuicStrCat("Stream ", id_,
-                     " received new final offset: ", frame.byte_offset,
-                     ", which is different from close offset: ",
-                     sequencer_.close_offset()));
-      return;
-    }
+  const QuicStreamOffset kMaxOffset =
+      std::numeric_limits<QuicStreamOffset>::max();
+  if (sequencer()->close_offset() != kMaxOffset &&
+      frame.byte_offset != sequencer()->close_offset()) {
+    OnUnrecoverableError(
+        QUIC_STREAM_MULTIPLE_OFFSET,
+        quiche::QuicheStrCat("Stream ", id_,
+                             " received new final offset: ", frame.byte_offset,
+                             ", which is different from close offset: ",
+                             sequencer_.close_offset()));
+    return;
   }
 
   MaybeIncreaseHighestReceivedOffset(frame.byte_offset);
   if (flow_controller_->FlowControlViolation() ||
       connection_flow_controller_->FlowControlViolation()) {
-    CloseConnectionWithDetails(
-        QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
-        "Flow control violation after increasing offset");
+    OnUnrecoverableError(QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
+                         "Flow control violation after increasing offset");
     return;
   }
 
@@ -556,10 +567,9 @@ void QuicStream::Reset(QuicRstStreamErrorCode error) {
   rst_sent_ = true;
 }
 
-void QuicStream::CloseConnectionWithDetails(QuicErrorCode error,
-                                            const std::string& details) {
-  session()->connection()->CloseConnection(
-      error, details, ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+void QuicStream::OnUnrecoverableError(QuicErrorCode error,
+                                      const std::string& details) {
+  stream_delegate_->OnStreamError(error, details);
 }
 
 const spdy::SpdyStreamPrecedence& QuicStream::precedence() const {
@@ -568,11 +578,14 @@ const spdy::SpdyStreamPrecedence& QuicStream::precedence() const {
 
 void QuicStream::SetPriority(const spdy::SpdyStreamPrecedence& precedence) {
   precedence_ = precedence;
-  session_->UpdateStreamPriority(id(), precedence);
+
+  MaybeSendPriorityUpdateFrame();
+
+  stream_delegate_->UpdateStreamPriority(id(), precedence);
 }
 
 void QuicStream::WriteOrBufferData(
-    QuicStringPiece data,
+    quiche::QuicheStringPiece data,
     bool fin,
     QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
   if (data.empty() && !fin) {
@@ -588,9 +601,8 @@ void QuicStream::WriteOrBufferData(
     QUIC_DLOG(ERROR) << ENDPOINT
                      << "Attempt to write when the write side is closed";
     if (type_ == READ_UNIDIRECTIONAL) {
-      CloseConnectionWithDetails(
-          QUIC_TRY_TO_WRITE_DATA_ON_READ_UNIDIRECTIONAL_STREAM,
-          "Try to send data on read unidirectional stream");
+      OnUnrecoverableError(QUIC_TRY_TO_WRITE_DATA_ON_READ_UNIDIRECTIONAL_STREAM,
+                           "Try to send data on read unidirectional stream");
     }
     return;
   }
@@ -605,9 +617,9 @@ void QuicStream::WriteOrBufferData(
     QuicStreamOffset offset = send_buffer_.stream_offset();
     if (kMaxStreamLength - offset < data.length()) {
       QUIC_BUG << "Write too many data via stream " << id_;
-      CloseConnectionWithDetails(
+      OnUnrecoverableError(
           QUIC_STREAM_LENGTH_OVERFLOW,
-          QuicStrCat("Write too many data via stream ", id_));
+          quiche::QuicheStrCat("Write too many data via stream ", id_));
       return;
     }
     send_buffer_.SaveStreamData(&iov, 1, 0, data.length());
@@ -683,9 +695,8 @@ QuicConsumedData QuicStream::WriteMemSlices(QuicMemSliceSpan span, bool fin) {
     QUIC_DLOG(ERROR) << ENDPOINT << "Stream " << id()
                      << " attempting to write when the write side is closed";
     if (type_ == READ_UNIDIRECTIONAL) {
-      CloseConnectionWithDetails(
-          QUIC_TRY_TO_WRITE_DATA_ON_READ_UNIDIRECTIONAL_STREAM,
-          "Try to send data on read unidirectional stream");
+      OnUnrecoverableError(QUIC_TRY_TO_WRITE_DATA_ON_READ_UNIDIRECTIONAL_STREAM,
+                           "Try to send data on read unidirectional stream");
     }
     return consumed_data;
   }
@@ -700,9 +711,9 @@ QuicConsumedData QuicStream::WriteMemSlices(QuicMemSliceSpan span, bool fin) {
       if (offset > send_buffer_.stream_offset() ||
           kMaxStreamLength < send_buffer_.stream_offset()) {
         QUIC_BUG << "Write too many data via stream " << id_;
-        CloseConnectionWithDetails(
+        OnUnrecoverableError(
             QUIC_STREAM_LENGTH_OVERFLOW,
-            QuicStrCat("Write too many data via stream ", id_));
+            quiche::QuicheStrCat("Write too many data via stream ", id_));
         return consumed_data;
       }
       OnDataBuffered(offset, consumed_data.bytes_consumed, nullptr);
@@ -775,10 +786,6 @@ void QuicStream::StopReading() {
   sequencer_.StopReading();
 }
 
-const QuicSocketAddress& QuicStream::PeerAddressOfLatestPacket() const {
-  return session_->connection()->last_packet_source_address();
-}
-
 void QuicStream::OnClose() {
   CloseReadSide();
   CloseWriteSide();
@@ -810,7 +817,7 @@ void QuicStream::OnClose() {
 
 void QuicStream::OnWindowUpdateFrame(const QuicWindowUpdateFrame& frame) {
   if (type_ == READ_UNIDIRECTIONAL) {
-    CloseConnectionWithDetails(
+    OnUnrecoverableError(
         QUIC_WINDOW_UPDATE_RECEIVED_ON_READ_UNIDIRECTIONAL_STREAM,
         "WindowUpdateFrame received on READ_UNIDIRECTIONAL stream.");
     return;
@@ -880,6 +887,7 @@ bool QuicStream::OnStreamFrameAcked(QuicStreamOffset offset,
                                     QuicByteCount data_length,
                                     bool fin_acked,
                                     QuicTime::Delta /*ack_delay_time*/,
+                                    QuicTime /*receive_timestamp*/,
                                     QuicByteCount* newly_acked_length) {
   QUIC_DVLOG(1) << ENDPOINT << "stream " << id_ << " Acking "
                 << "[" << offset << ", " << offset + data_length << "]"
@@ -887,13 +895,11 @@ bool QuicStream::OnStreamFrameAcked(QuicStreamOffset offset,
   *newly_acked_length = 0;
   if (!send_buffer_.OnStreamDataAcked(offset, data_length,
                                       newly_acked_length)) {
-    CloseConnectionWithDetails(QUIC_INTERNAL_ERROR,
-                               "Trying to ack unsent data.");
+    OnUnrecoverableError(QUIC_INTERNAL_ERROR, "Trying to ack unsent data.");
     return false;
   }
   if (!fin_sent_ && fin_acked) {
-    CloseConnectionWithDetails(QUIC_INTERNAL_ERROR,
-                               "Trying to ack unsent fin.");
+    OnUnrecoverableError(QUIC_INTERNAL_ERROR, "Trying to ack unsent fin.");
     return false;
   }
   // Indicates whether ack listener's OnPacketAcked should be called.
@@ -934,7 +940,10 @@ void QuicStream::OnStreamFrameLost(QuicStreamOffset offset,
 
 bool QuicStream::RetransmitStreamData(QuicStreamOffset offset,
                                       QuicByteCount data_length,
-                                      bool fin) {
+                                      bool fin,
+                                      TransmissionType type) {
+  DCHECK(type == PTO_RETRANSMISSION || type == RTO_RETRANSMISSION ||
+         type == TLP_RETRANSMISSION || type == PROBING_RETRANSMISSION);
   if (HasDeadlinePassed()) {
     OnDeadlinePassed();
     return true;
@@ -953,9 +962,9 @@ bool QuicStream::RetransmitStreamData(QuicStreamOffset offset,
     const bool can_bundle_fin =
         retransmit_fin && (retransmission_offset + retransmission_length ==
                            stream_bytes_written());
-    consumed = session()->WritevData(this, id_, retransmission_length,
-                                     retransmission_offset,
-                                     can_bundle_fin ? FIN : NO_FIN);
+    consumed = stream_delegate_->WritevData(
+        id_, retransmission_length, retransmission_offset,
+        can_bundle_fin ? FIN : NO_FIN, type, QuicheNullOpt);
     QUIC_DVLOG(1) << ENDPOINT << "stream " << id_
                   << " is forced to retransmit stream data ["
                   << retransmission_offset << ", "
@@ -976,7 +985,8 @@ bool QuicStream::RetransmitStreamData(QuicStreamOffset offset,
   if (retransmit_fin) {
     QUIC_DVLOG(1) << ENDPOINT << "stream " << id_
                   << " retransmits fin only frame.";
-    consumed = session()->WritevData(this, id_, 0, stream_bytes_written(), FIN);
+    consumed = stream_delegate_->WritevData(id_, 0, stream_bytes_written(), FIN,
+                                            type, QuicheNullOpt);
     if (!consumed.fin_consumed) {
       return false;
     }
@@ -1040,14 +1050,17 @@ void QuicStream::WriteBufferedData() {
     QUIC_DVLOG(1) << "stream " << id() << " shortens write length to "
                   << write_length << " due to flow control";
   }
-  session_->SetTransmissionType(NOT_RETRANSMISSION);
+  if (!session_->write_with_transmission()) {
+    session_->SetTransmissionType(NOT_RETRANSMISSION);
+  }
 
   StreamSendingState state = fin ? FIN : NO_FIN;
   if (fin && add_random_padding_after_fin_) {
     state = FIN_AND_PADDING;
   }
-  QuicConsumedData consumed_data = session_->WritevData(
-      this, id(), write_length, stream_bytes_written(), state);
+  QuicConsumedData consumed_data =
+      stream_delegate_->WritevData(id(), write_length, stream_bytes_written(),
+                                   state, NOT_RETRANSMISSION, QuicheNullOpt);
 
   OnStreamDataConsumed(consumed_data.bytes_consumed);
 
@@ -1122,7 +1135,8 @@ void QuicStream::WritePendingRetransmission() {
       QUIC_DVLOG(1) << ENDPOINT << "stream " << id_
                     << " retransmits fin only frame.";
       consumed =
-          session()->WritevData(this, id_, 0, stream_bytes_written(), FIN);
+          stream_delegate_->WritevData(id_, 0, stream_bytes_written(), FIN,
+                                       LOSS_RETRANSMISSION, QuicheNullOpt);
       fin_lost_ = !consumed.fin_consumed;
       if (fin_lost_) {
         // Connection is write blocked.
@@ -1135,9 +1149,9 @@ void QuicStream::WritePendingRetransmission() {
       const bool can_bundle_fin =
           fin_lost_ &&
           (pending.offset + pending.length == stream_bytes_written());
-      consumed =
-          session()->WritevData(this, id_, pending.length, pending.offset,
-                                can_bundle_fin ? FIN : NO_FIN);
+      consumed = stream_delegate_->WritevData(
+          id_, pending.length, pending.offset, can_bundle_fin ? FIN : NO_FIN,
+          LOSS_RETRANSMISSION, QuicheNullOpt);
       QUIC_DVLOG(1) << ENDPOINT << "stream " << id_
                     << " tries to retransmit stream data [" << pending.offset
                     << ", " << pending.offset + pending.length
@@ -1194,6 +1208,21 @@ void QuicStream::SendStopSending(uint16_t code) {
     return;
   }
   session_->SendStopSending(code, id_);
+}
+
+// static
+spdy::SpdyStreamPrecedence QuicStream::CalculateDefaultPriority(
+    const QuicSession* session) {
+  if (VersionUsesHttp3(session->transport_version())) {
+    return spdy::SpdyStreamPrecedence(QuicStream::kDefaultUrgency);
+  }
+
+  if (session->use_http2_priority_write_scheduler()) {
+    return spdy::SpdyStreamPrecedence(0, spdy::kHttp2DefaultStreamWeight,
+                                      false);
+  }
+
+  return spdy::SpdyStreamPrecedence(QuicStream::kDefaultPriority);
 }
 
 }  // namespace quic

@@ -40,7 +40,9 @@ class CONTENT_EXPORT AppCacheRequest {
   const std::string& GetMethod() const { return request_.method; }
 
   // Used for cookie policy.
-  const GURL& GetSiteForCookies() const { return request_.site_for_cookies; }
+  net::SiteForCookies GetSiteForCookies() const {
+    return request_.site_for_cookies;
+  }
 
   // The referrer for this request.
   const GURL GetReferrer() const { return request_.referrer; }
@@ -80,8 +82,8 @@ class CONTENT_EXPORT AppCacheRequest {
 
  protected:
   friend class AppCacheRequestHandler;
-  // Enables the AppCacheJob to call GetResourceRequest().
-  friend class AppCacheJob;
+  // Enables the AppCacheURLLoader to call GetResourceRequest().
+  friend class AppCacheURLLoader;
 
   // Returns the underlying ResourceRequest.
   network::ResourceRequest* GetResourceRequest() { return &request_; }

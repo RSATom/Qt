@@ -494,38 +494,11 @@ static bool setupSlider(NSSlider *slider, const QStyleOptionSlider *sl)
         slider.numberOfTickMarks = 0;
     }
 
+    // Ensure the values set above are reflected when asking
+    // the cell for its metrics and to draw itself.
+    [slider layoutSubtreeIfNeeded];
+
     return true;
-}
-
-static void fixStaleGeometry(NSSlider *slider)
-{
-    // If it's later fixed in AppKit, this function is not needed.
-    // On macOS Mojave we suddenly have NSSliderCell with a cached
-    // (and stale) geometry, thus its -drawKnob, -drawBarInside:flipped:,
-    // -drawTickMarks fail to render the slider properly. Setting the number
-    // of tickmarks triggers an update in geometry.
-
-    Q_ASSERT(slider);
-
-    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::MacOSMojave)
-        return;
-
-    NSSliderCell *cell = slider.cell;
-    const NSRect barRect = [cell barRectFlipped:NO];
-    const NSSize sliderSize = slider.frame.size;
-    CGFloat difference = 0.;
-    if (slider.vertical)
-        difference = std::abs(sliderSize.height - barRect.size.height);
-    else
-        difference = std::abs(sliderSize.width - barRect.size.width);
-
-    if (difference > 6.) {
-        // Stale ...
-        const auto nOfTicks = slider.numberOfTickMarks;
-        // Non-zero, different from nOfTicks to force update
-        slider.numberOfTickMarks = nOfTicks + 10;
-        slider.numberOfTickMarks = nOfTicks;
-    }
 }
 
 static bool isInMacUnifiedToolbarArea(QWindow *window, int windowY)
@@ -2624,7 +2597,7 @@ int QMacStyle::styleHint(StyleHint sh, const QStyleOption *opt, const QWidget *w
         ret = true;
         break;
     case SH_Slider_AbsoluteSetButtons:
-        ret = Qt::LeftButton|Qt::MidButton;
+        ret = Qt::LeftButton|Qt::MiddleButton;
         break;
     case SH_Slider_PageSetButtons:
         ret = 0;
@@ -5348,7 +5321,7 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
 
             CGPoint pressPoint;
             if (isPressed) {
-                const CGRect knobRect = [slider.cell knobRectFlipped:NO];
+                const CGRect knobRect = [slider.cell knobRectFlipped:slider.isFlipped];
                 pressPoint.x = CGRectGetMidX(knobRect);
                 pressPoint.y = CGRectGetMidY(knobRect);
                 [slider.cell startTrackingAt:pressPoint inView:slider];
@@ -5397,8 +5370,6 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                 } else
 #endif
                 {
-                    if (!hasDoubleTicks)
-                        fixStaleGeometry(slider);
                     NSSliderCell *cell = slider.cell;
 
                     const int numberOfTickMarks = slider.numberOfTickMarks;
@@ -5406,7 +5377,7 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                     if (hasDoubleTicks)
                         slider.numberOfTickMarks = 0;
 
-                    const CGRect barRect = [cell barRectFlipped:hasTicks];
+                    const CGRect barRect = [cell barRectFlipped:slider.isFlipped];
                     if (drawBar) {
                         if (!isHorizontal && !sl->upsideDown && (hasDoubleTicks || !hasTicks)) {
                             // The logic behind verticalFlip and upsideDown is the twisted one.
@@ -5793,8 +5764,8 @@ QStyle::SubControl QMacStyle::hitTestComplexControl(ComplexControl cc,
                 break;
 
             NSSliderCell *cell = slider.cell;
-            const auto barRect = QRectF::fromCGRect([cell barRectFlipped:hasTicks]);
-            const auto knobRect = QRectF::fromCGRect([cell knobRectFlipped:NO]);
+            const auto barRect = QRectF::fromCGRect([cell barRectFlipped:slider.isFlipped]);
+            const auto knobRect = QRectF::fromCGRect([cell knobRectFlipped:slider.isFlipped]);
             if (knobRect.contains(pt)) {
                 sc = SC_SliderHandle;
             } else if (barRect.contains(pt)) {
@@ -5898,7 +5869,7 @@ QRect QMacStyle::subControlRect(ComplexControl cc, const QStyleOptionComplex *op
 
             NSSliderCell *cell = slider.cell;
             if (sc == SC_SliderHandle) {
-                ret = QRectF::fromCGRect([cell knobRectFlipped:NO]).toRect();
+                ret = QRectF::fromCGRect([cell knobRectFlipped:slider.isFlipped]).toRect();
                 if (isHorizontal) {
                     ret.setTop(sl->rect.top());
                     ret.setBottom(sl->rect.bottom());
@@ -5907,7 +5878,7 @@ QRect QMacStyle::subControlRect(ComplexControl cc, const QStyleOptionComplex *op
                     ret.setRight(sl->rect.right());
                 }
             } else if (sc == SC_SliderGroove) {
-                ret = QRectF::fromCGRect([cell barRectFlipped:hasTicks]).toRect();
+                ret = QRectF::fromCGRect([cell barRectFlipped:slider.isFlipped]).toRect();
             } else if (hasTicks && sc == SC_SliderTickmarks) {
                 const auto tickMarkRect = QRectF::fromCGRect([cell rectOfTickMarkAtIndex:0]);
                 if (isHorizontal)

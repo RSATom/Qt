@@ -24,11 +24,12 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "content/browser/appcache/appcache.h"
 #include "content/browser/appcache/appcache_database.h"
+#include "content/browser/appcache/appcache_disk_cache_ops.h"
 #include "content/browser/appcache/appcache_entry.h"
 #include "content/browser/appcache/appcache_group.h"
 #include "content/browser/appcache/appcache_histograms.h"
 #include "content/browser/appcache/appcache_quota_client.h"
-#include "content/browser/appcache/appcache_response.h"
+#include "content/browser/appcache/appcache_response_info.h"
 #include "content/browser/appcache/appcache_service_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "net/base/cache_type.h"
@@ -170,7 +171,7 @@ class AppCacheStorageImpl::DatabaseTask
 
  protected:
   friend class base::RefCountedThreadSafe<DatabaseTask>;
-  virtual ~DatabaseTask() {}
+  virtual ~DatabaseTask() = default;
 
   AppCacheStorageImpl* storage_;
   AppCacheDatabase* const database_;
@@ -258,7 +259,7 @@ class AppCacheStorageImpl::InitTask : public DatabaseTask {
   void RunCompleted() override;
 
  protected:
-  ~InitTask() override {}
+  ~InitTask() override = default;
 
  private:
   base::FilePath db_file_path_;
@@ -324,7 +325,7 @@ class AppCacheStorageImpl::DisableDatabaseTask : public DatabaseTask {
   void Run() override { database_->Disable(); }
 
  protected:
-  ~DisableDatabaseTask() override {}
+  ~DisableDatabaseTask() override = default;
 };
 
 // GetAllInfoTask -------
@@ -340,7 +341,7 @@ class AppCacheStorageImpl::GetAllInfoTask : public DatabaseTask {
   void RunCompleted() override;
 
  protected:
-  ~GetAllInfoTask() override {}
+  ~GetAllInfoTask() override = default;
 
  private:
   scoped_refptr<AppCacheInfoCollection> info_collection_;
@@ -364,6 +365,8 @@ void AppCacheStorageImpl::GetAllInfoTask::Run() {
       info.padding_sizes = cache_record.padding_size;
       info.last_access_time = group.last_access_time;
       info.last_update_time = cache_record.update_time;
+      // TODO(enne): should this be cache? group? both??
+      info.token_expires = group.token_expires;
       info.cache_id = cache_record.cache_id;
       info.group_id = group.group_id;
       info.is_complete = true;
@@ -388,7 +391,7 @@ class AppCacheStorageImpl::StoreOrLoadTask : public DatabaseTask {
  protected:
   explicit StoreOrLoadTask(AppCacheStorageImpl* storage)
       : DatabaseTask(storage) {}
-  ~StoreOrLoadTask() override {}
+  ~StoreOrLoadTask() override = default;
 
   bool FindRelatedCacheRecords(int64_t cache_id);
   void CreateCacheAndGroupFromRecords(
@@ -498,7 +501,7 @@ class AppCacheStorageImpl::CacheLoadTask : public StoreOrLoadTask {
   void RunCompleted() override;
 
  protected:
-  ~CacheLoadTask() override {}
+  ~CacheLoadTask() override = default;
 
  private:
   int64_t cache_id_;
@@ -544,7 +547,7 @@ class AppCacheStorageImpl::GroupLoadTask : public StoreOrLoadTask {
   void RunCompleted() override;
 
  protected:
-  ~GroupLoadTask() override {}
+  ~GroupLoadTask() override = default;
 
  private:
   GURL manifest_url_;
@@ -604,7 +607,7 @@ class AppCacheStorageImpl::StoreGroupAndCacheTask : public StoreOrLoadTask {
   void CancelCompletion() override;
 
  protected:
-  ~StoreGroupAndCacheTask() override {}
+  ~StoreGroupAndCacheTask() override = default;
 
  private:
   scoped_refptr<AppCacheGroup> group_;
@@ -634,6 +637,7 @@ AppCacheStorageImpl::StoreGroupAndCacheTask::StoreGroupAndCacheTask(
       group->last_full_update_check_time();
   group_record_.first_evictable_error_time =
       group->first_evictable_error_time();
+  group_record_.token_expires = group->token_expires();
   newest_cache->ToDatabaseRecords(
       group,
       &cache_record_, &entry_records_,
@@ -700,10 +704,9 @@ void AppCacheStorageImpl::StoreGroupAndCacheTask::Run() {
     database_->UpdateLastAccessTime(group_record_.group_id,
                                     base::Time::Now());
 
-    database_->UpdateEvictionTimes(
-        group_record_.group_id,
-        group_record_.last_full_update_check_time,
-        group_record_.first_evictable_error_time);
+    database_->UpdateEvictionTimesAndTokenExpires(
+        group_record_.group_id, group_record_.last_full_update_check_time,
+        group_record_.first_evictable_error_time, group_record_.token_expires);
 
     AppCacheDatabase::CacheRecord cache;
     if (database_->FindCacheForGroup(group_record_.group_id, &cache)) {
@@ -731,6 +734,8 @@ void AppCacheStorageImpl::StoreGroupAndCacheTask::Run() {
       NOTREACHED() << "A existing group without a cache is unexpected";
     }
   }
+
+  cache_record_.token_expires = group_record_.token_expires;
 
   success_ =
       success_ &&
@@ -865,8 +870,7 @@ class NetworkNamespaceHelper {
 
     for (const auto& record : records) {
       namespaces->push_back(AppCacheNamespace(APPCACHE_NETWORK_NAMESPACE,
-                                              record.namespace_url, GURL(),
-                                              record.is_pattern));
+                                              record.namespace_url, GURL()));
     }
   }
 
@@ -905,7 +909,7 @@ class AppCacheStorageImpl::FindMainResponseTask : public DatabaseTask {
   void RunCompleted() override;
 
  protected:
-  ~FindMainResponseTask() override {}
+  ~FindMainResponseTask() override = default;
 
  private:
   using NamespaceRecordPtrVector =
@@ -1105,7 +1109,7 @@ class AppCacheStorageImpl::MarkEntryAsForeignTask : public DatabaseTask {
   void RunCompleted() override;
 
  protected:
-  ~MarkEntryAsForeignTask() override {}
+  ~MarkEntryAsForeignTask() override = default;
 
  private:
   int64_t cache_id_;
@@ -1136,7 +1140,7 @@ class AppCacheStorageImpl::MakeGroupObsoleteTask : public DatabaseTask {
   void CancelCompletion() override;
 
  protected:
-  ~MakeGroupObsoleteTask() override {}
+  ~MakeGroupObsoleteTask() override = default;
 
  private:
   scoped_refptr<AppCacheGroup> group_;
@@ -1227,7 +1231,7 @@ class AppCacheStorageImpl::GetDeletableResponseIdsTask : public DatabaseTask {
   void RunCompleted() override;
 
  protected:
-  ~GetDeletableResponseIdsTask() override {}
+  ~GetDeletableResponseIdsTask() override = default;
 
  private:
   int64_t max_rowid_;
@@ -1259,7 +1263,7 @@ class AppCacheStorageImpl::InsertDeletableResponseIdsTask
   std::vector<int64_t> response_ids_;
 
  protected:
-  ~InsertDeletableResponseIdsTask() override {}
+  ~InsertDeletableResponseIdsTask() override = default;
 };
 
 void AppCacheStorageImpl::InsertDeletableResponseIdsTask::Run() {
@@ -1281,7 +1285,7 @@ class AppCacheStorageImpl::DeleteDeletableResponseIdsTask
   std::vector<int64_t> response_ids_;
 
  protected:
-  ~DeleteDeletableResponseIdsTask() override {}
+  ~DeleteDeletableResponseIdsTask() override = default;
 };
 
 void AppCacheStorageImpl::DeleteDeletableResponseIdsTask::Run() {
@@ -1305,7 +1309,7 @@ class AppCacheStorageImpl::LazyUpdateLastAccessTimeTask
   void RunCompleted() override;
 
  protected:
-  ~LazyUpdateLastAccessTimeTask() override {}
+  ~LazyUpdateLastAccessTimeTask() override = default;
 
  private:
   int64_t group_id_;
@@ -1325,7 +1329,7 @@ void AppCacheStorageImpl::LazyUpdateLastAccessTimeTask::RunCompleted() {
 class AppCacheStorageImpl::CommitLastAccessTimesTask
     : public DatabaseTask {
  public:
-  CommitLastAccessTimesTask(AppCacheStorageImpl* storage)
+  explicit CommitLastAccessTimesTask(AppCacheStorageImpl* storage)
       : DatabaseTask(storage) {}
 
   // DatabaseTask:
@@ -1334,7 +1338,7 @@ class AppCacheStorageImpl::CommitLastAccessTimesTask
   }
 
  protected:
-  ~CommitLastAccessTimesTask() override {}
+  ~CommitLastAccessTimesTask() override = default;
 };
 
 // UpdateEvictionTimes -------
@@ -1342,29 +1346,30 @@ class AppCacheStorageImpl::CommitLastAccessTimesTask
 class AppCacheStorageImpl::UpdateEvictionTimesTask
     : public DatabaseTask {
  public:
-  UpdateEvictionTimesTask(
-      AppCacheStorageImpl* storage, AppCacheGroup* group)
-      : DatabaseTask(storage), group_id_(group->group_id()),
+  UpdateEvictionTimesTask(AppCacheStorageImpl* storage, AppCacheGroup* group)
+      : DatabaseTask(storage),
+        group_id_(group->group_id()),
         last_full_update_check_time_(group->last_full_update_check_time()),
-        first_evictable_error_time_(group->first_evictable_error_time()) {
-  }
+        first_evictable_error_time_(group->first_evictable_error_time()),
+        token_expires_(group->token_expires()) {}
 
   // DatabaseTask:
   void Run() override;
 
  protected:
-  ~UpdateEvictionTimesTask() override {}
+  ~UpdateEvictionTimesTask() override = default;
 
  private:
   int64_t group_id_;
   base::Time last_full_update_check_time_;
   base::Time first_evictable_error_time_;
+  base::Time token_expires_;
 };
 
 void AppCacheStorageImpl::UpdateEvictionTimesTask::Run() {
-  database_->UpdateEvictionTimes(group_id_,
-                                 last_full_update_check_time_,
-                                 first_evictable_error_time_);
+  database_->UpdateEvictionTimesAndTokenExpires(
+      group_id_, last_full_update_check_time_, first_evictable_error_time_,
+      token_expires_);
 }
 
 // AppCacheStorageImpl ---------------------------------------------------

@@ -16,6 +16,7 @@
 #include "src/sksl/SkSLMetalCodeGenerator.h"
 #include "src/sksl/SkSLPipelineStageCodeGenerator.h"
 #include "src/sksl/SkSLSPIRVCodeGenerator.h"
+#include "src/sksl/SkSLSPIRVtoHLSL.h"
 #include "src/sksl/ir/SkSLEnum.h"
 #include "src/sksl/ir/SkSLExpression.h"
 #include "src/sksl/ir/SkSLExpressionStatement.h"
@@ -43,6 +44,10 @@
 
 static const char* SKSL_GPU_INCLUDE =
 #include "sksl_gpu.inc"
+;
+
+static const char* SKSL_BLEND_INCLUDE =
+#include "sksl_blend.inc"
 ;
 
 static const char* SKSL_INTERP_INCLUDE =
@@ -73,14 +78,17 @@ static const char* SKSL_PIPELINE_INCLUDE =
 namespace SkSL {
 
 static void grab_intrinsics(std::vector<std::unique_ptr<ProgramElement>>* src,
-               std::map<StringFragment, std::pair<std::unique_ptr<ProgramElement>, bool>>* target) {
-    for (auto& element : *src) {
+               std::map<String, std::pair<std::unique_ptr<ProgramElement>, bool>>* target) {
+    for (auto iter = src->begin(); iter != src->end(); ) {
+        std::unique_ptr<ProgramElement>& element = *iter;
         switch (element->fKind) {
             case ProgramElement::kFunction_Kind: {
                 FunctionDefinition& f = (FunctionDefinition&) *element;
-                StringFragment name = f.fDeclaration.fName;
-                SkASSERT(target->find(name) == target->end());
-                (*target)[name] = std::make_pair(std::move(element), false);
+                SkASSERT(f.fDeclaration.fBuiltin);
+                String key = f.fDeclaration.declaration();
+                SkASSERT(target->find(key) == target->end());
+                (*target)[key] = std::make_pair(std::move(element), false);
+                iter = src->erase(iter);
                 break;
             }
             case ProgramElement::kEnum_Kind: {
@@ -88,6 +96,7 @@ static void grab_intrinsics(std::vector<std::unique_ptr<ProgramElement>>* src,
                 StringFragment name = e.fTypeName;
                 SkASSERT(target->find(name) == target->end());
                 (*target)[name] = std::make_pair(std::move(element), false);
+                iter = src->erase(iter);
                 break;
             }
             default:
@@ -258,6 +267,9 @@ Compiler::Compiler(Flags flags)
     std::vector<std::unique_ptr<ProgramElement>> gpuIntrinsics;
     this->processIncludeFile(Program::kFragment_Kind, SKSL_GPU_INCLUDE, strlen(SKSL_GPU_INCLUDE),
                              symbols, &gpuIntrinsics, &fGpuSymbolTable);
+    this->processIncludeFile(Program::kFragment_Kind, SKSL_BLEND_INCLUDE,
+                             strlen(SKSL_BLEND_INCLUDE), std::move(fGpuSymbolTable), &gpuIntrinsics,
+                             &fGpuSymbolTable);
     grab_intrinsics(&gpuIntrinsics, &fGPUIntrinsics);
     // need to hang on to the source so that FunctionDefinition.fSource pointers in this file
     // remain valid
@@ -271,11 +283,13 @@ Compiler::Compiler(Flags flags)
     this->processIncludeFile(Program::kPipelineStage_Kind, SKSL_PIPELINE_INCLUDE,
                              strlen(SKSL_PIPELINE_INCLUDE), fGpuSymbolTable, &fPipelineInclude,
                              &fPipelineSymbolTable);
-    std::vector<std::unique_ptr<ProgramElement>> interpIntrinsics;
     this->processIncludeFile(Program::kGeneric_Kind, SKSL_INTERP_INCLUDE,
                              strlen(SKSL_INTERP_INCLUDE), symbols, &fInterpreterInclude,
                              &fInterpreterSymbolTable);
-    grab_intrinsics(&interpIntrinsics, &fInterpreterIntrinsics);
+    grab_intrinsics(&fInterpreterInclude, &fInterpreterIntrinsics);
+    // need to hang on to the source so that FunctionDefinition.fSource pointers in this file
+    // remain valid
+    fInterpreterIncludeSource = std::move(fIRGenerator->fFile);
 }
 
 Compiler::~Compiler() {
@@ -519,7 +533,8 @@ static bool is_dead(const Expression& lvalue) {
             return is_dead(*((FieldAccess&) lvalue).fBase);
         case Expression::kIndex_Kind: {
             const IndexExpression& idx = (IndexExpression&) lvalue;
-            return is_dead(*idx.fBase) && !idx.fIndex->hasSideEffects();
+            return is_dead(*idx.fBase) &&
+                   !idx.fIndex->hasProperty(Expression::Property::kSideEffects);
         }
         case Expression::kTernary_Kind: {
             const TernaryExpression& t = (TernaryExpression&) lvalue;
@@ -528,7 +543,10 @@ static bool is_dead(const Expression& lvalue) {
         case Expression::kExternalValue_Kind:
             return false;
         default:
+#ifdef SK_DEBUG
             ABORT("invalid lvalue: %s\n", lvalue.description().c_str());
+#endif
+            return false;
     }
 }
 
@@ -1470,8 +1488,9 @@ std::unique_ptr<Program> Compiler::specialize(
     for (auto iter = inputs.begin(); iter != inputs.end(); ++iter) {
         settings.fArgs.insert(*iter);
     }
+    std::unique_ptr<String> sourceCopy(new String(*program.fSource));
     std::unique_ptr<Program> result(new Program(program.fKind,
-                                                nullptr,
+                                                std::move(sourceCopy),
                                                 settings,
                                                 program.fContext,
                                                 program.fInheritedElements,
@@ -1544,6 +1563,15 @@ bool Compiler::toGLSL(Program& program, String* out) {
     return result;
 }
 
+bool Compiler::toHLSL(Program& program, String* out) {
+    String spirv;
+    if (!this->toSPIRV(program, &spirv)) {
+        return false;
+    }
+
+    return SPIRVtoHLSL(spirv, out);
+}
+
 bool Compiler::toMetal(Program& program, OutputStream& out) {
     if (!this->optimize(program)) {
         return false;
@@ -1590,18 +1618,15 @@ bool Compiler::toH(Program& program, String name, OutputStream& out) {
 #endif
 
 #if !defined(SKSL_STANDALONE) && SK_SUPPORT_GPU
-bool Compiler::toPipelineStage(const Program& program, String* out,
-                               std::vector<FormatArg>* outFormatArgs,
-                               std::vector<GLSLFunction>* outFunctions) {
+bool Compiler::toPipelineStage(const Program& program, PipelineStageArgs* outArgs) {
     SkASSERT(program.fIsOptimized);
     fSource = program.fSource.get();
     StringStream buffer;
-    PipelineStageCodeGenerator cg(fContext.get(), &program, this, &buffer, outFormatArgs,
-                                  outFunctions);
+    PipelineStageCodeGenerator cg(fContext.get(), &program, this, &buffer, outArgs);
     bool result = cg.generateCode();
     fSource = nullptr;
     if (result) {
-        *out = buffer.str();
+        outArgs->fCode = buffer.str();
     }
     return result;
 }
@@ -1612,8 +1637,9 @@ std::unique_ptr<ByteCode> Compiler::toByteCode(Program& program) {
     if (!this->optimize(program)) {
         return nullptr;
     }
+    fSource = program.fSource.get();
     std::unique_ptr<ByteCode> result(new ByteCode());
-    ByteCodeGenerator cg(fContext.get(), &program, this, result.get());
+    ByteCodeGenerator cg(&program, this, result.get());
     if (cg.generateCode()) {
         return result;
     }

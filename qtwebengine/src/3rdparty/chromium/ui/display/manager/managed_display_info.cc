@@ -60,18 +60,13 @@ bool GetDisplayBounds(const std::string& spec,
 //  * the area in pixels in ascending order
 //  * refresh rate in descending order
 struct ManagedDisplayModeSorter {
-  explicit ManagedDisplayModeSorter(bool is_internal)
-      : is_internal(is_internal) {}
-
   bool operator()(const ManagedDisplayMode& a, const ManagedDisplayMode& b) {
-    gfx::Size size_a_dip = a.GetSizeInDIP(is_internal);
-    gfx::Size size_b_dip = b.GetSizeInDIP(is_internal);
+    gfx::Size size_a_dip = a.GetSizeInDIP();
+    gfx::Size size_b_dip = b.GetSizeInDIP();
     if (size_a_dip.GetArea() == size_b_dip.GetArea())
       return (a.refresh_rate() > b.refresh_rate());
     return (size_a_dip.GetArea() < size_b_dip.GetArea());
   }
-
-  bool is_internal;
 };
 
 }  // namespace
@@ -108,12 +103,8 @@ ManagedDisplayMode::ManagedDisplayMode(const ManagedDisplayMode& other) =
 ManagedDisplayMode& ManagedDisplayMode::operator=(
     const ManagedDisplayMode& other) = default;
 
-gfx::Size ManagedDisplayMode::GetSizeInDIP(bool is_internal) const {
+gfx::Size ManagedDisplayMode::GetSizeInDIP() const {
   gfx::SizeF size_dip(size_);
-  // DSF=1.25 is special on internal display. The screen is drawn with DSF=1.25
-  // but it doesn't affect the screen size computation.
-  if (is_internal && device_scale_factor_ == 1.25f)
-    return gfx::ToFlooredSize(size_dip);
   size_dip.Scale(1.0f / device_scale_factor_);
   return gfx::ToFlooredSize(size_dip);
 }
@@ -361,7 +352,7 @@ void ManagedDisplayInfo::Copy(const ManagedDisplayInfo& native_info) {
   is_aspect_preserving_scaling_ = native_info.is_aspect_preserving_scaling_;
   display_modes_ = native_info.display_modes_;
   maximum_cursor_size_ = native_info.maximum_cursor_size_;
-  color_space_ = native_info.color_space_;
+  display_color_spaces_ = native_info.display_color_spaces_;
   bits_per_channel_ = native_info.bits_per_channel_;
   refresh_rate_ = native_info.refresh_rate_;
   is_interlaced_ = native_info.is_interlaced_;
@@ -436,7 +427,7 @@ void ManagedDisplayInfo::SetManagedDisplayModes(
     const ManagedDisplayModeList& display_modes) {
   display_modes_ = display_modes;
   std::sort(display_modes_.begin(), display_modes_.end(),
-            ManagedDisplayModeSorter(Display::IsInternalDisplayId(id_)));
+            ManagedDisplayModeSorter());
 }
 
 gfx::Size ManagedDisplayInfo::GetNativeModeSize() const {

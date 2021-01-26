@@ -39,8 +39,8 @@ std::unique_ptr<GrFragmentProcessor> GrRRectBlurEffect::Make(GrRecordingContext*
         return nullptr;
     }
 
-    sk_sp<GrTextureProxy> mask(
-            find_or_create_rrect_blur_mask(context, rrectToDraw, dimensions, xformedSigma));
+    GrSurfaceProxyView mask =
+            find_or_create_rrect_blur_mask(context, rrectToDraw, dimensions, xformedSigma);
     if (!mask) {
         return nullptr;
     }
@@ -49,7 +49,7 @@ std::unique_ptr<GrFragmentProcessor> GrRRectBlurEffect::Make(GrRecordingContext*
             new GrRRectBlurEffect(xformedSigma, devRRect.getBounds(),
                                   SkRRectPriv::GetSimpleRadii(devRRect).fX, std::move(mask)));
 }
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
@@ -111,8 +111,8 @@ private:
         (void)rect;
         UniformHandle& cornerRadius = cornerRadiusVar;
         (void)cornerRadius;
-        GrSurfaceProxy& ninePatchSamplerProxy = *_outer.textureSampler(0).proxy();
-        GrTexture& ninePatchSampler = *ninePatchSamplerProxy.peekTexture();
+        const GrSurfaceProxyView& ninePatchSamplerView = _outer.textureSampler(0).view();
+        GrTexture& ninePatchSampler = *ninePatchSamplerView.proxy()->peekTexture();
         (void)ninePatchSampler;
         UniformHandle& proxyRect = proxyRectVar;
         (void)proxyRect;

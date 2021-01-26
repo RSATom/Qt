@@ -57,8 +57,7 @@ class CONTENT_EXPORT Navigator : public base::RefCounted<Navigator> {
   // The RenderFrameHostImpl has failed to load the document.
   virtual void DidFailLoadWithError(RenderFrameHostImpl* render_frame_host,
                                     const GURL& url,
-                                    int error_code,
-                                    const base::string16& error_description) {}
+                                    int error_code) {}
 
   // The RenderFrameHostImpl has committed a navigation. The Navigator is
   // responsible for resetting |navigation_request| at the end of this method
@@ -129,13 +128,13 @@ class CONTENT_EXPORT Navigator : public base::RefCounted<Navigator> {
       scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory,
       bool has_user_gesture) {}
 
-  // Called after receiving a BeforeUnloadACK IPC from the renderer. If
-  // |frame_tree_node| has a NavigationRequest waiting for the renderer
+  // Called after BeforeUnloadCompleted callback is invoked from the renderer.
+  // If |frame_tree_node| has a NavigationRequest waiting for the renderer
   // response, then the request is either started or canceled, depending on the
   // value of |proceed|.
-  virtual void OnBeforeUnloadACK(FrameTreeNode* frame_tree_node,
-                                 bool proceed,
-                                 const base::TimeTicks& proceed_time) {}
+  virtual void BeforeUnloadCompleted(FrameTreeNode* frame_tree_node,
+                                     bool proceed,
+                                     const base::TimeTicks& proceed_time) {}
 
   // Used to start a new renderer-initiated navigation, following a
   // BeginNavigation IPC from the renderer.

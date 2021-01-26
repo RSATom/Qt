@@ -19,8 +19,7 @@
 
 #include <Vulkan/VulkanPlatform.h>
 
-namespace vk
-{
+namespace vk {
 
 // Note: Constant array initialization requires a string literal.
 //       constexpr char* or char[] does not work for that purpose.
@@ -75,18 +74,24 @@ enum
 
 enum
 {
-	MAX_POINT_SIZE = 1,		// Large points are not supported. If/when we turn this on, must be >= 64.
+	MAX_POINT_SIZE = 1023,
 };
 
 constexpr int SUBPIXEL_PRECISION_BITS = 4;
 constexpr float SUBPIXEL_PRECISION_FACTOR = static_cast<float>(1 << SUBPIXEL_PRECISION_BITS);
 constexpr int SUBPIXEL_PRECISION_MASK = 0xFFFFFFFF >> (32 - SUBPIXEL_PRECISION_BITS);
 
-}
+}  // namespace vk
 
 #if defined(__linux__) || defined(__ANDROID__)
 #define SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD        1
 #define SWIFTSHADER_EXTERNAL_SEMAPHORE_OPAQUE_FD     1
 #endif
+
+constexpr VkDeviceSize MAX_MEMORY_ALLOCATION_SIZE = 0x40000000ull;  // 0x40000000 = 1 GiB
+
+// Memory offset calculations in 32-bit SIMD elements limit us to addressing at most 4 GiB.
+// Signed arithmetic further restricts it to 2 GiB.
+static_assert(MAX_MEMORY_ALLOCATION_SIZE <= 0x80000000ull, "maxMemoryAllocationSize must not exceed 2 GiB");
 
 #endif // VK_CONFIG_HPP_

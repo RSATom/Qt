@@ -152,7 +152,6 @@ class CONTENT_EXPORT WebContentsViewAura
   RenderWidgetHostViewBase* CreateViewForChildWidget(
       RenderWidgetHost* render_widget_host) override;
   void SetPageTitle(const base::string16& title) override;
-  void RenderViewCreated(RenderViewHost* host) override;
   void RenderViewReady() override;
   void RenderViewHostChanged(RenderViewHost* old_host,
                              RenderViewHost* new_host) override;
@@ -232,6 +231,9 @@ class CONTENT_EXPORT WebContentsViewAura
                            std::unique_ptr<ui::OSExchangeData> data,
                            base::WeakPtr<RenderWidgetHostViewBase> target,
                            base::Optional<gfx::PointF> transformed_pt);
+
+  // Completes a drag exit operation by communicating with the renderer process.
+  void CompleteDragExit();
 
   // Called from PerformDropCallback() to finish processing the drop.
   void FinishOnPerformDropCallback(
@@ -328,8 +330,6 @@ class CONTENT_EXPORT WebContentsViewAura
 
   bool init_rwhv_with_null_parent_for_testing_;
 
-  // Used to ensure that the drag and drop callbacks bound to this
-  // object are canceled when this object is destroyed.
   base::WeakPtrFactory<WebContentsViewAura> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebContentsViewAura);

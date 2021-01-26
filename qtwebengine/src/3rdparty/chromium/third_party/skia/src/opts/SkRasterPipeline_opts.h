@@ -10,7 +10,7 @@
 
 #include "include/core/SkTypes.h"
 #include "src/core/SkUtils.h"  // unaligned_{load,store}
-#include "src/sksl/SkSLByteCode.h"
+#include "src/sksl/SkSLInterpreter.h"
 
 // Every function in this file should be marked static and inline using SI.
 #if defined(__clang__)
@@ -1369,6 +1369,9 @@ STAGE(store_src, float* ptr) {
     sk_unaligned_store(ptr + 2*N, b);
     sk_unaligned_store(ptr + 3*N, a);
 }
+STAGE(store_src_a, float* ptr) {
+    sk_unaligned_store(ptr, a);
+}
 
 // load registers dr,dg,db,da from context (mirrors store_dst)
 STAGE(load_dst, const float* ptr) {
@@ -1618,7 +1621,7 @@ STAGE(clamp_a, Ctx::None) {
 }
 
 STAGE(clamp_gamut, Ctx::None) {
-    // If you're using this stage, a should already be in [0,1].
+    a = min(max(a, 0), 1.0f);
     r = min(max(r, 0), a);
     g = min(max(g, 0), a);
     b = min(max(b, 0), a);
@@ -1768,6 +1771,13 @@ STAGE(lerp_1_float, const float* c) {
     g = lerp(dg, g, *c);
     b = lerp(db, b, *c);
     a = lerp(da, a, *c);
+}
+STAGE(scale_native, const float scales[]) {
+    auto c = sk_unaligned_load<F>(scales);
+    r = r * c;
+    g = g * c;
+    b = b * c;
+    a = a * c;
 }
 STAGE(lerp_native, const float scales[]) {
     auto c = sk_unaligned_load<F>(scales);
@@ -2706,7 +2716,7 @@ STAGE(callback, SkRasterPipeline_CallbackCtx* c) {
     load4(c->read_from,0, &r,&g,&b,&a);
 }
 
-// shader:      void main(float x, float y, inout half4 color)
+// shader:      void main(float2 p, inout half4 color)
 // colorfilter: void main(inout half4 color)
 STAGE(interpreter, SkRasterPipeline_InterpreterCtx* c) {
     // If N is less than the interpreter's VecWidth, then we are doing more work than necessary in
@@ -2716,7 +2726,6 @@ STAGE(interpreter, SkRasterPipeline_InterpreterCtx* c) {
 
     float*  args[]  = { xx, yy, rr, gg, bb, aa };
     float** in_args = args;
-    int     in_count = 6;
 
     if (c->shaderConvention) {
         // our caller must have called seed_shader to set these
@@ -2728,15 +2737,14 @@ STAGE(interpreter, SkRasterPipeline_InterpreterCtx* c) {
         sk_unaligned_store(aa, F(c->paintColor.fA));
     } else {
         in_args += 2;   // skip x,y
-        in_count = 4;
         sk_unaligned_store(rr, r);
         sk_unaligned_store(gg, g);
         sk_unaligned_store(bb, b);
         sk_unaligned_store(aa, a);
     }
 
-    SkAssertResult(c->byteCode->runStriped(c->fn, tail ? tail : N, in_args, in_count,
-                                           nullptr, 0, (const float*)c->inputs, c->ninputs));
+    c->interpreter->setUniforms((float*) c->inputs);
+    SkAssertResult(c->interpreter->runStriped(c->fn, tail ? tail : N, (float**) in_args));
 
     r = sk_unaligned_load<F>(rr);
     g = sk_unaligned_load<F>(gg);
@@ -3820,6 +3828,9 @@ STAGE_PP(store_src, uint16_t* ptr) {
     sk_unaligned_store(ptr + 2*N, b);
     sk_unaligned_store(ptr + 3*N, a);
 }
+STAGE_PP(store_src_a, uint16_t* ptr) {
+    sk_unaligned_store(ptr, a);
+}
 STAGE_PP(load_dst, const uint16_t* ptr) {
     dr = sk_unaligned_load<U16>(ptr + 0*N);
     dg = sk_unaligned_load<U16>(ptr + 1*N);
@@ -3849,6 +3860,14 @@ STAGE_PP(lerp_1_float, const float* f) {
     b = lerp(db, b, c);
     a = lerp(da, a, c);
 }
+STAGE_PP(scale_native, const uint16_t scales[]) {
+    auto c = sk_unaligned_load<U16>(scales);
+    r = div255( r * c );
+    g = div255( g * c );
+    b = div255( b * c );
+    a = div255( a * c );
+}
+
 STAGE_PP(lerp_native, const uint16_t scales[]) {
     auto c = sk_unaligned_load<U16>(scales);
     r = lerp(dr, r, c);

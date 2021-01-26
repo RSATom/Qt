@@ -7,14 +7,15 @@
 #include <utility>
 
 #include "content/browser/cookie_store/cookie_change_subscriptions.pb.h"
+#include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace content {
 
 namespace {
 
-#define STATIC_ASSERT_ENUM(a, b)                            \
-  static_assert(static_cast<int>(a) == static_cast<int>(b), \
-                "mismatching enums: " #a)
+//#define STATIC_ASSERT_ENUM(a, b)                            \
+//  static_assert(static_cast<int>(a) == static_cast<int>(b), \
+//                "mismatching enums: " #a)
 
 STATIC_ASSERT_ENUM(network::mojom::CookieMatchType::EQUALS,
                    proto::CookieMatchType::EQUALS);
@@ -40,9 +41,10 @@ network::mojom::CookieMatchType CookieMatchTypeFromProto(
       return network::mojom::CookieMatchType::EQUALS;
     case proto::CookieMatchType::STARTS_WITH:
       return ::network::mojom::CookieMatchType::STARTS_WITH;
+    default:
+      // The on-disk value was corrupted.
+      return network::mojom::CookieMatchType::EQUALS;
   }
-  NOTREACHED();
-  return network::mojom::CookieMatchType::EQUALS;
 }
 
 }  // namespace
@@ -102,16 +104,13 @@ CookieChangeSubscription::ToMojoVector(
 std::unique_ptr<CookieChangeSubscription> CookieChangeSubscription::Create(
     proto::CookieChangeSubscriptionProto proto,
     int64_t service_worker_registration_id) {
-  if (!proto.has_url())
-    return nullptr;
-  GURL url = GURL(proto.url());
+  GURL url(proto.url());
   if (!url.is_valid())
     return nullptr;
 
-  std::string name = proto.has_name() ? proto.name() : "";
+  std::string name = proto.name();
   ::network::mojom::CookieMatchType match_type =
-      proto.has_match_type() ? CookieMatchTypeFromProto(proto.match_type())
-                             : ::network::mojom::CookieMatchType::EQUALS;
+      CookieMatchTypeFromProto(proto.match_type());
 
   return std::make_unique<CookieChangeSubscription>(
       std::move(url), std::move(name), match_type,
@@ -168,7 +167,7 @@ bool CookieChangeSubscription::ShouldObserveChangeTo(
 
   net::CookieOptions net_options;
   net_options.set_same_site_cookie_context(
-      net::CookieOptions::SameSiteCookieContext::SAME_SITE_STRICT);
+      net::CookieOptions::SameSiteCookieContext::MakeInclusive());
 
   return cookie.IncludeForRequestURL(url_, net_options, access_semantics)
       .IsInclude();

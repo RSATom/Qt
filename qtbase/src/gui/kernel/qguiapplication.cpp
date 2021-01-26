@@ -201,7 +201,7 @@ static bool force_reverse = false;
 
 QGuiApplicationPrivate *QGuiApplicationPrivate::self = nullptr;
 QTouchDevice *QGuiApplicationPrivate::m_fakeTouchDevice = nullptr;
-int QGuiApplicationPrivate::m_fakeMouseSourcePointId = 0;
+int QGuiApplicationPrivate::m_fakeMouseSourcePointId = -1;
 
 #ifndef QT_NO_CLIPBOARD
 QClipboard *QGuiApplicationPrivate::qt_clipboard = nullptr;
@@ -2131,6 +2131,11 @@ void QGuiApplicationPrivate::processMouseEvent(QWindowSystemInterfacePrivate::Mo
     bool mouseMove = false;
     bool mousePress = false;
 
+    if (qIsNaN(e->globalPos.x()) || qIsNaN(e->globalPos.y())) {
+        qWarning("QGuiApplicationPrivate::processMouseEvent: Got NaN in mouse position");
+        return;
+    }
+
     if (e->enhancedMouseEvent()) {
         type = e->buttonType;
         button = e->button;
@@ -3052,32 +3057,32 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
         if (!e->synthetic() && !touchEvent.isAccepted() && qApp->testAttribute(Qt::AA_SynthesizeMouseForUnhandledTouchEvents)) {
             // exclude devices which generate their own mouse events
             if (!(touchEvent.device()->capabilities() & QTouchDevice::MouseEmulation)) {
-
-                if (eventType == QEvent::TouchEnd)
-                    self->synthesizedMousePoints.clear();
-
                 const QList<QTouchEvent::TouchPoint> &touchPoints = touchEvent.touchPoints();
-                if (eventType == QEvent::TouchBegin)
+                QEvent::Type mouseEventType = QEvent::MouseMove;
+                Qt::MouseButton button = Qt::NoButton;
+                Qt::MouseButtons buttons = Qt::LeftButton;
+                if (eventType == QEvent::TouchBegin && m_fakeMouseSourcePointId < 0)
                     m_fakeMouseSourcePointId = touchPoints.first().id();
-
-                const QEvent::Type mouseType = [&]() {
-                    switch (eventType) {
-                    case QEvent::TouchBegin:  return QEvent::MouseButtonPress;
-                    case QEvent::TouchUpdate: return QEvent::MouseMove;
-                    case QEvent::TouchEnd:    return QEvent::MouseButtonRelease;
-                    default: Q_UNREACHABLE();
-                    }
-                }();
-
-                Qt::MouseButton button = mouseType == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton;
-                Qt::MouseButtons buttons = mouseType == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton;
-
-                for (int i = 0; i < touchPoints.count(); ++i) {
-                    const QTouchEvent::TouchPoint &touchPoint = touchPoints.at(i);
+                for (const auto &touchPoint : touchPoints) {
                     if (touchPoint.id() == m_fakeMouseSourcePointId) {
-                        if (eventType != QEvent::TouchEnd)
+                        switch (touchPoint.state()) {
+                        case Qt::TouchPointPressed:
+                            mouseEventType = QEvent::MouseButtonPress;
+                            button = Qt::LeftButton;
+                            break;
+                        case Qt::TouchPointReleased:
+                            mouseEventType = QEvent::MouseButtonRelease;
+                            button = Qt::LeftButton;
+                            buttons = Qt::NoButton;
+                            m_fakeMouseSourcePointId = -1;
+                            break;
+                        default:
+                            break;
+                        }
+                        if (touchPoint.state() != Qt::TouchPointReleased) {
                             self->synthesizedMousePoints.insert(w, SynthesizedMouseData(
                                                                     touchPoint.pos(), touchPoint.screenPos(), w));
+                        }
                         // All touch events that are not accepted by the application will be translated to
                         // left mouse button events instead (see AA_SynthesizeMouseForUnhandledTouchEvents docs).
                         QWindowSystemInterfacePrivate::MouseEvent fake(w, e->timestamp,
@@ -3086,13 +3091,15 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
                                                                        buttons,
                                                                        e->modifiers,
                                                                        button,
-                                                                       mouseType,
+                                                                       mouseEventType,
                                                                        Qt::MouseEventSynthesizedByQt);
                         fake.flags |= QWindowSystemInterfacePrivate::WindowSystemEvent::Synthetic;
                         processMouseEvent(&fake);
                         break;
                     }
                 }
+                if (eventType == QEvent::TouchEnd)
+                    self->synthesizedMousePoints.clear();
             }
         }
     }
@@ -3162,13 +3169,14 @@ void QGuiApplicationPrivate::processScreenGeometryChange(QWindowSystemInterfaceP
     bool availableGeometryChanged = e->availableGeometry != s->d_func()->availableGeometry;
     s->d_func()->availableGeometry = e->availableGeometry;
 
-    if (geometryChanged) {
-        Qt::ScreenOrientation primaryOrientation = s->primaryOrientation();
+    const Qt::ScreenOrientation primaryOrientation = s->primaryOrientation();
+    if (geometryChanged)
         s->d_func()->updatePrimaryOrientation();
 
-        emit s->geometryChanged(s->geometry());
+    s->d_func()->emitGeometryChangeSignals(geometryChanged, availableGeometryChanged);
+
+    if (geometryChanged) {
         emit s->physicalSizeChanged(s->physicalSize());
-        emit s->physicalDotsPerInchChanged(s->physicalDotsPerInch());
         emit s->logicalDotsPerInchChanged(s->logicalDotsPerInch());
 
         if (s->primaryOrientation() != primaryOrientation)
@@ -3177,8 +3185,6 @@ void QGuiApplicationPrivate::processScreenGeometryChange(QWindowSystemInterfaceP
         if (s->d_func()->orientation == Qt::PrimaryOrientation)
             updateFilteredScreenOrientation(s);
     }
-
-    s->d_func()->emitGeometryChangeSignals(geometryChanged, availableGeometryChanged);
 
     resetCachedDevicePixelRatio();
 }

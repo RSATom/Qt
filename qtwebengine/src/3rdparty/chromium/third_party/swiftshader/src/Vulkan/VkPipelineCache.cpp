@@ -15,15 +15,14 @@
 #include "VkPipelineCache.hpp"
 #include <cstring>
 
-namespace vk
-{
+namespace vk {
 
-PipelineCache::SpirvShaderKey::SpecializationInfo::SpecializationInfo(const VkSpecializationInfo* specializationInfo)
+PipelineCache::SpirvShaderKey::SpecializationInfo::SpecializationInfo(const VkSpecializationInfo *specializationInfo)
 {
 	if(specializationInfo)
 	{
-		auto ptr = reinterpret_cast<VkSpecializationInfo*>(
-			allocate(sizeof(VkSpecializationInfo), REQUIRED_MEMORY_ALIGNMENT, DEVICE_MEMORY));
+		auto ptr = reinterpret_cast<VkSpecializationInfo *>(
+		    allocate(sizeof(VkSpecializationInfo), REQUIRED_MEMORY_ALIGNMENT, DEVICE_MEMORY));
 
 		info = std::shared_ptr<VkSpecializationInfo>(ptr, Deleter());
 
@@ -31,8 +30,8 @@ PipelineCache::SpirvShaderKey::SpecializationInfo::SpecializationInfo(const VkSp
 		if(specializationInfo->mapEntryCount > 0)
 		{
 			size_t entriesSize = specializationInfo->mapEntryCount * sizeof(VkSpecializationMapEntry);
-			VkSpecializationMapEntry* mapEntries = reinterpret_cast<VkSpecializationMapEntry*>(
-				allocate(entriesSize, REQUIRED_MEMORY_ALIGNMENT, DEVICE_MEMORY));
+			VkSpecializationMapEntry *mapEntries = reinterpret_cast<VkSpecializationMapEntry *>(
+			    allocate(entriesSize, REQUIRED_MEMORY_ALIGNMENT, DEVICE_MEMORY));
 			memcpy(mapEntries, specializationInfo->pMapEntries, entriesSize);
 			info->pMapEntries = mapEntries;
 		}
@@ -40,7 +39,7 @@ PipelineCache::SpirvShaderKey::SpecializationInfo::SpecializationInfo(const VkSp
 		info->dataSize = specializationInfo->dataSize;
 		if(specializationInfo->dataSize > 0)
 		{
-			void* data = allocate(specializationInfo->dataSize, REQUIRED_MEMORY_ALIGNMENT, DEVICE_MEMORY);
+			void *data = allocate(specializationInfo->dataSize, REQUIRED_MEMORY_ALIGNMENT, DEVICE_MEMORY);
 			memcpy(data, specializationInfo->pData, specializationInfo->dataSize);
 			info->pData = data;
 		}
@@ -51,64 +50,73 @@ PipelineCache::SpirvShaderKey::SpecializationInfo::SpecializationInfo(const VkSp
 	}
 }
 
-void PipelineCache::SpirvShaderKey::SpecializationInfo::Deleter::operator() (VkSpecializationInfo* info) const
+void PipelineCache::SpirvShaderKey::SpecializationInfo::Deleter::operator()(VkSpecializationInfo *info) const
 {
 	if(info)
 	{
-		deallocate(const_cast<VkSpecializationMapEntry*>(info->pMapEntries), DEVICE_MEMORY);
-		deallocate(const_cast<void*>(info->pData), DEVICE_MEMORY);
+		deallocate(const_cast<VkSpecializationMapEntry *>(info->pMapEntries), DEVICE_MEMORY);
+		deallocate(const_cast<void *>(info->pData), DEVICE_MEMORY);
 		deallocate(info, DEVICE_MEMORY);
 	}
 }
 
-bool PipelineCache::SpirvShaderKey::SpecializationInfo::operator<(const SpecializationInfo& specializationInfo) const
+bool PipelineCache::SpirvShaderKey::SpecializationInfo::operator<(const SpecializationInfo &specializationInfo) const
 {
-	if(info && specializationInfo.info)
+	// Check that either both or neither keys have specialization info.
+	if((info.get() == nullptr) != (specializationInfo.info.get() == nullptr))
 	{
-		if(info->mapEntryCount != specializationInfo.info->mapEntryCount)
-		{
-			return info->mapEntryCount < specializationInfo.info->mapEntryCount;
-		}
+		return info.get() == nullptr;
+	}
 
-		if(info->dataSize != specializationInfo.info->dataSize)
-		{
-			return info->dataSize < specializationInfo.info->dataSize;
-		}
+	if(!info)
+	{
+		ASSERT(!specializationInfo.info);
+		return false;
+	}
 
-		if(info->mapEntryCount > 0)
-		{
-			int cmp = memcmp(info->pMapEntries, specializationInfo.info->pMapEntries, info->mapEntryCount * sizeof(VkSpecializationMapEntry));
-			if(cmp != 0)
-			{
-				return cmp < 0;
-			}
-		}
+	if(info->mapEntryCount != specializationInfo.info->mapEntryCount)
+	{
+		return info->mapEntryCount < specializationInfo.info->mapEntryCount;
+	}
 
-		if(info->dataSize > 0)
+	if(info->dataSize != specializationInfo.info->dataSize)
+	{
+		return info->dataSize < specializationInfo.info->dataSize;
+	}
+
+	if(info->mapEntryCount > 0)
+	{
+		int cmp = memcmp(info->pMapEntries, specializationInfo.info->pMapEntries, info->mapEntryCount * sizeof(VkSpecializationMapEntry));
+		if(cmp != 0)
 		{
-			int cmp = memcmp(info->pData, specializationInfo.info->pData, info->dataSize);
-			if(cmp != 0)
-			{
-				return cmp < 0;
-			}
+			return cmp < 0;
 		}
 	}
 
-	return (info < specializationInfo.info);
+	if(info->dataSize > 0)
+	{
+		int cmp = memcmp(info->pData, specializationInfo.info->pData, info->dataSize);
+		if(cmp != 0)
+		{
+			return cmp < 0;
+		}
+	}
+
+	return false;
 }
 
 PipelineCache::SpirvShaderKey::SpirvShaderKey(const VkShaderStageFlagBits pipelineStage,
-	                                          const std::string& entryPointName,
-	                                          const std::vector<uint32_t>& insns,
-	                                          const vk::RenderPass *renderPass,
-	                                          const uint32_t subpassIndex,
-	                                          const VkSpecializationInfo* specializationInfo) :
-	pipelineStage(pipelineStage),
-	entryPointName(entryPointName),
-	insns(insns),
-	renderPass(renderPass),
-	subpassIndex(subpassIndex),
-	specializationInfo(specializationInfo)
+                                              const std::string &entryPointName,
+                                              const std::vector<uint32_t> &insns,
+                                              const vk::RenderPass *renderPass,
+                                              const uint32_t subpassIndex,
+                                              const VkSpecializationInfo *specializationInfo)
+    : pipelineStage(pipelineStage)
+    , entryPointName(entryPointName)
+    , insns(insns)
+    , renderPass(renderPass)
+    , subpassIndex(subpassIndex)
+    , specializationInfo(specializationInfo)
 {
 }
 
@@ -154,10 +162,11 @@ bool PipelineCache::SpirvShaderKey::operator<(const SpirvShaderKey &other) const
 	return (specializationInfo < other.specializationInfo);
 }
 
-PipelineCache::PipelineCache(const VkPipelineCacheCreateInfo* pCreateInfo, void* mem) :
-	dataSize(ComputeRequiredAllocationSize(pCreateInfo)), data(reinterpret_cast<uint8_t*>(mem))
+PipelineCache::PipelineCache(const VkPipelineCacheCreateInfo *pCreateInfo, void *mem)
+    : dataSize(ComputeRequiredAllocationSize(pCreateInfo))
+    , data(reinterpret_cast<uint8_t *>(mem))
 {
-	CacheHeader* header = reinterpret_cast<CacheHeader*>(mem);
+	CacheHeader *header = reinterpret_cast<CacheHeader *>(mem);
 	header->headerLength = sizeof(CacheHeader);
 	header->headerVersion = VK_PIPELINE_CACHE_HEADER_VERSION_ONE;
 	header->vendorID = VENDOR_ID;
@@ -176,17 +185,17 @@ PipelineCache::~PipelineCache()
 	computePrograms.clear();
 }
 
-void PipelineCache::destroy(const VkAllocationCallbacks* pAllocator)
+void PipelineCache::destroy(const VkAllocationCallbacks *pAllocator)
 {
 	vk::deallocate(data, pAllocator);
 }
 
-size_t PipelineCache::ComputeRequiredAllocationSize(const VkPipelineCacheCreateInfo* pCreateInfo)
+size_t PipelineCache::ComputeRequiredAllocationSize(const VkPipelineCacheCreateInfo *pCreateInfo)
 {
 	return pCreateInfo->initialDataSize + sizeof(CacheHeader);
 }
 
-VkResult PipelineCache::getData(size_t* pDataSize, void* pData)
+VkResult PipelineCache::getData(size_t *pDataSize, void *pData)
 {
 	if(!pData)
 	{
@@ -208,11 +217,11 @@ VkResult PipelineCache::getData(size_t* pDataSize, void* pData)
 	return VK_SUCCESS;
 }
 
-VkResult PipelineCache::merge(uint32_t srcCacheCount, const VkPipelineCache* pSrcCaches)
+VkResult PipelineCache::merge(uint32_t srcCacheCount, const VkPipelineCache *pSrcCaches)
 {
 	for(uint32_t i = 0; i < srcCacheCount; i++)
 	{
-		PipelineCache* srcCache = Cast(pSrcCaches[i]);
+		PipelineCache *srcCache = Cast(pSrcCaches[i]);
 
 		{
 			std::unique_lock<std::mutex> lock(spirvShadersMutex);
@@ -228,26 +237,26 @@ VkResult PipelineCache::merge(uint32_t srcCacheCount, const VkPipelineCache* pSr
 	return VK_SUCCESS;
 }
 
-const std::shared_ptr<sw::SpirvShader>* PipelineCache::operator[](const PipelineCache::SpirvShaderKey& key) const
+const std::shared_ptr<sw::SpirvShader> *PipelineCache::operator[](const PipelineCache::SpirvShaderKey &key) const
 {
 	auto it = spirvShaders.find(key);
 	return (it != spirvShaders.end()) ? &(it->second) : nullptr;
 }
 
-void PipelineCache::insert(const PipelineCache::SpirvShaderKey& key, const std::shared_ptr<sw::SpirvShader> &shader)
+void PipelineCache::insert(const PipelineCache::SpirvShaderKey &key, const std::shared_ptr<sw::SpirvShader> &shader)
 {
 	spirvShaders[key] = shader;
 }
 
-const std::shared_ptr<sw::ComputeProgram>* PipelineCache::operator[](const PipelineCache::ComputeProgramKey& key) const
+const std::shared_ptr<sw::ComputeProgram> *PipelineCache::operator[](const PipelineCache::ComputeProgramKey &key) const
 {
 	auto it = computePrograms.find(key);
 	return (it != computePrograms.end()) ? &(it->second) : nullptr;
 }
 
-void PipelineCache::insert(const PipelineCache::ComputeProgramKey& key, const std::shared_ptr<sw::ComputeProgram> &computeProgram)
+void PipelineCache::insert(const PipelineCache::ComputeProgramKey &key, const std::shared_ptr<sw::ComputeProgram> &computeProgram)
 {
 	computePrograms[key] = computeProgram;
 }
 
-} // namespace vk
+}  // namespace vk

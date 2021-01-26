@@ -20,8 +20,9 @@
 #include "perfetto/ext/traced/sys_stats_counters.h"
 #include "perfetto/protozero/proto_decoder.h"
 #include "src/trace_processor/event_tracker.h"
-#include "src/trace_processor/metadata.h"
+#include "src/trace_processor/metadata_tracker.h"
 #include "src/trace_processor/process_tracker.h"
+#include "src/trace_processor/storage/metadata.h"
 #include "src/trace_processor/syscall_tracker.h"
 #include "src/trace_processor/trace_processor_context.h"
 
@@ -229,8 +230,8 @@ void SystemProbesParser::ParseProcessTree(ConstBytes blob) {
     context_->process_tracker->UpdateThread(tid, tgid);
 
     if (thd.has_name()) {
-      StringId threadNameId = context_->storage->InternString(thd.name());
-      context_->process_tracker->UpdateThreadName(tid, threadNameId);
+      StringId thread_name_id = context_->storage->InternString(thd.name());
+      context_->process_tracker->UpdateThreadName(tid, thread_name_id);
     }
   }
 }
@@ -253,7 +254,7 @@ void SystemProbesParser::ParseProcessStats(int64_t ts, ConstBytes blob) {
         continue;
       }
       bool is_counter_field = fld.id() < proc_stats_process_names_.size() &&
-                              proc_stats_process_names_[fld.id()] != 0;
+                              !proc_stats_process_names_[fld.id()].is_null();
       if (is_counter_field) {
         // Memory counters are in KB, keep values in bytes in the trace
         // processor.
@@ -290,10 +291,13 @@ void SystemProbesParser::ParseSystemInfo(ConstBytes blob) {
     protos::pbzero::Utsname::Decoder utsname(utsname_blob.data,
                                              utsname_blob.size);
     base::StringView machine = utsname.machine();
+    SyscallTracker* syscall_tracker = SyscallTracker::GetOrCreate(context_);
     if (machine == "aarch64" || machine == "armv8l") {
-      context_->syscall_tracker->SetArchitecture(kAarch64);
+      syscall_tracker->SetArchitecture(kAarch64);
     } else if (machine == "x86_64") {
-      context_->syscall_tracker->SetArchitecture(kX86_64);
+      syscall_tracker->SetArchitecture(kX86_64);
+    } else if (machine == "i686") {
+      syscall_tracker->SetArchitecture(kX86);
     } else {
       PERFETTO_ELOG("Unknown architecture %s", machine.ToStdString().c_str());
     }
@@ -307,18 +311,18 @@ void SystemProbesParser::ParseSystemInfo(ConstBytes blob) {
     StringPool::Id machine_id =
         context_->storage->InternString(utsname.machine());
 
-    context_->storage->SetMetadata(metadata::system_name,
-                                   Variadic::String(sysname_id));
-    context_->storage->SetMetadata(metadata::system_version,
-                                   Variadic::String(version_id));
-    context_->storage->SetMetadata(metadata::system_release,
-                                   Variadic::String(release_id));
-    context_->storage->SetMetadata(metadata::system_machine,
-                                   Variadic::String(machine_id));
+    MetadataTracker* metadata = context_->metadata_tracker.get();
+    metadata->SetMetadata(metadata::system_name, Variadic::String(sysname_id));
+    metadata->SetMetadata(metadata::system_version,
+                          Variadic::String(version_id));
+    metadata->SetMetadata(metadata::system_release,
+                          Variadic::String(release_id));
+    metadata->SetMetadata(metadata::system_machine,
+                          Variadic::String(machine_id));
   }
 
   if (packet.has_android_build_fingerprint()) {
-    context_->storage->SetMetadata(
+    context_->metadata_tracker->SetMetadata(
         metadata::android_build_fingerprint,
         Variadic::String(context_->storage->InternString(
             packet.android_build_fingerprint())));

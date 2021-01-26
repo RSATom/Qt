@@ -33,12 +33,18 @@
 // FIXME: Some fields are not yet supported due to back-end limitations.
 // See https://bugs.webkit.org/show_bug.cgi?id=58127 for details.
 
+import * as Common from '../common/common.js';
+
+import {Cookie} from './Cookie.js';                  // eslint-disable-line no-unused-vars
+import {PageLoad} from './NetworkLog.js';            // eslint-disable-line no-unused-vars
+import {NetworkRequest} from './NetworkRequest.js';  // eslint-disable-line no-unused-vars
+
 /**
  * @unrestricted
  */
-export default class HARLog {
+export class HARLog {
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!NetworkRequest} request
    * @param {number} monotonicTime
    * @return {!Date}
    */
@@ -47,7 +53,7 @@ export default class HARLog {
   }
 
   /**
-   * @param {!Array.<!SDK.NetworkRequest>} requests
+   * @param {!Array.<!NetworkRequest>} requests
    * @return {!Promise<!Object>}
    */
   static async build(requests) {
@@ -67,7 +73,7 @@ export default class HARLog {
   }
 
   /**
-   * @param {!Array.<!SDK.NetworkRequest>} requests
+   * @param {!Array.<!NetworkRequest>} requests
    * @return {!Array.<!Object>}
    */
   _buildPages(requests) {
@@ -75,7 +81,7 @@ export default class HARLog {
     const pages = [];
     for (let i = 0; i < requests.length; ++i) {
       const request = requests[i];
-      const page = SDK.NetworkLog.PageLoad.forRequest(request);
+      const page = PageLoad.forRequest(request);
       if (!page || seenIdentifiers[page.id]) {
         continue;
       }
@@ -86,8 +92,8 @@ export default class HARLog {
   }
 
   /**
-   * @param {!SDK.NetworkLog.PageLoad} page
-   * @param {!SDK.NetworkRequest} request
+   * @param {!PageLoad} page
+   * @param {!NetworkRequest} request
    * @return {!Object}
    */
   _convertPage(page, request) {
@@ -103,7 +109,7 @@ export default class HARLog {
   }
 
   /**
-   * @param {!SDK.NetworkLog.PageLoad} page
+   * @param {!PageLoad} page
    * @param {number} time
    * @return {number}
    */
@@ -121,7 +127,7 @@ export default class HARLog {
  */
 export class Entry {
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!NetworkRequest} request
    */
   constructor(request) {
     this._request = request;
@@ -136,7 +142,7 @@ export class Entry {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!NetworkRequest} request
    * @return {!Promise<!Object>}
    */
   static async build(request) {
@@ -191,12 +197,12 @@ export class Entry {
       entry.connection = harEntry._request.connectionId;
     }
 
-    const page = SDK.NetworkLog.PageLoad.forRequest(harEntry._request);
+    const page = PageLoad.forRequest(harEntry._request);
     if (page) {
       entry.pageref = 'page_' + page.id;
     }
 
-    if (harEntry._request.resourceType() === Common.resourceTypes.WebSocket) {
+    if (harEntry._request.resourceType() === Common.ResourceType.resourceTypes.WebSocket) {
       const messages = [];
       for (const message of harEntry._request.frames()) {
         messages.push({type: message.type, time: message.time, opcode: message.opCode, data: message.text});
@@ -218,7 +224,7 @@ export class Entry {
       httpVersion: this._request.requestHttpVersion(),
       headers: this._request.requestHeaders(),
       queryString: this._buildParameters(this._request.queryParameters || []),
-      cookies: this._buildCookies(this._request.requestCookies || []),
+      cookies: this._buildCookies(this._request.requestCookies),
       headersSize: headersText ? headersText.length : -1,
       bodySize: await this._requestBodySize()
     };
@@ -240,7 +246,7 @@ export class Entry {
       statusText: this._request.statusText,
       httpVersion: this._request.responseHttpVersion(),
       headers: this._request.responseHeaders,
-      cookies: this._buildCookies(this._request.responseCookies || []),
+      cookies: this._buildCookies(this._request.responseCookies),
       content: this._buildContent(),
       redirectURL: this._request.responseHeaderValue('Location') || '',
       headersSize: headersText ? headersText.length : -1,
@@ -267,7 +273,7 @@ export class Entry {
   }
 
   /**
-   * @return {!SDK.HARLog.Entry.Timing}
+   * @return {!Timing}
    */
   _buildTimings() {
     // Order of events: request_start = 0, [proxy], [dns], [connect [ssl]], [send], duration
@@ -379,7 +385,7 @@ export class Entry {
   }
 
   /**
-   * @param {!Array.<!SDK.Cookie>} cookies
+   * @param {!Array.<!Cookie>} cookies
    * @return {!Array.<!Object>}
    */
   _buildCookies(cookies) {
@@ -387,7 +393,7 @@ export class Entry {
   }
 
   /**
-   * @param {!SDK.Cookie} cookie
+   * @param {!Cookie} cookie
    * @return {!Object}
    */
   _buildCookie(cookie) {
@@ -449,27 +455,15 @@ export class Entry {
   }
 }
 
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.HARLog = HARLog;
-
-/** @constructor */
-SDK.HARLog.Entry = Entry;
-
 /** @typedef {!{
-  blocked: number,
-  dns: number,
-  ssl: number,
-  connect: number,
-  send: number,
-  wait: number,
-  receive: number,
-  _blocked_queueing: number,
-  _blocked_proxy: (number|undefined)
+ blocked: number,
+ dns: number,
+ ssl: number,
+ connect: number,
+ send: number,
+ wait: number,
+ receive: number,
+ _blocked_queueing: number,
+ _blocked_proxy: (number|undefined)
 }} */
-SDK.HARLog.Entry.Timing;
+export let Timing;

@@ -6,6 +6,7 @@
 
 #include <map>
 #include <memory>
+#include <utility>
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
@@ -40,6 +41,7 @@ class DialogClientViewTest : public test::WidgetTest,
     WidgetTest::SetUp();
 
     DialogDelegate::set_use_custom_frame(false);
+    DialogDelegate::SetButtons(ui::DIALOG_BUTTON_NONE);
 
     // Note: not using DialogDelegate::CreateDialogWidget(..), since that can
     // alter the frame type according to the platform.
@@ -64,13 +66,6 @@ class DialogClientViewTest : public test::WidgetTest,
     // DialogDelegateView would delete this, but |this| is owned by the test.
   }
 
-  int GetDialogButtons() const override { return dialog_buttons_; }
-  base::string16 GetDialogButtonLabel(ui::DialogButton button) const override {
-    return button == ui::DIALOG_BUTTON_CANCEL && !cancel_label_.empty()
-               ? cancel_label_
-               : DialogDelegate::GetDialogButtonLabel(button);
-  }
-
  protected:
   gfx::Rect GetUpdatedClientBounds() {
     client_view()->SizeToPreferredSize();
@@ -91,7 +86,7 @@ class DialogClientViewTest : public test::WidgetTest,
 
   // Sets the buttons to show in the dialog and refreshes the dialog.
   void SetDialogButtons(int dialog_buttons) {
-    dialog_buttons_ = dialog_buttons;
+    DialogDelegate::SetButtons(dialog_buttons);
     DialogModelChanged();
   }
 
@@ -124,7 +119,9 @@ class DialogClientViewTest : public test::WidgetTest,
   // exceeded. The resulting width is around 160 pixels, but depends on system
   // fonts.
   void SetLongCancelLabel() {
-    cancel_label_ = base::ASCIIToUTF16("Cancel Cancel Cancel");
+    DialogDelegate::SetButtonLabel(
+        ui::DIALOG_BUTTON_CANCEL, base::ASCIIToUTF16("Cancel Cancel Cancel"));
+    DialogModelChanged();
   }
 
   DialogClientView* client_view() {
@@ -137,14 +134,9 @@ class DialogClientViewTest : public test::WidgetTest,
   // The dialog Widget.
   Widget* widget_ = nullptr;
 
-  // The bitmask of buttons to show in the dialog.
-  int dialog_buttons_ = ui::DIALOG_BUTTON_NONE;
-
   gfx::Size preferred_size_;
   gfx::Size min_size_;
   gfx::Size max_size_;
-
-  base::string16 cancel_label_;  // If set, the label for the Cancel button.
 
   DISALLOW_COPY_AND_ASSIGN(DialogClientViewTest);
 };
@@ -199,11 +191,7 @@ TEST_F(DialogClientViewTest, RemoveAndUpdateButtons) {
 
 // Test that views inside the dialog client view have the correct focus order.
 TEST_F(DialogClientViewTest, SetupFocusChain) {
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
-  const bool kIsOkButtonOnLeftSide = true;
-#else
-  const bool kIsOkButtonOnLeftSide = false;
-#endif
+  const bool kIsOkButtonOnLeftSide = PlatformStyle::kIsOkButtonLeading;
 
   GetContentsView()->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   // Initially the dialog client view only contains the content view.
@@ -348,7 +336,7 @@ TEST_F(DialogClientViewTest, LinkedWidthDoesLink) {
 
   // Ensure there is no default button since getting a bold font can throw off
   // the cached sizes.
-  set_default_button(ui::DIALOG_BUTTON_NONE);
+  SetDefaultButton(ui::DIALOG_BUTTON_NONE);
 
   SetDialogButtons(ui::DIALOG_BUTTON_OK);
   CheckContentsIsSetToPreferredSize();
@@ -395,7 +383,7 @@ TEST_F(DialogClientViewTest, LinkedWidthDoesntLink) {
 
   // Ensure there is no default button since getting a bold font can throw off
   // the cached sizes.
-  set_default_button(ui::DIALOG_BUTTON_NONE);
+  SetDefaultButton(ui::DIALOG_BUTTON_NONE);
 
   SetDialogButtons(ui::DIALOG_BUTTON_OK);
   CheckContentsIsSetToPreferredSize();

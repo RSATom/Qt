@@ -148,9 +148,6 @@ StateManagerGL::StateManagerGL(const FunctionsGL *functions,
       mMultisamplingEnabled(true),
       mSampleAlphaToOneEnabled(false),
       mCoverageModulation(GL_NONE),
-      mPathStencilFunc(GL_ALWAYS),
-      mPathStencilRef(0),
-      mPathStencilMask(std::numeric_limits<GLuint>::max()),
       mIsMultiviewEnabled(extensions.multiview || extensions.multiview2),
       mProvokingVertex(GL_LAST_VERTEX_CONVENTION),
       mLocalDirtyBits()
@@ -182,9 +179,6 @@ StateManagerGL::StateManagerGL(const FunctionsGL *functions,
             mFunctions->enable(GL_POINT_SPRITE);
         }
     }
-
-    angle::Matrix<GLfloat>::setToIdentity(mPathMatrixProj);
-    angle::Matrix<GLfloat>::setToIdentity(mPathMatrixMV);
 }
 
 StateManagerGL::~StateManagerGL() {}
@@ -387,9 +381,9 @@ void StateManagerGL::bindBufferBase(gl::BufferBinding target, size_t index, GLui
     if (binding.buffer != buffer || binding.offset != static_cast<size_t>(-1) ||
         binding.size != static_cast<size_t>(-1))
     {
-        binding.buffer = buffer;
-        binding.offset = static_cast<size_t>(-1);
-        binding.size   = static_cast<size_t>(-1);
+        binding.buffer   = buffer;
+        binding.offset   = static_cast<size_t>(-1);
+        binding.size     = static_cast<size_t>(-1);
         mBuffers[target] = buffer;
         mFunctions->bindBufferBase(gl::ToGLenum(target), static_cast<GLuint>(index), buffer);
     }
@@ -407,9 +401,9 @@ void StateManagerGL::bindBufferRange(gl::BufferBinding target,
     auto &binding = mIndexedBuffers[target][index];
     if (binding.buffer != buffer || binding.offset != offset || binding.size != size)
     {
-        binding.buffer = buffer;
-        binding.offset = offset;
-        binding.size   = size;
+        binding.buffer   = buffer;
+        binding.offset   = offset;
+        binding.size     = size;
         mBuffers[target] = buffer;
         mFunctions->bindBufferRange(gl::ToGLenum(target), static_cast<GLuint>(index), buffer,
                                     offset, size);
@@ -427,10 +421,11 @@ void StateManagerGL::activeTexture(size_t unit)
 
 void StateManagerGL::bindTexture(gl::TextureType type, GLuint texture)
 {
-    if (mTextures[type][mTextureUnitIndex] != texture)
+    gl::TextureType nativeType = nativegl::GetNativeTextureType(type);
+    if (mTextures[nativeType][mTextureUnitIndex] != texture)
     {
-        mTextures[type][mTextureUnitIndex] = texture;
-        mFunctions->bindTexture(ToGLenum(type), texture);
+        mTextures[nativeType][mTextureUnitIndex] = texture;
+        mFunctions->bindTexture(nativegl::GetTextureBindingTarget(type), texture);
         mLocalDirtyBits.set(gl::State::DIRTY_BIT_TEXTURE_BINDINGS);
     }
 }
@@ -819,16 +814,16 @@ angle::Result StateManagerGL::onMakeCurrent(const gl::Context *context)
 
 void StateManagerGL::updateProgramTextureBindings(const gl::Context *context)
 {
-    const gl::State &glState   = context->getState();
-    const gl::Program *program = glState.getProgram();
+    const gl::State &glState                = context->getState();
+    const gl::ProgramExecutable *executable = glState.getProgramExecutable();
 
     // It is possible there is no active program during a path operation.
-    if (!program)
+    if (!executable)
         return;
 
-    const gl::ActiveTexturePointerArray &textures  = glState.getActiveTexturesCache();
-    const gl::ActiveTextureMask &activeTextures    = program->getActiveSamplersMask();
-    const gl::ActiveTextureTypeArray &textureTypes = program->getActiveSamplerTypes();
+    const gl::ActiveTexturesCache &textures        = glState.getActiveTexturesCache();
+    const gl::ActiveTextureMask &activeTextures    = executable->getActiveSamplersMask();
+    const gl::ActiveTextureTypeArray &textureTypes = executable->getActiveSamplerTypes();
 
     for (size_t textureUnitIndex : activeTextures)
     {
@@ -857,10 +852,6 @@ void StateManagerGL::updateProgramStorageBufferBindings(const gl::Context *conte
 {
     const gl::State &glState   = context->getState();
     const gl::Program *program = glState.getProgram();
-
-    // It is possible there is no active program during a path operation.
-    if (!program)
-        return;
 
     for (size_t blockIndex = 0; blockIndex < program->getActiveShaderStorageBlockCount();
          blockIndex++)
@@ -891,10 +882,6 @@ void StateManagerGL::updateProgramUniformBufferBindings(const gl::Context *conte
     const gl::State &glState   = context->getState();
     const gl::Program *program = glState.getProgram();
 
-    // It is possible there is no active program during a path operation.
-    if (!program)
-        return;
-
     for (size_t uniformBlockIndex = 0; uniformBlockIndex < program->getActiveUniformBlockCount();
          uniformBlockIndex++)
     {
@@ -923,10 +910,6 @@ void StateManagerGL::updateProgramAtomicCounterBufferBindings(const gl::Context 
     const gl::State &glState   = context->getState();
     const gl::Program *program = glState.getProgram();
 
-    // It is possible there is no active program during a path operation.
-    if (!program)
-        return;
-
     for (const auto &atomicCounterBuffer : program->getState().getAtomicCounterBuffers())
     {
         GLuint binding     = atomicCounterBuffer.binding;
@@ -951,15 +934,16 @@ void StateManagerGL::updateProgramAtomicCounterBufferBindings(const gl::Context 
 
 void StateManagerGL::updateProgramImageBindings(const gl::Context *context)
 {
-    const gl::State &glState   = context->getState();
-    const gl::Program *program = glState.getProgram();
+    const gl::State &glState                = context->getState();
+    const gl::ProgramExecutable *executable = glState.getProgramExecutable();
+    const gl::Program *program              = glState.getProgram();
 
     // It is possible there is no active program during a path operation.
-    if (!program)
+    if (!executable || !program)
         return;
 
-    ASSERT(context->getClientVersion() >= gl::ES_3_1 || program->getImageBindings().size() == 0);
-    for (size_t imageUnitIndex : program->getActiveImagesMask())
+    ASSERT(context->getClientVersion() >= gl::ES_3_1 || program->getImageBindings().empty());
+    for (size_t imageUnitIndex : executable->getActiveImagesMask())
     {
         const gl::ImageUnit &imageUnit = glState.getImageUnit(imageUnitIndex);
         const TextureGL *textureGL     = SafeGetImplAs<TextureGL>(imageUnit.texture.get());
@@ -1780,12 +1764,14 @@ void StateManagerGL::syncState(const gl::Context *context,
             }
             case gl::State::DIRTY_BIT_PROGRAM_EXECUTABLE:
             {
-                const gl::Program *program = state.getProgram();
-                if (program)
+                const gl::Program *program              = state.getProgram();
+                const gl::ProgramExecutable *executable = state.getProgramExecutable();
+
+                if (program && executable)
                 {
                     iter.setLaterBit(gl::State::DIRTY_BIT_TEXTURE_BINDINGS);
 
-                    if (program->getActiveImagesMask().any())
+                    if (executable->getActiveImagesMask().any())
                     {
                         iter.setLaterBit(gl::State::DIRTY_BIT_IMAGE_BINDINGS);
                     }
@@ -1812,7 +1798,8 @@ void StateManagerGL::syncState(const gl::Context *context,
                     }
                 }
 
-                if (!program || !program->hasLinkedShaderStage(gl::ShaderType::Compute))
+                if (!program ||
+                    !program->getExecutable().hasLinkedShaderStage(gl::ShaderType::Compute))
                 {
                     propagateProgramToVAO(program,
                                           GetImplAs<VertexArrayGL>(state.getVertexArray()));
@@ -1848,14 +1835,6 @@ void StateManagerGL::syncState(const gl::Context *context,
                 break;
             case gl::State::DIRTY_BIT_COVERAGE_MODULATION:
                 setCoverageModulation(state.getCoverageModulation());
-                break;
-            case gl::State::DIRTY_BIT_PATH_RENDERING:
-                setPathRenderingModelViewMatrix(
-                    state.getPathRenderingMatrix(GL_PATH_MODELVIEW_MATRIX_CHROMIUM));
-                setPathRenderingProjectionMatrix(
-                    state.getPathRenderingMatrix(GL_PATH_PROJECTION_MATRIX_CHROMIUM));
-                setPathRenderingStencilState(state.getPathStencilFunc(), state.getPathStencilRef(),
-                                             state.getPathStencilMask());
                 break;
             case gl::State::DIRTY_BIT_FRAMEBUFFER_SRGB:
                 setFramebufferSRGBEnabledForFramebuffer(
@@ -2015,41 +1994,6 @@ void StateManagerGL::setCoverageModulation(GLenum components)
     }
 }
 
-void StateManagerGL::setPathRenderingModelViewMatrix(const GLfloat *m)
-{
-    if (memcmp(mPathMatrixMV, m, sizeof(mPathMatrixMV)) != 0)
-    {
-        memcpy(mPathMatrixMV, m, sizeof(mPathMatrixMV));
-        mFunctions->matrixLoadfEXT(GL_PATH_MODELVIEW_CHROMIUM, m);
-
-        mLocalDirtyBits.set(gl::State::DIRTY_BIT_PATH_RENDERING);
-    }
-}
-
-void StateManagerGL::setPathRenderingProjectionMatrix(const GLfloat *m)
-{
-    if (memcmp(mPathMatrixProj, m, sizeof(mPathMatrixProj)) != 0)
-    {
-        memcpy(mPathMatrixProj, m, sizeof(mPathMatrixProj));
-        mFunctions->matrixLoadfEXT(GL_PATH_PROJECTION_CHROMIUM, m);
-
-        mLocalDirtyBits.set(gl::State::DIRTY_BIT_PATH_RENDERING);
-    }
-}
-
-void StateManagerGL::setPathRenderingStencilState(GLenum func, GLint ref, GLuint mask)
-{
-    if (func != mPathStencilFunc || ref != mPathStencilRef || mask != mPathStencilMask)
-    {
-        mPathStencilFunc = func;
-        mPathStencilRef  = ref;
-        mPathStencilMask = mask;
-        mFunctions->pathStencilFuncNV(func, ref, mask);
-
-        mLocalDirtyBits.set(gl::State::DIRTY_BIT_PATH_RENDERING);
-    }
-}
-
 void StateManagerGL::setProvokingVertex(GLenum mode)
 {
     if (mode != mProvokingVertex)
@@ -2104,7 +2048,8 @@ void StateManagerGL::propagateProgramToVAO(const gl::Program *program, VertexArr
     // Attribute enabled mask:
     if (program)
     {
-        vao->applyActiveAttribLocationsMask(program->getActiveAttribLocationsMask());
+        vao->applyActiveAttribLocationsMask(
+            program->getExecutable().getActiveAttribLocationsMask());
     }
 }
 
@@ -2122,7 +2067,7 @@ void StateManagerGL::updateMultiviewBaseViewLayerIndexUniformImpl(
 
 void StateManagerGL::syncSamplersState(const gl::Context *context)
 {
-    const gl::State::SamplerBindingVector &samplers = context->getState().getSamplers();
+    const gl::SamplerBindingVector &samplers = context->getState().getSamplers();
 
     // This could be optimized by using a separate binding dirty bit per sampler.
     for (size_t samplerIndex = 0; samplerIndex < samplers.size(); ++samplerIndex)

@@ -10,6 +10,7 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
@@ -21,6 +22,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/blink/public/common/page/page_zoom.h"
+#include "third_party/blink/public/mojom/input/focus_type.mojom.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_coalesced_input_event.h"
 #include "third_party/blink/public/platform/web_url.h"
@@ -33,7 +35,6 @@
 #include "third_party/blink/public/web/web_plugin_container.h"
 #include "third_party/blink/public/web/web_view.h"
 
-using blink::WebCursorInfo;
 using blink::WebDragData;
 using blink::WebDragOperationsMask;
 using blink::WebFrameWidget;
@@ -93,7 +94,7 @@ void WebViewPlugin::ReplayReceivedData(WebPlugin* plugin) {
   }
   // We need to transfer the |focused_| to new plugin after it loaded.
   if (focused_)
-    plugin->UpdateFocus(true, blink::kWebFocusTypeNone);
+    plugin->UpdateFocus(true, blink::mojom::FocusType::kNone);
   if (finished_loading_)
     plugin->DidFinishLoading();
   if (error_)
@@ -149,7 +150,7 @@ v8::Local<v8::Object> WebViewPlugin::V8ScriptableObject(v8::Isolate* isolate) {
 }
 
 void WebViewPlugin::UpdateAllLifecyclePhases(
-    blink::WebWidget::LifecycleUpdateReason reason) {
+    blink::DocumentUpdateReason reason) {
   DCHECK(web_view()->MainFrameWidget());
   web_view()->MainFrameWidget()->UpdateAllLifecyclePhases(reason);
 }
@@ -201,13 +202,14 @@ void WebViewPlugin::UpdateGeometry(const WebRect& window_rect,
                                 unobscured_rect));
 }
 
-void WebViewPlugin::UpdateFocus(bool focused, blink::WebFocusType focus_type) {
+void WebViewPlugin::UpdateFocus(bool focused,
+                                blink::mojom::FocusType focus_type) {
   focused_ = focused;
 }
 
 blink::WebInputEventResult WebViewPlugin::HandleInputEvent(
     const blink::WebCoalescedInputEvent& coalesced_event,
-    WebCursorInfo& cursor) {
+    ui::Cursor* cursor) {
   const blink::WebInputEvent& event = coalesced_event.Event();
   // For tap events, don't handle them. They will be converted to
   // mouse events later and passed to here.
@@ -227,12 +229,12 @@ blink::WebInputEventResult WebViewPlugin::HandleInputEvent(
     }
     return blink::WebInputEventResult::kHandledSuppressed;
   }
-  current_cursor_ = cursor;
+  current_cursor_ = *cursor;
   DCHECK(web_view()->MainFrameWidget());
   blink::WebInputEventResult handled =
       web_view()->MainFrameWidget()->HandleInputEvent(
           blink::WebCoalescedInputEvent(event));
-  cursor = current_cursor_;
+  *cursor = current_cursor_;
 
   return handled;
 }
@@ -262,14 +264,24 @@ WebViewPlugin::WebViewHelper::WebViewHelper(WebViewPlugin* plugin,
   web_view_ = WebView::Create(/*client=*/this,
                               /*is_hidden=*/false,
                               /*compositing_enabled=*/false,
-                              /*opener=*/nullptr);
+                              /*opener=*/nullptr,
+                              mojo::ScopedInterfaceEndpointHandle());
   // ApplyWebPreferences before making a WebLocalFrame so that the frame sees a
   // consistent view of our preferences.
   content::RenderView::ApplyWebPreferences(preferences, web_view_);
   WebLocalFrame* web_frame =
       WebLocalFrame::CreateMainFrame(web_view_, this, nullptr, nullptr);
   // The created WebFrameWidget is owned by the |web_frame|.
-  WebFrameWidget::CreateForMainFrame(this, web_frame);
+  WebFrameWidget::CreateForMainFrame(
+      this, web_frame,
+      blink::CrossVariantMojoAssociatedRemote<
+          blink::mojom::FrameWidgetHostInterfaceBase>(),
+      blink::CrossVariantMojoAssociatedReceiver<
+          blink::mojom::FrameWidgetInterfaceBase>(),
+      blink::CrossVariantMojoAssociatedRemote<
+          blink::mojom::WidgetHostInterfaceBase>(),
+      blink::CrossVariantMojoAssociatedReceiver<
+          blink::mojom::WidgetInterfaceBase>());
 
   // The WebFrame created here was already attached to the Page as its
   // main frame, and the WebFrameWidget has been initialized, so we can call
@@ -301,7 +313,7 @@ blink::WebScreenInfo WebViewPlugin::WebViewHelper::GetScreenInfo() {
 
 void WebViewPlugin::WebViewHelper::SetToolTipText(
     const WebString& text,
-    blink::WebTextDirection hint) {
+    base::i18n::TextDirection hint) {
   if (plugin_->container_)
     plugin_->container_->GetElement().SetAttribute("title", text);
 }
@@ -320,8 +332,7 @@ void WebViewPlugin::WebViewHelper::DidInvalidateRect(const WebRect& rect) {
     plugin_->container_->InvalidateRect(rect);
 }
 
-void WebViewPlugin::WebViewHelper::DidChangeCursor(
-    const WebCursorInfo& cursor) {
+void WebViewPlugin::WebViewHelper::DidChangeCursor(const ui::Cursor& cursor) {
   plugin_->current_cursor_ = cursor;
 }
 
@@ -390,8 +401,7 @@ void WebViewPlugin::OnZoomLevelChanged() {
 void WebViewPlugin::LoadHTML(const std::string& html_data, const GURL& url) {
   web_view_helper_.main_frame()->CommitNavigation(
       blink::WebNavigationParams::CreateWithHTMLString(html_data, url),
-      nullptr /* extra_data */,
-      base::DoNothing::Once() /* call_before_attaching_new_document */);
+      nullptr /* extra_data */);
 }
 
 void WebViewPlugin::UpdatePluginForNewGeometry(
@@ -408,7 +418,7 @@ void WebViewPlugin::UpdatePluginForNewGeometry(
   // Run the lifecycle now so that it is clean.
   DCHECK(web_view()->MainFrameWidget());
   web_view()->MainFrameWidget()->UpdateAllLifecyclePhases(
-      blink::WebWidget::LifecycleUpdateReason::kOther);
+      blink::DocumentUpdateReason::kPlugin);
 }
 
 scoped_refptr<base::SingleThreadTaskRunner> WebViewPlugin::GetTaskRunner() {

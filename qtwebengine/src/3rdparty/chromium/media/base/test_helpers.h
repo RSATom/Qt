@@ -19,6 +19,7 @@
 #include "media/base/media_log.h"
 #include "media/base/pipeline_status.h"
 #include "media/base/sample_format.h"
+#include "media/base/status.h"
 #include "media/base/video_decoder_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/gfx/geometry/size.h"
@@ -36,9 +37,9 @@ class DecoderBuffer;
 class MockDemuxerStream;
 
 // Return a callback that expects to be run once.
-base::Closure NewExpectedClosure();
-base::Callback<void(bool)> NewExpectedBoolCB(bool success);
-PipelineStatusCB NewExpectedStatusCB(PipelineStatus status);
+base::OnceClosure NewExpectedClosure();
+base::OnceCallback<void(bool)> NewExpectedBoolCB(bool success);
+PipelineStatusCallback NewExpectedStatusCB(PipelineStatus status);
 
 // Helper class for running a message loop until a callback has run. Useful for
 // testing classes that run on more than a single thread.
@@ -51,8 +52,8 @@ class WaitableMessageLoopEvent {
   ~WaitableMessageLoopEvent();
 
   // Returns a thread-safe closure that will signal |this| when executed.
-  base::Closure GetClosure();
-  PipelineStatusCB GetPipelineStatusCB();
+  base::OnceClosure GetClosure();
+  PipelineStatusCallback GetPipelineStatusCB();
 
   // Runs the current message loop until |this| has been signaled.
   //
@@ -198,6 +199,20 @@ bool VerifyFakeVideoBufferForTest(const DecoderBuffer& buffer,
 // Create a MockDemuxerStream for testing purposes.
 std::unique_ptr<::testing::StrictMock<MockDemuxerStream>>
 CreateMockDemuxerStream(DemuxerStream::Type type, bool encrypted);
+
+// Compares two media::Status by StatusCode only.
+MATCHER_P(SameStatusCode, status, "") {
+  return arg.code() == status.code();
+}
+
+// Compares two an |arg| Status to a StatusCode provided
+MATCHER_P(HasStatusCode, status_code, "") {
+  return arg.code() == status_code;
+}
+
+MATCHER(IsOkStatus, "") {
+  return arg.is_ok();
+}
 
 // Compares two {Audio|Video}DecoderConfigs
 MATCHER_P(DecoderConfigEq, config, "") {

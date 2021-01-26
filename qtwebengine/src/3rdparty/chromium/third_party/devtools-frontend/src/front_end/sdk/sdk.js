@@ -4,9 +4,7 @@
 
 import './SDKModel.js';
 import './CSSMetadata.js';
-import '../SupportedCSSProperties.js';
-import './Target.js';
-import './TargetManager.js';
+import '../generated/SupportedCSSProperties.js';
 import './ProfileTreeModel.js';
 import './NetworkRequest.js';
 import './NetworkManager.js';
@@ -17,6 +15,7 @@ import * as ChildTargetManager from './ChildTargetManager.js';
 import * as CompilerSourceMappingContentProvider from './CompilerSourceMappingContentProvider.js';
 import * as Connections from './Connections.js';
 import * as ConsoleModel from './ConsoleModel.js';
+import * as Cookie from './Cookie.js';
 import * as CookieModel from './CookieModel.js';
 import * as CookieParser from './CookieParser.js';
 import * as CPUProfileDataModel from './CPUProfileDataModel.js';
@@ -37,6 +36,7 @@ import * as FilmStripModel from './FilmStripModel.js';
 import * as HARLog from './HARLog.js';
 import * as HeapProfilerModel from './HeapProfilerModel.js';
 import * as IsolateManager from './IsolateManager.js';
+import * as Issue from './Issue.js';
 import * as IssuesModel from './IssuesModel.js';
 import * as LayerTreeBase from './LayerTreeBase.js';
 import * as LogModel from './LogModel.js';
@@ -47,20 +47,20 @@ import * as OverlayModel from './OverlayModel.js';
 import * as PaintProfiler from './PaintProfiler.js';
 import * as PerformanceMetricsModel from './PerformanceMetricsModel.js';
 import * as ProfileTreeModel from './ProfileTreeModel.js';
+import * as RelatedIssue from './RelatedIssue.js';
 import * as RemoteObject from './RemoteObject.js';
 import * as Resource from './Resource.js';
 import * as ResourceTreeModel from './ResourceTreeModel.js';
 import * as RuntimeModel from './RuntimeModel.js';
 import * as ScreenCaptureModel from './ScreenCaptureModel.js';
 import * as Script from './Script.js';
+import * as SDKModel from './SDKModel.js';
 import * as SecurityOriginManager from './SecurityOriginManager.js';
 import * as ServerTiming from './ServerTiming.js';
 import * as ServiceWorkerCacheModel from './ServiceWorkerCacheModel.js';
 import * as ServiceWorkerManager from './ServiceWorkerManager.js';
 import * as SourceMap from './SourceMap.js';
 import * as SourceMapManager from './SourceMapManager.js';
-import * as Target from './Target.js';
-import * as TargetManager from './TargetManager.js';
 import * as TracingManager from './TracingManager.js';
 import * as TracingModel from './TracingModel.js';
 
@@ -69,6 +69,7 @@ export {
   CompilerSourceMappingContentProvider,
   Connections,
   ConsoleModel,
+  Cookie,
   CookieModel,
   CookieParser,
   CPUProfileDataModel,
@@ -89,6 +90,7 @@ export {
   HARLog,
   HeapProfilerModel,
   IsolateManager,
+  Issue,
   IssuesModel,
   LayerTreeBase,
   LogModel,
@@ -99,20 +101,20 @@ export {
   PaintProfiler,
   PerformanceMetricsModel,
   ProfileTreeModel,
+  RelatedIssue,
   RemoteObject,
   Resource,
   ResourceTreeModel,
   RuntimeModel,
   ScreenCaptureModel,
   Script,
+  SDKModel,
   SecurityOriginManager,
   ServerTiming,
   ServiceWorkerCacheModel,
   ServiceWorkerManager,
   SourceMap,
   SourceMapManager,
-  Target,
-  TargetManager,
   TracingManager,
   TracingModel,
 };

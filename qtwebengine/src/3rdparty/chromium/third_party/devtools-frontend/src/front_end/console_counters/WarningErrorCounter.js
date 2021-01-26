@@ -2,28 +2,33 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../common/common.js';
+import * as SDK from '../sdk/sdk.js';
+import * as UI from '../ui/ui.js';
+
 /**
- * @implements {UI.ToolbarItem.Provider}
+ * @implements {UI.Toolbar.Provider}
  * @unrestricted
  */
-export default class WarningErrorCounter {
+export class WarningErrorCounter {
   constructor() {
     WarningErrorCounter._instanceForTest = this;
 
     const countersWrapper = createElement('div');
-    this._toolbarItem = new UI.ToolbarItem(countersWrapper);
+    this._toolbarItem = new UI.Toolbar.ToolbarItem(countersWrapper);
 
     this._counter = createElement('div');
-    this._counter.addEventListener('click', Common.console.show.bind(Common.console), false);
-    const shadowRoot = UI.createShadowRootWithCoreStyles(this._counter, 'console_counters/errorWarningCounter.css');
+    this._counter.addEventListener('click', Common.Console.Console.instance().show.bind(Common.Console.Console.instance()), false);
+    const shadowRoot =
+        UI.Utils.createShadowRootWithCoreStyles(this._counter, 'console_counters/errorWarningCounter.css');
     countersWrapper.appendChild(this._counter);
 
     this._violationCounter = createElement('div');
     this._violationCounter.addEventListener('click', () => {
-      UI.viewManager.showView('audits');
+      UI.ViewManager.ViewManager.instance().showView('lighthouse');
     });
     const violationShadowRoot =
-        UI.createShadowRootWithCoreStyles(this._violationCounter, 'console_counters/errorWarningCounter.css');
+        UI.Utils.createShadowRootWithCoreStyles(this._violationCounter, 'console_counters/errorWarningCounter.css');
     if (Root.Runtime.experiments.isEnabled('spotlight')) {
       countersWrapper.appendChild(this._violationCounter);
     }
@@ -38,11 +43,13 @@ export default class WarningErrorCounter {
     this._errorCount = -1;
     this._warningCount = -1;
     this._violationCount = -1;
-    this._throttler = new Common.Throttler(100);
+    this._throttler = new Common.Throttler.Throttler(100);
 
-    SDK.consoleModel.addEventListener(SDK.ConsoleModel.Events.ConsoleCleared, this._update, this);
-    SDK.consoleModel.addEventListener(SDK.ConsoleModel.Events.MessageAdded, this._update, this);
-    SDK.consoleModel.addEventListener(SDK.ConsoleModel.Events.MessageUpdated, this._update, this);
+    SDK.ConsoleModel.ConsoleModel.instance().addEventListener(
+        SDK.ConsoleModel.Events.ConsoleCleared, this._update, this);
+    SDK.ConsoleModel.ConsoleModel.instance().addEventListener(SDK.ConsoleModel.Events.MessageAdded, this._update, this);
+    SDK.ConsoleModel.ConsoleModel.instance().addEventListener(
+        SDK.ConsoleModel.Events.MessageUpdated, this._update, this);
     this._update();
   }
 
@@ -85,9 +92,9 @@ export default class WarningErrorCounter {
    * @return {!Promise}
    */
   _updateThrottled() {
-    const errors = SDK.consoleModel.errors();
-    const warnings = SDK.consoleModel.warnings();
-    const violations = SDK.consoleModel.violations();
+    const errors = SDK.ConsoleModel.ConsoleModel.instance().errors();
+    const warnings = SDK.ConsoleModel.ConsoleModel.instance().warnings();
+    const violations = SDK.ConsoleModel.ConsoleModel.instance().violations();
     if (errors === this._errorCount && warnings === this._warningCount && violations === this._violationCount) {
       return Promise.resolve();
     }
@@ -137,7 +144,7 @@ export default class WarningErrorCounter {
 
     this._counter.title = this._titles;
     UI.ARIAUtils.setAccessibleName(this._counter, this._titles);
-    UI.inspectorView.toolbarItemResized();
+    self.UI.inspectorView.toolbarItemResized();
     this._updatingForTest = false;
     this._updatedForTest();
     return Promise.resolve();
@@ -145,18 +152,9 @@ export default class WarningErrorCounter {
 
   /**
    * @override
-   * @return {?UI.ToolbarItem}
+   * @return {?UI.Toolbar.ToolbarItem}
    */
   item() {
     return this._toolbarItem;
   }
 }
-
-/* Legacy exported object */
-self.ConsoleCounters = self.ConsoleCounters || {};
-
-/* Legacy exported object */
-ConsoleCounters = ConsoleCounters || {};
-
-/** @constructor */
-ConsoleCounters.WarningErrorCounter = WarningErrorCounter;

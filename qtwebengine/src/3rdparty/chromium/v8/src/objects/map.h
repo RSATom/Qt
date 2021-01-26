@@ -11,6 +11,7 @@
 #include "src/objects/heap-object.h"
 #include "src/objects/internal-index.h"
 #include "src/objects/objects.h"
+#include "torque-generated/bit-fields-tq.h"
 #include "torque-generated/field-offsets-tq.h"
 
 // Has to be the last include (doesn't have include guards):
@@ -24,7 +25,9 @@ enum InstanceType : uint16_t;
 #define DATA_ONLY_VISITOR_ID_LIST(V) \
   V(BigInt)                          \
   V(ByteArray)                       \
+  V(CoverageInfo)                    \
   V(DataObject)                      \
+  V(FeedbackMetadata)                \
   V(FixedDoubleArray)                \
   V(SeqOneByteString)                \
   V(SeqTwoByteString)
@@ -81,6 +84,13 @@ enum InstanceType : uint16_t;
   V(WeakArray)                         \
   V(WeakCell)
 
+#define TORQUE_OBJECT_BODY_TO_VISITOR_ID_LIST_ADAPTER(V, TYPE, TypeName) \
+  V(TypeName)
+
+#define TORQUE_VISITOR_ID_LIST(V)        \
+  TORQUE_BODY_DESCRIPTOR_LIST_GENERATOR( \
+      TORQUE_OBJECT_BODY_TO_VISITOR_ID_LIST_ADAPTER, V)
+
 // Objects with the same visitor id are processed in the same way by
 // the heap visitors. The visitor ids for data only objects must precede
 // other visitor ids. We rely on kDataOnlyVisitorIdCount for quick check
@@ -89,8 +99,9 @@ enum VisitorId {
 #define VISITOR_ID_ENUM_DECL(id) kVisit##id,
   DATA_ONLY_VISITOR_ID_LIST(VISITOR_ID_ENUM_DECL) kDataOnlyVisitorIdCount,
   POINTER_VISITOR_ID_LIST(VISITOR_ID_ENUM_DECL)
+      TORQUE_VISITOR_ID_LIST(VISITOR_ID_ENUM_DECL)
 #undef VISITOR_ID_ENUM_DECL
-      kVisitorIdCount
+          kVisitorIdCount
 };
 
 enum class ObjectFields {
@@ -250,34 +261,20 @@ class Map : public HeapObject {
   // Atomic accessors, used for whitelisting legitimate concurrent accesses.
   DECL_PRIMITIVE_ACCESSORS(relaxed_bit_field, byte)
 
-// Bit positions for |bit_field|.
-#define MAP_BIT_FIELD_FIELDS(V, _)          \
-  V(HasNonInstancePrototypeBit, bool, 1, _) \
-  V(IsCallableBit, bool, 1, _)              \
-  V(HasNamedInterceptorBit, bool, 1, _)     \
-  V(HasIndexedInterceptorBit, bool, 1, _)   \
-  V(IsUndetectableBit, bool, 1, _)          \
-  V(IsAccessCheckNeededBit, bool, 1, _)     \
-  V(IsConstructorBit, bool, 1, _)           \
-  V(HasPrototypeSlotBit, bool, 1, _)
-
-  DEFINE_BIT_FIELDS(MAP_BIT_FIELD_FIELDS)
-#undef MAP_BIT_FIELD_FIELDS
+  // Bit positions for |bit_field|.
+  struct Bits1 {
+    DEFINE_TORQUE_GENERATED_MAP_BIT_FIELDS1()
+  };
 
   //
   // Bit field 2.
   //
   DECL_PRIMITIVE_ACCESSORS(bit_field2, byte)
 
-// Bit positions for |bit_field2|.
-#define MAP_BIT_FIELD2_FIELDS(V, _)      \
-  V(NewTargetIsBaseBit, bool, 1, _)      \
-  V(IsImmutablePrototypeBit, bool, 1, _) \
-  V(UnusedBit, bool, 1, _)               \
-  V(ElementsKindBits, ElementsKind, 5, _)
-
-  DEFINE_BIT_FIELDS(MAP_BIT_FIELD2_FIELDS)
-#undef MAP_BIT_FIELD2_FIELDS
+  // Bit positions for |bit_field2|.
+  struct Bits2 {
+    DEFINE_TORQUE_GENERATED_MAP_BIT_FIELDS2()
+  };
 
   //
   // Bit field 3.
@@ -288,30 +285,24 @@ class Map : public HeapObject {
   // is deterministic. Depending on the V8 build mode there could be no padding.
   V8_INLINE void clear_padding();
 
-// Bit positions for |bit_field3|.
-#define MAP_BIT_FIELD3_FIELDS(V, _)                               \
-  V(EnumLengthBits, int, kDescriptorIndexBitCount, _)             \
-  V(NumberOfOwnDescriptorsBits, int, kDescriptorIndexBitCount, _) \
-  V(IsPrototypeMapBit, bool, 1, _)                                \
-  V(IsDictionaryMapBit, bool, 1, _)                               \
-  V(OwnsDescriptorsBit, bool, 1, _)                               \
-  V(IsInRetainedMapListBit, bool, 1, _)                           \
-  V(IsDeprecatedBit, bool, 1, _)                                  \
-  V(IsUnstableBit, bool, 1, _)                                    \
-  V(IsMigrationTargetBit, bool, 1, _)                             \
-  V(IsExtensibleBit, bool, 1, _)                                  \
-  V(MayHaveInterestingSymbolsBit, bool, 1, _)                     \
-  V(ConstructionCounterBits, int, 3, _)
+  // Bit positions for |bit_field3|.
+  struct Bits3 {
+    DEFINE_TORQUE_GENERATED_MAP_BIT_FIELDS3()
+  };
 
-  DEFINE_BIT_FIELDS(MAP_BIT_FIELD3_FIELDS)
-#undef MAP_BIT_FIELD3_FIELDS
+  // Ensure that Torque-defined bit widths for |bit_field3| are as expected.
+  STATIC_ASSERT(Bits3::EnumLengthBits::kSize == kDescriptorIndexBitCount);
+  STATIC_ASSERT(Bits3::NumberOfOwnDescriptorsBits::kSize ==
+                kDescriptorIndexBitCount);
 
-  STATIC_ASSERT(NumberOfOwnDescriptorsBits::kMax >= kMaxNumberOfDescriptors);
+  STATIC_ASSERT(Bits3::NumberOfOwnDescriptorsBits::kMax >=
+                kMaxNumberOfDescriptors);
 
   static const int kSlackTrackingCounterStart = 7;
   static const int kSlackTrackingCounterEnd = 1;
   static const int kNoSlackTracking = 0;
-  STATIC_ASSERT(kSlackTrackingCounterStart <= ConstructionCounterBits::kMax);
+  STATIC_ASSERT(kSlackTrackingCounterStart <=
+                Bits3::ConstructionCounterBits::kMax);
 
   // Inobject slack tracking is the way to reclaim unused inobject space.
   //
@@ -589,6 +580,10 @@ class Map : public HeapObject {
   DECL_GETTER(GetFunctionTemplateInfo, FunctionTemplateInfo)
   inline void SetConstructor(Object constructor,
                              WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+  // Constructor getter that performs at most the given number of steps
+  // in the transition tree. Returns either the constructor or the map at
+  // which the walk has stopped.
+  inline Object TryGetConstructor(Isolate* isolate, int max_steps);
   // [back pointer]: points back to the parent map from which a transition
   // leads to this map. The field overlaps with the constructor (see above).
   DECL_GETTER(GetBackPointer, HeapObject)
@@ -807,7 +802,7 @@ class Map : public HeapObject {
 
   inline bool CanTransition() const;
 
-  static Map GetStructMap(Isolate* isolate, InstanceType type);
+  static Map GetInstanceTypeMap(ReadOnlyRoots roots, InstanceType type);
 
 #define DECL_TESTER(Type, ...) inline bool Is##Type##Map() const;
   INSTANCE_TYPE_CHECKERS(DECL_TESTER)

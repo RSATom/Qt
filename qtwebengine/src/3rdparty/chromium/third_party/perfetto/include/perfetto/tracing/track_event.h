@@ -21,6 +21,7 @@
 #include "perfetto/tracing/internal/track_event_data_source.h"
 #include "perfetto/tracing/internal/track_event_internal.h"
 #include "perfetto/tracing/internal/track_event_macros.h"
+#include "perfetto/tracing/track.h"
 #include "perfetto/tracing/track_event_category_registry.h"
 #include "protos/perfetto/trace/track_event/track_event.pbzero.h"
 
@@ -38,9 +39,9 @@
 //   e.g., my_tracing.h:
 //
 //       PERFETTO_DEFINE_CATEGORIES(
-//           PERFETTO_CATEGORY(base),
-//           PERFETTO_CATEGORY(v8),
-//           PERFETTO_CATEGORY(cc));
+//           perfetto::Category("base"),
+//           perfetto::Category("v8"),
+//           perfetto::Category("cc"));
 //
 //   Then in a single .cc file, e.g., my_tracing.cc:
 //
@@ -67,6 +68,14 @@
 //           ctx.event()->set_bar(.5f);
 //         });
 //       }
+//
+//  Note that track events must be nested consistently, i.e., the following is
+//  not allowed:
+//
+//    TRACE_EVENT_BEGIN("a", "bar", ...);
+//    TRACE_EVENT_BEGIN("b", "foo", ...);
+//    TRACE_EVENT_END("a");  // "foo" must be closed before "bar".
+//    TRACE_EVENT_END("b");
 //
 // ====================
 // Implementation notes
@@ -116,56 +125,110 @@
 #define PERFETTO_TRACK_EVENT_NAMESPACE perfetto
 #endif
 
-// A name for a single category. Wrapped in a macro in case we need to introduce
-// more fields in the future.
+// Deprecated; see perfetto::Category().
 #define PERFETTO_CATEGORY(name) \
-  { #name }
+  ::perfetto::Category { #name }
+
+// Internal helpers for determining if a given category is defined at build or
+// runtime.
+namespace PERFETTO_TRACK_EVENT_NAMESPACE {
+namespace internal {
+
+// By default no statically defined categories are dynamic, but this can be
+// overridden with PERFETTO_DEFINE_TEST_CATEGORY_PREFIXES.
+template <typename... T>
+constexpr bool IsDynamicCategory(const char*) {
+  return false;
+}
+
+// Explicitly dynamic categories are always dynamic.
+constexpr bool IsDynamicCategory(const ::perfetto::DynamicCategory&) {
+  return true;
+}
+
+}  // namespace internal
+}  // namespace PERFETTO_TRACK_EVENT_NAMESPACE
+
+// Normally all categories are defined statically at build-time (see
+// PERFETTO_DEFINE_CATEGORIES). However, some categories are only used for
+// testing, and we shouldn't publish them to the tracing service or include them
+// in a production binary. Use this macro to define a list of prefixes for these
+// types of categories. Note that trace points using these categories will be
+// slightly less efficient compared to regular trace points.
+#define PERFETTO_DEFINE_TEST_CATEGORY_PREFIXES(...)                       \
+  namespace PERFETTO_TRACK_EVENT_NAMESPACE {                              \
+  namespace internal {                                                    \
+  template <>                                                             \
+  constexpr bool IsDynamicCategory(const char* name) {                    \
+    return ::perfetto::internal::IsStringInPrefixList(name, __VA_ARGS__); \
+  }                                                                       \
+  } /* namespace internal */                                              \
+  } /* namespace PERFETTO_TRACK_EVENT_NAMESPACE */                        \
+  PERFETTO_INTERNAL_SWALLOW_SEMICOLON()
 
 // Register the set of available categories by passing a list of categories to
 // this macro: PERFETTO_CATEGORY(cat1), PERFETTO_CATEGORY(cat2), ...
 #define PERFETTO_DEFINE_CATEGORIES(...)                        \
   namespace PERFETTO_TRACK_EVENT_NAMESPACE {                   \
   /* The list of category names */                             \
-  PERFETTO_INTERNAL_DECLARE_CATEGORIES(__VA_ARGS__);           \
+  PERFETTO_INTERNAL_DECLARE_CATEGORIES(__VA_ARGS__)            \
   /* The track event data source for this set of categories */ \
   PERFETTO_INTERNAL_DECLARE_TRACK_EVENT_DATA_SOURCE();         \
-  }  // namespace PERFETTO_TRACK_EVENT_NAMESPACE
+  } /* namespace PERFETTO_TRACK_EVENT_NAMESPACE */             \
+  PERFETTO_INTERNAL_SWALLOW_SEMICOLON()
 
 // Allocate storage for each category by using this macro once per track event
 // namespace.
-#define PERFETTO_TRACK_EVENT_STATIC_STORAGE() \
-  namespace PERFETTO_TRACK_EVENT_NAMESPACE {  \
-  PERFETTO_INTERNAL_CATEGORY_STORAGE();       \
-  }  // namespace PERFETTO_TRACK_EVENT_NAMESPACE
+#define PERFETTO_TRACK_EVENT_STATIC_STORAGE()      \
+  namespace PERFETTO_TRACK_EVENT_NAMESPACE {       \
+  PERFETTO_INTERNAL_CATEGORY_STORAGE()             \
+  } /* namespace PERFETTO_TRACK_EVENT_NAMESPACE */ \
+  PERFETTO_INTERNAL_SWALLOW_SEMICOLON()
 
-// Begin a thread-scoped slice under |category| with the title |name|. Both
-// strings must be static constants. The track event is only recorded if
-// |category| is enabled for a tracing session.
+// Ignore GCC warning about a missing argument for a variadic macro parameter.
+#pragma GCC system_header
+
+// Begin a slice under |category| with the title |name|. Both strings must be
+// static constants. The track event is only recorded if |category| is enabled
+// for a tracing session.
+//
+// |name| must be a string with static lifetime (i.e., the same
+// address must not be used for a different event name in the future). If you
+// want to use a dynamically allocated name, do this:
+//
+// The slice is thread-scoped (i.e., written to the default track of the current
+// thread) unless overridden with a custom track object (see Track).
+//
+//  TRACE_EVENT("category", nullptr, [&](perfetto::EventContext ctx) {
+//    ctx.event()->set_name(dynamic_name);
+//  });
+//
 #define TRACE_EVENT_BEGIN(category, name, ...) \
   PERFETTO_INTERNAL_TRACK_EVENT(               \
       category, name,                          \
       ::perfetto::protos::pbzero::TrackEvent::TYPE_SLICE_BEGIN, ##__VA_ARGS__)
 
-// End a thread-scoped slice under |category|.
+// End a slice under |category|.
 #define TRACE_EVENT_END(category, ...) \
   PERFETTO_INTERNAL_TRACK_EVENT(       \
       category, nullptr,               \
       ::perfetto::protos::pbzero::TrackEvent::TYPE_SLICE_END, ##__VA_ARGS__)
 
-// Begin a thread-scoped slice which gets automatically closed when going out of
-// scope.
+// Begin a slice which gets automatically closed when going out of scope.
 #define TRACE_EVENT(category, name, ...) \
   PERFETTO_INTERNAL_SCOPED_TRACK_EVENT(category, name, ##__VA_ARGS__)
 
-// Emit a thread-scoped slice which has zero duration.
-// TODO(skyostil): Add support for process-wide and global instant events.
+// Emit a slice which has zero duration.
 #define TRACE_EVENT_INSTANT(category, name, ...)                            \
   PERFETTO_INTERNAL_TRACK_EVENT(                                            \
       category, name, ::perfetto::protos::pbzero::TrackEvent::TYPE_INSTANT, \
       ##__VA_ARGS__)
 
-// TODO(skyostil): Add arguments.
-// TODO(skyostil): Add async events.
+// Efficiently determine if the given static or dynamic trace category or
+// category group is enabled for tracing.
+#define TRACE_EVENT_CATEGORY_ENABLED(category) \
+  PERFETTO_INTERNAL_CATEGORY_ENABLED(category)
+
 // TODO(skyostil): Add flow events.
 // TODO(skyostil): Add counters.
 

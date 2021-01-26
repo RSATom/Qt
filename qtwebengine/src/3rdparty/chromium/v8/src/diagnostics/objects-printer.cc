@@ -58,6 +58,7 @@
 #include "src/objects/module-inl.h"
 #include "src/objects/oddball-inl.h"
 #include "src/objects/promise-inl.h"
+#include "src/objects/property-descriptor-object-inl.h"
 #include "src/objects/stack-frame-info-inl.h"
 #include "src/objects/struct-inl.h"
 #include "src/objects/template-objects-inl.h"
@@ -206,6 +207,7 @@ void HeapObject::HeapObjectPrint(std::ostream& os) {  // NOLINT
       // Every class that has its fields defined in a .tq file and corresponds
       // to exactly one InstanceType value is included in the following list.
       TORQUE_INSTANCE_CHECKERS_SINGLE_FULLY_DEFINED(MAKE_TORQUE_CASE)
+      TORQUE_INSTANCE_CHECKERS_MULTIPLE_FULLY_DEFINED(MAKE_TORQUE_CASE)
 #undef MAKE_TORQUE_CASE
 
     case ALLOCATION_SITE_TYPE:
@@ -244,9 +246,6 @@ void HeapObject::HeapObjectPrint(std::ostream& os) {  // NOLINT
     case THIN_ONE_BYTE_STRING_TYPE:
     case UNCACHED_EXTERNAL_STRING_TYPE:
     case UNCACHED_EXTERNAL_ONE_BYTE_STRING_TYPE:
-    case SMALL_ORDERED_HASH_MAP_TYPE:
-    case SMALL_ORDERED_HASH_SET_TYPE:
-    case SMALL_ORDERED_NAME_DICTIONARY_TYPE:
       // TODO(all): Handle these types too.
       os << "UNKNOWN TYPE " << map().instance_type();
       UNREACHABLE();
@@ -1152,12 +1151,12 @@ void JSMapIterator::JSMapIteratorPrint(std::ostream& os) {  // NOLINT
 
 void WeakCell::WeakCellPrint(std::ostream& os) {
   PrintHeader(os, "WeakCell");
-  os << "\n - finalization_group: " << Brief(finalization_group());
+  os << "\n - finalization_registry: " << Brief(finalization_registry());
   os << "\n - target: " << Brief(target());
   os << "\n - holdings: " << Brief(holdings());
   os << "\n - prev: " << Brief(prev());
   os << "\n - next: " << Brief(next());
-  os << "\n - key: " << Brief(key());
+  os << "\n - unregister_token: " << Brief(unregister_token());
   os << "\n - key_list_prev: " << Brief(key_list_prev());
   os << "\n - key_list_next: " << Brief(key_list_next());
 }
@@ -1168,8 +1167,8 @@ void JSWeakRef::JSWeakRefPrint(std::ostream& os) {
   JSObjectPrintBody(os, *this);
 }
 
-void JSFinalizationGroup::JSFinalizationGroupPrint(std::ostream& os) {
-  JSObjectPrintHeader(os, *this, "JSFinalizationGroup");
+void JSFinalizationRegistry::JSFinalizationRegistryPrint(std::ostream& os) {
+  JSObjectPrintHeader(os, *this, "JSFinalizationRegistry");
   os << "\n - native_context: " << Brief(native_context());
   os << "\n - cleanup: " << Brief(cleanup());
   os << "\n - active_cells: " << Brief(active_cells());
@@ -1188,10 +1187,10 @@ void JSFinalizationGroup::JSFinalizationGroupPrint(std::ostream& os) {
   JSObjectPrintBody(os, *this);
 }
 
-void JSFinalizationGroupCleanupIterator::
-    JSFinalizationGroupCleanupIteratorPrint(std::ostream& os) {
-  JSObjectPrintHeader(os, *this, "JSFinalizationGroupCleanupIterator");
-  os << "\n - finalization_group: " << Brief(finalization_group());
+void JSFinalizationRegistryCleanupIterator::
+    JSFinalizationRegistryCleanupIteratorPrint(std::ostream& os) {
+  JSObjectPrintHeader(os, *this, "JSFinalizationRegistryCleanupIterator");
+  os << "\n - finalization_registry: " << Brief(finalization_registry());
   JSObjectPrintBody(os, *this);
 }
 
@@ -1308,12 +1307,12 @@ void JSFunction::JSFunctionPrint(std::ostream& os) {  // NOLINT
   }
   if (WasmExportedFunction::IsWasmExportedFunction(*this)) {
     WasmExportedFunction function = WasmExportedFunction::cast(*this);
-    os << "\n - WASM instance: " << Brief(function.instance());
-    os << "\n - WASM function index: " << function.function_index();
+    os << "\n - Wasm instance: " << Brief(function.instance());
+    os << "\n - Wasm function index: " << function.function_index();
   }
   if (WasmJSFunction::IsWasmJSFunction(*this)) {
     WasmJSFunction function = WasmJSFunction::cast(*this);
-    os << "\n - WASM wrapper around: " << Brief(function.GetCallable());
+    os << "\n - Wasm wrapper around: " << Brief(function.GetCallable());
   }
   shared().PrintSourceCode(os);
   JSObjectPrintBody(os, *this);
@@ -1339,6 +1338,22 @@ void SharedFunctionInfo::PrintSourceCode(std::ostream& os) {
   }
 }
 
+void SmallOrderedHashSet::SmallOrderedHashSetPrint(std::ostream& os) {
+  PrintHeader(os, "SmallOrderedHashSet");
+  // TODO(tebbi): Print all fields.
+}
+
+void SmallOrderedHashMap::SmallOrderedHashMapPrint(std::ostream& os) {
+  PrintHeader(os, "SmallOrderedHashMap");
+  // TODO(tebbi): Print all fields.
+}
+
+void SmallOrderedNameDictionary::SmallOrderedNameDictionaryPrint(
+    std::ostream& os) {
+  PrintHeader(os, "SmallOrderedNameDictionary");
+  // TODO(tebbi): Print all fields.
+}
+
 void SharedFunctionInfo::SharedFunctionInfoPrint(std::ostream& os) {  // NOLINT
   PrintHeader(os, "SharedFunctionInfo");
   os << "\n - name: ";
@@ -1349,6 +1364,12 @@ void SharedFunctionInfo::SharedFunctionInfoPrint(std::ostream& os) {  // NOLINT
   }
   if (HasInferredName()) {
     os << "\n - inferred name: " << Brief(inferred_name());
+  }
+  if (class_scope_has_private_brand()) {
+    os << "\n - class_scope_has_private_brand";
+  }
+  if (has_static_private_methods_or_accessors()) {
+    os << "\n - has_static_private_methods_or_accessors";
   }
   os << "\n - kind: " << kind();
   os << "\n - syntax kind: " << syntax_kind();
@@ -1365,9 +1386,8 @@ void SharedFunctionInfo::SharedFunctionInfoPrint(std::ostream& os) {  // NOLINT
   os << "\n - data: " << Brief(function_data());
   os << "\n - code (from data): " << Brief(GetCode());
   PrintSourceCode(os);
-  // Script files are often large, hard to read.
-  // os << "\n - script =";
-  // script()->Print(os);
+  // Script files are often large, thus only print their {Brief} representation.
+  os << "\n - script: " << Brief(script());
   os << "\n - function token position: " << function_token_position();
   os << "\n - start position: " << StartPosition();
   os << "\n - end position: " << EndPosition();
@@ -1660,7 +1680,6 @@ void AsmWasmData::AsmWasmDataPrint(std::ostream& os) {  // NOLINT
   PrintHeader(os, "AsmWasmData");
   os << "\n - native module: " << Brief(managed_native_module());
   os << "\n - export_wrappers: " << Brief(export_wrappers());
-  os << "\n - offset table: " << Brief(asm_js_offset_table());
   os << "\n - uses bitset: " << uses_bitset().value();
   os << "\n";
 }
@@ -1749,9 +1768,6 @@ void WasmModuleObject::WasmModuleObjectPrint(std::ostream& os) {  // NOLINT
   os << "\n - native module: " << native_module();
   os << "\n - export wrappers: " << Brief(export_wrappers());
   os << "\n - script: " << Brief(script());
-  if (has_asm_js_offset_table()) {
-    os << "\n - asm_js_offset_table: " << Brief(asm_js_offset_table());
-  }
   os << "\n";
 }
 
@@ -1770,7 +1786,7 @@ void WasmGlobalObject::WasmGlobalObjectPrint(std::ostream& os) {  // NOLINT
   os << "\n - tagged_buffer: " << Brief(tagged_buffer());
   os << "\n - offset: " << offset();
   os << "\n - flags: " << flags();
-  os << "\n - type: " << type();
+  os << "\n - type: " << type().kind();
   os << "\n - is_mutable: " << is_mutable();
   os << "\n";
 }
@@ -1977,15 +1993,18 @@ void Script::ScriptPrint(std::ostream& os) {  // NOLINT
   os << "\n - context data: " << Brief(context_data());
   os << "\n - compilation type: " << compilation_type();
   os << "\n - line ends: " << Brief(line_ends());
-  if (has_eval_from_shared()) {
-    os << "\n - eval from shared: " << Brief(eval_from_shared());
-  }
-  if (is_wrapped()) {
-    os << "\n - wrapped arguments: " << Brief(wrapped_arguments());
-  }
-  os << "\n - eval from position: " << eval_from_position();
-  if (has_wasm_breakpoint_infos()) {
-    os << "\n - wasm_breakpoint_infos: " << Brief(wasm_breakpoint_infos());
+  if (type() == TYPE_WASM) {
+    if (has_wasm_breakpoint_infos()) {
+      os << "\n - wasm_breakpoint_infos: " << Brief(wasm_breakpoint_infos());
+    }
+  } else {
+    if (has_eval_from_shared()) {
+      os << "\n - eval from shared: " << Brief(eval_from_shared());
+    }
+    if (is_wrapped()) {
+      os << "\n - wrapped arguments: " << Brief(wrapped_arguments());
+    }
+    os << "\n - eval from position: " << eval_from_position();
   }
   os << "\n - shared function infos: " << Brief(shared_function_infos());
   os << "\n";
@@ -1995,7 +2014,6 @@ void Script::ScriptPrint(std::ostream& os) {  // NOLINT
 void JSV8BreakIterator::JSV8BreakIteratorPrint(std::ostream& os) {  // NOLINT
   JSObjectPrintHeader(os, *this, "JSV8BreakIterator");
   os << "\n - locale: " << Brief(locale());
-  os << "\n - type: " << TypeAsString();
   os << "\n - break iterator: " << Brief(break_iterator());
   os << "\n - unicode string: " << Brief(unicode_string());
   os << "\n - bound adopt text: " << Brief(bound_adopt_text());
@@ -2050,7 +2068,6 @@ void JSLocale::JSLocalePrint(std::ostream& os) {  // NOLINT
 void JSNumberFormat::JSNumberFormatPrint(std::ostream& os) {  // NOLINT
   JSObjectPrintHeader(os, *this, "JSNumberFormat");
   os << "\n - locale: " << Brief(locale());
-  os << "\n - numberingSystem: " << Brief(numberingSystem());
   os << "\n - icu_number_formatter: " << Brief(icu_number_formatter());
   os << "\n - bound_format: " << Brief(bound_format());
   JSObjectPrintBody(os, *this);
@@ -2070,7 +2087,6 @@ void JSRelativeTimeFormat::JSRelativeTimeFormatPrint(
   JSObjectPrintHeader(os, *this, "JSRelativeTimeFormat");
   os << "\n - locale: " << Brief(locale());
   os << "\n - numberingSystem: " << Brief(numberingSystem());
-  os << "\n - style: " << StyleAsString();
   os << "\n - numeric: " << NumericAsString();
   os << "\n - icu formatter: " << Brief(icu_formatter());
   os << "\n";
@@ -2129,14 +2145,13 @@ void ScopeInfo::ScopeInfoPrint(std::ostream& os) {  // NOLINT
   os << "\n - language mode: " << language_mode();
   if (is_declaration_scope()) os << "\n - declaration scope";
   if (HasReceiver()) {
-    os << "\n - receiver: " << ReceiverVariableField::decode(flags);
+    os << "\n - receiver: " << ReceiverVariableBits::decode(flags);
   }
   if (HasClassBrand()) os << "\n - has class brand";
   if (HasSavedClassVariableIndex()) os << "\n - has saved class variable index";
   if (HasNewTarget()) os << "\n - needs new target";
   if (HasFunctionName()) {
-    os << "\n - function name(" << FunctionVariableField::decode(flags)
-       << "): ";
+    os << "\n - function name(" << FunctionVariableBits::decode(flags) << "): ";
     FunctionName().ShortPrint(os);
   }
   if (IsAsmModule()) os << "\n - asm module";
@@ -2144,6 +2159,9 @@ void ScopeInfo::ScopeInfoPrint(std::ostream& os) {  // NOLINT
   os << "\n - function kind: " << function_kind();
   if (HasOuterScopeInfo()) {
     os << "\n - outer scope info: " << Brief(OuterScopeInfo());
+  }
+  if (HasLocalsBlackList()) {
+    os << "\n - locals blacklist: " << Brief(LocalsBlackList());
   }
   if (HasFunctionName()) {
     os << "\n - function name: " << Brief(FunctionName());

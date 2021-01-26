@@ -4,6 +4,10 @@
 
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_platform.h"
 
+#include <memory>
+#include <string>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -42,36 +46,43 @@ bool DetermineInactivity(ui::WindowShowState show_state) {
   return show_state == ui::SHOW_STATE_INACTIVE;
 }
 
+ui::PlatformWindowOpacity GetPlatformWindowOpacity(
+    Widget::InitParams::WindowOpacity opacity) {
+  switch (opacity) {
+    case Widget::InitParams::WindowOpacity::kInferred:
+      return ui::PlatformWindowOpacity::kInferOpacity;
+    case Widget::InitParams::WindowOpacity::kOpaque:
+      return ui::PlatformWindowOpacity::kOpaqueWindow;
+    case Widget::InitParams::WindowOpacity::kTranslucent:
+      return ui::PlatformWindowOpacity::kTranslucentWindow;
+  }
+  return ui::PlatformWindowOpacity::kOpaqueWindow;
+}
+
+ui::PlatformWindowType GetPlatformWindowType(
+    Widget::InitParams::Type window_type) {
+  switch (window_type) {
+    case Widget::InitParams::TYPE_WINDOW:
+      return ui::PlatformWindowType::kWindow;
+    case Widget::InitParams::TYPE_MENU:
+      return ui::PlatformWindowType::kMenu;
+    case Widget::InitParams::TYPE_TOOLTIP:
+      return ui::PlatformWindowType::kTooltip;
+    case Widget::InitParams::TYPE_DRAG:
+      return ui::PlatformWindowType::kDrag;
+    case Widget::InitParams::TYPE_BUBBLE:
+      return ui::PlatformWindowType::kBubble;
+    default:
+      return ui::PlatformWindowType::kPopup;
+  }
+  NOTREACHED();
+  return ui::PlatformWindowType::kPopup;
+}
+
 ui::PlatformWindowInitProperties ConvertWidgetInitParamsToInitProperties(
     const Widget::InitParams& params) {
   ui::PlatformWindowInitProperties properties;
-
-  switch (params.type) {
-    case Widget::InitParams::TYPE_WINDOW:
-      properties.type = ui::PlatformWindowType::kWindow;
-      break;
-
-    case Widget::InitParams::TYPE_MENU:
-      properties.type = ui::PlatformWindowType::kMenu;
-      break;
-
-    case Widget::InitParams::TYPE_TOOLTIP:
-      properties.type = ui::PlatformWindowType::kTooltip;
-      break;
-
-    case Widget::InitParams::TYPE_DRAG:
-      properties.type = ui::PlatformWindowType::kDrag;
-      break;
-
-    case Widget::InitParams::TYPE_BUBBLE:
-      properties.type = ui::PlatformWindowType::kBubble;
-      break;
-
-    default:
-      properties.type = ui::PlatformWindowType::kPopup;
-      break;
-  }
-
+  properties.type = GetPlatformWindowType(params.type);
   properties.activatable =
       params.activatable == Widget::InitParams::ACTIVATABLE_YES;
   properties.force_show_in_taskbar = params.force_show_in_taskbar;
@@ -80,21 +91,10 @@ ui::PlatformWindowInitProperties ConvertWidgetInitParamsToInitProperties(
   properties.visible_on_all_workspaces = params.visible_on_all_workspaces;
   properties.remove_standard_frame = params.remove_standard_frame;
   properties.workspace = params.workspace;
+  properties.opacity = GetPlatformWindowOpacity(params.opacity);
 
   if (params.parent && params.parent->GetHost())
     properties.parent_widget = params.parent->GetHost()->GetAcceleratedWidget();
-
-  switch (params.opacity) {
-    case Widget::InitParams::WindowOpacity::kInferred:
-      properties.opacity = ui::PlatformWindowOpacity::kInferOpacity;
-      break;
-    case Widget::InitParams::WindowOpacity::kOpaque:
-      properties.opacity = ui::PlatformWindowOpacity::kOpaqueWindow;
-      break;
-    case Widget::InitParams::WindowOpacity::kTranslucent:
-      properties.opacity = ui::PlatformWindowOpacity::kTranslucentWindow;
-      break;
-  }
 
   return properties;
 }
@@ -215,7 +215,7 @@ void DesktopWindowTreeHostPlatform::Close() {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&DesktopWindowTreeHostPlatform::CloseNow,
                                 close_widget_factory_.GetWeakPtr()));
-}  // namespace views
+}
 
 void DesktopWindowTreeHostPlatform::CloseNow() {
   if (!platform_window())
@@ -504,13 +504,13 @@ Widget::MoveLoopResult DesktopWindowTreeHostPlatform::RunMoveLoop(
     const gfx::Vector2d& drag_offset,
     Widget::MoveLoopSource source,
     Widget::MoveLoopEscapeBehavior escape_behavior) {
-  // TODO: needs PlatformWindow support.
+  // TODO(crbug.com/896640): needs PlatformWindow support.
   NOTIMPLEMENTED_LOG_ONCE();
   return Widget::MOVE_LOOP_CANCELED;
 }
 
 void DesktopWindowTreeHostPlatform::EndMoveLoop() {
-  // TODO: needs PlatformWindow support.
+  // TODO(crbug.com/896640): needs PlatformWindow support.
   NOTIMPLEMENTED_LOG_ONCE();
 }
 
@@ -560,7 +560,7 @@ void DesktopWindowTreeHostPlatform::SetFullscreen(bool fullscreen) {
   DCHECK_EQ(fullscreen, IsFullscreen());
 
   if (IsFullscreen() == fullscreen)
-    Relayout();
+    ScheduleRelayout();
   // Else: the widget will be relaid out either when the window bounds change
   // or when |platform_window|'s fullscreen state changes.
 }
@@ -673,7 +673,7 @@ void DesktopWindowTreeHostPlatform::OnWindowStateChanged(
   // Now that we have different window properties, we may need to relayout the
   // window. (The windows code doesn't need this because their window change is
   // synchronous.)
-  Relayout();
+  ScheduleRelayout();
 }
 
 void DesktopWindowTreeHostPlatform::OnCloseRequest() {
@@ -681,9 +681,12 @@ void DesktopWindowTreeHostPlatform::OnCloseRequest() {
 }
 
 void DesktopWindowTreeHostPlatform::OnActivationChanged(bool active) {
+  if (is_active_ == active)
+    return;
   is_active_ = active;
   aura::WindowTreeHostPlatform::OnActivationChanged(active);
   desktop_native_widget_aura_->HandleActivationChanged(active);
+  ScheduleRelayout();
 }
 
 base::Optional<gfx::Size>
@@ -716,7 +719,7 @@ gfx::Rect DesktopWindowTreeHostPlatform::ToPixelRect(
   return gfx::ToEnclosingRect(rect_in_pixels);
 }
 
-void DesktopWindowTreeHostPlatform::Relayout() {
+void DesktopWindowTreeHostPlatform::ScheduleRelayout() {
   Widget* widget = native_widget_delegate_->AsWidget();
   NonClientView* non_client_view = widget->non_client_view();
   // non_client_view may be NULL, especially during creation.

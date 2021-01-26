@@ -98,6 +98,7 @@ QAbstractItemViewPrivate::QAbstractItemViewPrivate()
         dragEnabled(false),
         dragDropMode(QAbstractItemView::NoDragDrop),
         overwrite(false),
+        dropEventMoved(false),
         dropIndicatorPosition(QAbstractItemView::OnItem),
         defaultDropAction(Qt::IgnoreAction),
 #endif
@@ -2336,7 +2337,7 @@ void QAbstractItemView::keyPressEvent(QKeyEvent *event)
         QVariant variant;
         if (d->model)
             variant = d->model->data(currentIndex(), Qt::DisplayRole);
-        if (variant.userType() == QMetaType::QString)
+        if (variant.canConvert<QString>())
             QGuiApplication::clipboard()->setText(variant.toString());
         event->accept();
     }
@@ -3705,12 +3706,16 @@ void QAbstractItemView::startDrag(Qt::DropActions supportedActions)
         drag->setMimeData(data);
         drag->setHotSpot(d->pressedPosition - rect.topLeft());
         Qt::DropAction defaultDropAction = Qt::IgnoreAction;
+        if (dragDropMode() == InternalMove)
+            supportedActions &= ~Qt::CopyAction;
         if (d->defaultDropAction != Qt::IgnoreAction && (supportedActions & d->defaultDropAction))
             defaultDropAction = d->defaultDropAction;
         else if (supportedActions & Qt::CopyAction && dragDropMode() != QAbstractItemView::InternalMove)
             defaultDropAction = Qt::CopyAction;
-        if (drag->exec(supportedActions, defaultDropAction) == Qt::MoveAction)
+        d->dropEventMoved = false;
+        if (drag->exec(supportedActions, defaultDropAction) == Qt::MoveAction && !d->dropEventMoved)
             d->clearOrRemove();
+        d->dropEventMoved = false;
         // Reset the drop indicator
         d->dropIndicatorRect = QRect();
         d->dropIndicatorPosition = OnItem;

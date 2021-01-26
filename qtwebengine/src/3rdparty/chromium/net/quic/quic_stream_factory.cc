@@ -45,6 +45,7 @@
 #include "net/quic/quic_chromium_connection_helper.h"
 #include "net/quic/quic_chromium_packet_reader.h"
 #include "net/quic/quic_chromium_packet_writer.h"
+#include "net/quic/quic_client_session_cache.h"
 #include "net/quic/quic_context.h"
 #include "net/quic/quic_crypto_client_stream_factory.h"
 #include "net/quic/quic_http_stream.h"
@@ -58,9 +59,9 @@
 #include "net/third_party/quiche/src/quic/core/crypto/proof_verifier.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
 #include "net/third_party/quiche/src/quic/core/http/quic_client_promised_info.h"
+#include "net/third_party/quiche/src/quic/core/quic_clock.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_clock.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "third_party/boringssl/src/include/openssl/aead.h"
 #include "url/gurl.h"
@@ -106,19 +107,6 @@ enum class ConnectionStateAfterDNS {
   kCryptoFinishedDnsNoMatch = 5,
   kMaxValue = kCryptoFinishedDnsNoMatch,
 };
-
-// The maximum receive window sizes for QUIC sessions and streams.
-const int32_t kQuicSessionMaxRecvWindowSize = 15 * 1024 * 1024;  // 15 MB
-const int32_t kQuicStreamMaxRecvWindowSize = 6 * 1024 * 1024;    // 6 MB
-
-// QUIC's socket receive buffer size.
-// We should adaptively set this buffer size, but for now, we'll use a size
-// that seems large enough to receive data at line rate for most connections,
-// and does not consume "too much" memory.
-const int32_t kQuicSocketReceiveBufferSize = 1024 * 1024;  // 1MB
-
-// Set the maximum number of undecryptable packets the connection will store.
-const int32_t kMaxUndecryptablePackets = 100;
 
 base::Value NetLogQuicStreamFactoryJobParams(
     const quic::QuicServerId* server_id) {
@@ -196,25 +184,6 @@ void SetInitialRttEstimate(base::TimeDelta estimate,
     config->SetInitialRoundTripTimeUsToSend(estimate.InMicroseconds());
 }
 
-quic::QuicConfig InitializeQuicConfig(const QuicParams& params) {
-  DCHECK_GT(params.idle_connection_timeout, base::TimeDelta());
-  quic::QuicConfig config;
-  config.SetIdleNetworkTimeout(
-      quic::QuicTime::Delta::FromMicroseconds(
-          params.idle_connection_timeout.InMicroseconds()),
-      quic::QuicTime::Delta::FromMicroseconds(
-          params.idle_connection_timeout.InMicroseconds()));
-  config.set_max_time_before_crypto_handshake(
-      quic::QuicTime::Delta::FromMicroseconds(
-          params.max_time_before_crypto_handshake.InMicroseconds()));
-  config.set_max_idle_time_before_crypto_handshake(
-      quic::QuicTime::Delta::FromMicroseconds(
-          params.max_idle_time_before_crypto_handshake.InMicroseconds()));
-  config.SetConnectionOptionsToSend(params.connection_options);
-  config.SetClientConnectionOptions(params.client_connection_options);
-  return config;
-}
-
 // An implementation of quic::QuicCryptoClientConfig::ServerIdFilter that wraps
 // an |origin_filter|.
 class ServerIdOriginFilter
@@ -236,7 +205,7 @@ class ServerIdOriginFilter
   }
 
  private:
-  const base::Callback<bool(const GURL&)> origin_filter_;
+  const base::RepeatingCallback<bool(const GURL&)> origin_filter_;
 };
 
 std::set<std::string> HostsFromOrigins(std::set<HostPortPair> origins) {
@@ -356,8 +325,9 @@ class QuicStreamFactory::QuicCryptoClientConfigOwner {
  public:
   QuicCryptoClientConfigOwner(
       std::unique_ptr<quic::ProofVerifier> proof_verifier,
+      std::unique_ptr<QuicClientSessionCache> session_cache,
       QuicStreamFactory* quic_stream_factory)
-      : config_(std::move(proof_verifier)),
+      : config_(std::move(proof_verifier), std::move(session_cache)),
         quic_stream_factory_(quic_stream_factory) {
     DCHECK(quic_stream_factory_);
   }
@@ -985,7 +955,7 @@ int QuicStreamFactory::Job::DoConfirmConnection(int rv) {
     UMA_HISTOGRAM_BOOLEAN("Net.QuicSession.ConnectAfterBroken", rv == OK);
 
   if (retry_on_alternate_network_before_handshake_ && session_ &&
-      !session_->IsCryptoHandshakeConfirmed() &&
+      !session_->OneRttKeysAvailable() &&
       network_ == factory_->default_network()) {
     if (session_->error() == quic::QUIC_NETWORK_IDLE_TIMEOUT ||
         session_->error() == quic::QUIC_HANDSHAKE_TIMEOUT ||
@@ -1520,7 +1490,7 @@ std::unique_ptr<base::Value> QuicStreamFactory::QuicStreamFactoryInfoToValue()
 }
 
 void QuicStreamFactory::ClearCachedStatesInCryptoConfig(
-    const base::Callback<bool(const GURL&)>& origin_filter) {
+    const base::RepeatingCallback<bool(const GURL&)>& origin_filter) {
   ServerIdOriginFilter filter(origin_filter);
   for (const auto& crypto_config : active_crypto_config_map_) {
     crypto_config.second->config()->ClearCachedStates(filter);
@@ -1931,11 +1901,6 @@ int QuicStreamFactory::CreateSession(
   connection->SetMaxPacketLength(params_.max_packet_length);
 
   quic::QuicConfig config = config_;
-  config.set_max_undecryptable_packets(kMaxUndecryptablePackets);
-  config.SetInitialSessionFlowControlWindowToSend(
-      kQuicSessionMaxRecvWindowSize);
-  config.SetInitialStreamFlowControlWindowToSend(kQuicStreamMaxRecvWindowSize);
-  config.SetBytesForConnectionIdToSend(0);
   ConfigureInitialRttEstimate(
       server_id, key.session_key().network_isolation_key(), &config);
   if (quic_version.transport_version <= quic::QUIC_VERSION_43 &&
@@ -2232,7 +2197,7 @@ void QuicStreamFactory::ProcessGoingAwaySession(
     return;
   }
 
-  if (session->IsCryptoHandshakeConfirmed()) {
+  if (session->OneRttKeysAvailable()) {
     http_server_properties_->ConfirmAlternativeService(
         alternative_service,
         session->quic_session_key().network_isolation_key());
@@ -2314,7 +2279,7 @@ QuicStreamFactory::CreateCryptoConfigHandle(
               cert_verifier_, ct_policy_enforcer_, transport_security_state_,
               cert_transparency_verifier_,
               HostsFromOrigins(params_.origins_to_force_quic_on)),
-          this);
+          std::make_unique<QuicClientSessionCache>(), this);
 
   quic::QuicCryptoClientConfig* crypto_config = crypto_config_owner->config();
   crypto_config->set_user_agent_id(params_.user_agent_id);

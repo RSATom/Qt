@@ -23,13 +23,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+import * as ProtocolClient from '../protocol_client/protocol_client.js';
+import * as TextUtils from '../text_utils/text_utils.js';
+
+import {DebuggerModel, Location} from './DebuggerModel.js';  // eslint-disable-line no-unused-vars
+import {ResourceTreeModel} from './ResourceTreeModel.js';
+import {ExecutionContext} from './RuntimeModel.js';  // eslint-disable-line no-unused-vars
+
 /**
- * @implements {Common.ContentProvider}
+ * @implements {TextUtils.ContentProvider.ContentProvider}
  * @unrestricted
  */
-export default class Script {
+export class Script {
   /**
-   * @param {!SDK.DebuggerModel} debuggerModel
+   * @param {!DebuggerModel} debuggerModel
    * @param {string} scriptId
    * @param {string} sourceURL
    * @param {number} startLine
@@ -44,10 +52,12 @@ export default class Script {
    * @param {boolean} hasSourceURL
    * @param {number} length
    * @param {?Protocol.Runtime.StackTrace} originStackTrace
+   * @param {?number} codeOffset
+   * @param {?string} scriptLanguage
    */
   constructor(
       debuggerModel, scriptId, sourceURL, startLine, startColumn, endLine, endColumn, executionContextId, hash,
-      isContentScript, isLiveEdit, sourceMapURL, hasSourceURL, length, originStackTrace) {
+      isContentScript, isLiveEdit, sourceMapURL, hasSourceURL, length, originStackTrace, codeOffset, scriptLanguage) {
     this.debuggerModel = debuggerModel;
     this.scriptId = scriptId;
     this.sourceURL = sourceURL;
@@ -66,6 +76,9 @@ export default class Script {
     this._originalContentProvider = null;
     this._originalSource = null;
     this.originStackTrace = originStackTrace;
+    this._codeOffset = codeOffset;
+    this._language = scriptLanguage;
+    this._lineMap = null;
   }
 
   /**
@@ -99,7 +112,28 @@ export default class Script {
   }
 
   /**
-   * @return {?SDK.ExecutionContext}
+   * @return {?number}
+   */
+  codeOffset() {
+    return this._codeOffset;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  isWasm() {
+    return this._language === Protocol.Debugger.ScriptLanguage.WebAssembly;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  hasWasmDisassembly() {
+    return !!this._lineMap && !this.sourceMapURL;
+  }
+
+  /**
+   * @return {?ExecutionContext}
    */
   executionContext() {
     return this.debuggerModel.runtimeModel().executionContext(this.executionContextId);
@@ -122,10 +156,10 @@ export default class Script {
 
   /**
    * @override
-   * @return {!Common.ResourceType}
+   * @return {!Common.ResourceType.ResourceType}
    */
   contentType() {
-    return Common.resourceTypes.Script;
+    return Common.ResourceType.resourceTypes.Script;
   }
 
   /**
@@ -138,7 +172,7 @@ export default class Script {
 
   /**
    * @override
-   * @return {!Promise<!Common.DeferredContent>}
+   * @return {!Promise<!TextUtils.ContentProvider.DeferredContent>}
    */
   async requestContent() {
     if (this._source) {
@@ -149,11 +183,30 @@ export default class Script {
     }
 
     try {
-      const source = await this.debuggerModel.target().debuggerAgent().getScriptSource(this.scriptId);
-      if (source && this.hasSourceURL) {
-        this._source = SDK.Script._trimSourceURLComment(source);
+      const sourceOrBytecode =
+          await this.debuggerModel.target().debuggerAgent().invoke_getScriptSource({scriptId: this.scriptId});
+      const source = sourceOrBytecode.scriptSource;
+      if (source) {
+        if (this.hasSourceURL) {
+          this._source = Script._trimSourceURLComment(source);
+        } else {
+          this._source = source;
+        }
       } else {
-        this._source = source || '';
+        this._source = '';
+        if (sourceOrBytecode.bytecode) {
+          const worker = new Common.Worker.WorkerWrapper('wasmparser_worker_entrypoint');
+          const promise = new Promise(function(resolve, reject) {
+            worker.onmessage = resolve;
+            worker.onerror = reject;
+          });
+          worker.postMessage({method: 'disassemble', params: {content: sourceOrBytecode.bytecode}});
+
+          const result = await promise;
+          this._source = result.data.source;
+          this._lineMap = result.data.offsets;
+          this.endLine = this._lineMap.length;
+        }
       }
 
       if (this._originalSource === null) {
@@ -175,7 +228,7 @@ export default class Script {
   }
 
   /**
-   * @return {!Common.ContentProvider}
+   * @return {!TextUtils.ContentProvider.ContentProvider}
    */
   originalContentProvider() {
     if (!this._originalContentProvider) {
@@ -186,7 +239,7 @@ export default class Script {
         };
       });
       this._originalContentProvider =
-          new Common.StaticContentProvider(this.contentURL(), this.contentType(), lazyContent);
+          new TextUtils.StaticContentProvider.StaticContentProvider(this.contentURL(), this.contentType(), lazyContent);
     }
     return this._originalContentProvider;
   }
@@ -196,7 +249,7 @@ export default class Script {
    * @param {string} query
    * @param {boolean} caseSensitive
    * @param {boolean} isRegex
-   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   * @return {!Promise<!Array<!TextUtils.ContentProvider.SearchMatch>>}
    */
   async searchInContent(query, caseSensitive, isRegex) {
     if (!this.scriptId) {
@@ -205,7 +258,7 @@ export default class Script {
 
     const matches =
         await this.debuggerModel.target().debuggerAgent().searchInContent(this.scriptId, query, caseSensitive, isRegex);
-    return (matches || []).map(match => new Common.ContentProvider.SearchMatch(match.lineNumber, match.lineContent));
+    return (matches || []).map(match => new TextUtils.ContentProvider.SearchMatch(match.lineNumber, match.lineContent));
   }
 
   /**
@@ -221,7 +274,7 @@ export default class Script {
 
   /**
    * @param {string} newSource
-   * @param {function(?Protocol.Error, !Protocol.Runtime.ExceptionDetails=, !Array.<!Protocol.Debugger.CallFrame>=, !Protocol.Runtime.StackTrace=, !Protocol.Runtime.StackTraceId=, boolean=)} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, !Protocol.Runtime.ExceptionDetails=, !Array.<!Protocol.Debugger.CallFrame>=, !Protocol.Runtime.StackTrace=, !Protocol.Runtime.StackTraceId=, boolean=)} callback
    */
   async editSource(newSource, callback) {
     newSource = Script._trimSourceURLComment(newSource);
@@ -241,31 +294,55 @@ export default class Script {
     const response = await this.debuggerModel.target().debuggerAgent().invoke_setScriptSource(
         {scriptId: this.scriptId, scriptSource: newSource});
 
-    if (!response[Protocol.Error] && !response.exceptionDetails) {
+    if (!response[ProtocolClient.InspectorBackend.ProtocolError] && !response.exceptionDetails) {
       this._source = newSource;
     }
 
     const needsStepIn = !!response.stackChanged;
     callback(
-        response[Protocol.Error], response.exceptionDetails, response.callFrames, response.asyncStackTrace,
-        response.asyncStackTraceId, needsStepIn);
+        response[ProtocolClient.InspectorBackend.ProtocolError], response.exceptionDetails, response.callFrames,
+        response.asyncStackTrace, response.asyncStackTraceId, needsStepIn);
   }
 
   /**
    * @param {number} lineNumber
    * @param {number=} columnNumber
-   * @return {?SDK.DebuggerModel.Location}
+   * @return {?Location}
    */
   rawLocation(lineNumber, columnNumber) {
     if (this.containsLocation(lineNumber, columnNumber)) {
-      return new SDK.DebuggerModel.Location(this.debuggerModel, this.scriptId, lineNumber, columnNumber);
+      return new Location(this.debuggerModel, this.scriptId, lineNumber, columnNumber);
     }
     return null;
   }
 
   /**
+   * @param {number} lineNumber
+   * @return {?Location}
+   */
+  wasmByteLocation(lineNumber) {
+    if (lineNumber < this._lineMap.length) {
+      return new Location(this.debuggerModel, this.scriptId, 0, this._lineMap[lineNumber]);
+    }
+    return null;
+  }
+
+  /**
+   * @param {number} byteOffset
+   * @return {number}
+   */
+  wasmDisassemblyLine(byteOffset) {
+    let line = 0;
+    // TODO: Implement binary search if necessary for large wasm modules
+    while (line < this._lineMap.length && byteOffset > this._lineMap[line]) {
+      line++;
+    }
+    return line;
+  }
+
+  /**
    *
-   * @param {!SDK.DebuggerModel.Location} location
+   * @param {!Location} location
    * @return {!Array.<number>}
    */
   toRelativeLocation(location) {
@@ -281,7 +358,7 @@ export default class Script {
    */
   isInlineScript() {
     const startsAtZero = !this.lineOffset && !this.columnOffset;
-    return !!this.sourceURL && !startsAtZero;
+    return !this.isWasm() && !!this.sourceURL && !startsAtZero;
   }
 
   /**
@@ -305,7 +382,7 @@ export default class Script {
   async setBlackboxedRanges(positions) {
     const response = await this.debuggerModel.target().debuggerAgent().invoke_setBlackboxedRanges(
         {scriptId: this.scriptId, positions});
-    return !response[Protocol.Error];
+    return !response[ProtocolClient.InspectorBackend.ProtocolError];
   }
 
   containsLocation(lineNumber, columnNumber) {
@@ -314,17 +391,35 @@ export default class Script {
     const beforeEnd = lineNumber < this.endLine || (lineNumber === this.endLine && columnNumber <= this.endColumn);
     return afterStart && beforeEnd;
   }
+
+  /**
+   * @return {string}
+   */
+  get frameId() {
+    if (typeof this[frameIdSymbol] !== 'string') {
+      this[frameIdSymbol] = frameIdForScript(this);
+    }
+    return this[frameIdSymbol];
+  }
+}
+
+const frameIdSymbol = Symbol('frameid');
+
+/**
+ * @param {!Script} script
+ * @return {string}
+ */
+function frameIdForScript(script) {
+  const executionContext = script.executionContext();
+  if (executionContext) {
+    return executionContext.frameId || '';
+  }
+  // This is to overcome compilation cache which doesn't get reset.
+  const resourceTreeModel = script.debuggerModel.target().model(ResourceTreeModel);
+  if (!resourceTreeModel || !resourceTreeModel.mainFrame) {
+    return '';
+  }
+  return resourceTreeModel.mainFrame.id;
 }
 
 export const sourceURLRegex = /^[\040\t]*\/\/[@#] sourceURL=\s*(\S*?)\s*$/;
-
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.Script = Script;
-
-SDK.Script.sourceURLRegex = sourceURLRegex;

@@ -30,21 +30,22 @@ sk_sp<GrVkIndexBuffer> GrVkIndexBuffer::Make(GrVkGpu* gpu, size_t size, bool dyn
 
     GrVkIndexBuffer* buffer = new GrVkIndexBuffer(gpu, desc, bufferResource);
     if (!buffer) {
-        bufferResource->unref(gpu);
+        bufferResource->unref();
     }
     return sk_sp<GrVkIndexBuffer>(buffer);
 }
 
 void GrVkIndexBuffer::onRelease() {
     if (!this->wasDestroyed()) {
-        this->vkRelease(this->getVkGpu());
+        this->vkRelease();
     }
-
     INHERITED::onRelease();
 }
 
 void GrVkIndexBuffer::onAbandon() {
-    this->vkAbandon();
+    if (!this->wasDestroyed()) {
+        this->vkRelease();
+    }
     INHERITED::onAbandon();
 }
 

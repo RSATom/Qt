@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/dom/node.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_shadow_root_init.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/comment.h"
@@ -14,7 +15,6 @@
 #include "third_party/blink/renderer/core/dom/processing_instruction.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
-#include "third_party/blink/renderer/core/dom/shadow_root_init.h"
 #include "third_party/blink/renderer/core/dom/slot_assignment_engine.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
 #include "third_party/blink/renderer/core/html/html_div_element.h"
@@ -269,7 +269,7 @@ TEST_F(NodeTest, AttachContext_PreviousInFlow_Slotted) {
   ShadowRoot& shadow_root =
       GetDocument().getElementById("host")->AttachShadowRootInternal(
           ShadowRootType::kOpen);
-  shadow_root.SetInnerHTMLFromString(
+  shadow_root.setInnerHTML(
       "<div id=root style='display:contents'><span></span><slot></slot></div>");
   UpdateAllLifecyclePhasesForTest();
 
@@ -352,8 +352,7 @@ TEST_F(NodeTest, SkipStyleDirtyHostChild) {
   Element* host = GetDocument().getElementById("host");
   ShadowRoot& shadow_root =
       host->AttachShadowRootInternal(ShadowRootType::kOpen);
-  shadow_root.SetInnerHTMLFromString(
-      "<div style='display:none'><slot></slot></div>");
+  shadow_root.setInnerHTML("<div style='display:none'><slot></slot></div>");
   UpdateAllLifecyclePhasesForTest();
   EXPECT_FALSE(GetDocument().NeedsLayoutTreeUpdate());
 
@@ -392,7 +391,7 @@ TEST_F(NodeTest, SkipForceReattachDisplayNone) {
   Element* host = GetDocument().getElementById("host");
   ShadowRoot& shadow_root =
       host->AttachShadowRootInternal(ShadowRootType::kOpen);
-  shadow_root.SetInnerHTMLFromString("<slot name='target'></slot>");
+  shadow_root.setInnerHTML("<slot name='target'></slot>");
   UpdateAllLifecyclePhasesForTest();
 
   Element* span = To<Element>(host->firstChild());
@@ -413,7 +412,7 @@ TEST_F(NodeTest, UpdateChildDirtyAncestorsOnSlotAssignment) {
   Element* host = GetDocument().getElementById("host");
   ShadowRoot& shadow_root =
       host->AttachShadowRootInternal(ShadowRootType::kOpen);
-  shadow_root.SetInnerHTMLFromString(
+  shadow_root.setInnerHTML(
       "<div><slot></slot></div><div id='child-dirty'><slot "
       "name='target'></slot></div>");
   UpdateAllLifecyclePhasesForTest();
@@ -439,7 +438,7 @@ TEST_F(NodeTest, UpdateChildDirtySlotAfterRemoval) {
   Element* host = GetDocument().getElementById("host");
   ShadowRoot& shadow_root =
       host->AttachShadowRootInternal(ShadowRootType::kOpen);
-  shadow_root.SetInnerHTMLFromString("<slot></slot>");
+  shadow_root.setInnerHTML("<slot></slot>");
   UpdateAllLifecyclePhasesForTest();
 
   auto* span = To<Element>(host->firstChild());
@@ -471,7 +470,7 @@ TEST_F(NodeTest, UpdateChildDirtyAfterSlotRemoval) {
   Element* host = GetDocument().getElementById("host");
   ShadowRoot& shadow_root =
       host->AttachShadowRootInternal(ShadowRootType::kOpen);
-  shadow_root.SetInnerHTMLFromString("<div><slot></slot></div>");
+  shadow_root.setInnerHTML("<div><slot></slot></div>");
   UpdateAllLifecyclePhasesForTest();
 
   auto* span = To<Element>(host->firstChild());
@@ -513,7 +512,7 @@ TEST_F(NodeTest, UpdateChildDirtyAfterSlottingDirtyNode) {
 
   ShadowRoot& shadow_root =
       host->AttachShadowRootInternal(ShadowRootType::kOpen);
-  shadow_root.SetInnerHTMLFromString("<div><slot name=x></slot></div>");
+  shadow_root.setInnerHTML("<div><slot name=x></slot></div>");
   UpdateAllLifecyclePhasesForTest();
 
   // Make sure the span is style dirty.

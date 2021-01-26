@@ -28,6 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
+import * as Host from '../host/host.js';
+
+import {SoftContextMenu} from './SoftContextMenu.js';
+
 /**
  * @unrestricted
  */
@@ -83,7 +88,7 @@ export class Item {
    */
   _buildDescriptor() {
     switch (this._type) {
-      case 'item':
+      case 'item': {
         const result = {type: 'item', id: this._id, label: this._label, enabled: !this._disabled};
         if (this._customElement) {
           result.element = this._customElement;
@@ -92,10 +97,13 @@ export class Item {
           result.shortcut = this._shortcut;
         }
         return result;
-      case 'separator':
+      }
+      case 'separator': {
         return {type: 'separator'};
-      case 'checkbox':
+      }
+      case 'checkbox': {
         return {type: 'checkbox', id: this._id, label: this._label, checked: !!this._checked, enabled: !this._disabled};
+      }
     }
     throw new Error('Invalid item type:' + this._type);
   }
@@ -146,10 +154,10 @@ export class Section {
   }
 
   /**
-   * @return {!UI.ContextMenuItem}
+   * @return {!Item}
    */
   appendSeparator() {
-    const item = new UI.ContextMenuItem(this._contextMenu, 'separator');
+    const item = new Item(this._contextMenu, 'separator');
     this._items.push(item);
     return item;
   }
@@ -160,7 +168,7 @@ export class Section {
    * @param {boolean=} optional
    */
   appendAction(actionId, label, optional) {
-    const action = UI.actionRegistry.action(actionId);
+    const action = self.UI.actionRegistry.action(actionId);
     if (!action) {
       if (!optional) {
         console.error(`Action ${actionId} was not defined`);
@@ -171,7 +179,7 @@ export class Section {
       label = action.title();
     }
     const result = this.appendItem(label, action.execute.bind(action));
-    const shortcut = UI.shortcutRegistry.shortcutTitleForAction(actionId);
+    const shortcut = self.UI.shortcutRegistry.shortcutTitleForAction(actionId);
     if (shortcut) {
       result.setShortcut(shortcut);
     }
@@ -207,7 +215,7 @@ export class Section {
 /**
  * @unrestricted
  */
-class SubMenu extends Item {
+export class SubMenu extends Item {
   /**
    * @param {?ContextMenu} contextMenu
    * @param {string=} label
@@ -358,7 +366,7 @@ Item._uniqueSectionName = 0;
 /**
  * @unrestricted
  */
-export default class ContextMenu extends SubMenu {
+export class ContextMenu extends SubMenu {
   /**
    * @param {!Event} event
    * @param {boolean=} useSoftMenu
@@ -388,10 +396,10 @@ export default class ContextMenu extends SubMenu {
   }
 
   static initialize() {
-    Host.InspectorFrontendHost.events.addEventListener(
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.addEventListener(
         Host.InspectorFrontendHostAPI.Events.SetUseSoftMenu, setUseSoftMenu);
     /**
-     * @param {!Common.Event} event
+     * @param {!Common.EventTarget.EventTargetEvent} event
      */
     function setUseSoftMenu(event) {
       ContextMenu._useSoftMenu = /** @type {boolean} */ (event.data);
@@ -459,19 +467,21 @@ export default class ContextMenu extends SubMenu {
 
   _innerShow() {
     const menuObject = this._buildMenuDescriptors();
-    if (this._useSoftMenu || ContextMenu._useSoftMenu || Host.InspectorFrontendHost.isHostedMode()) {
-      this._softMenu = new UI.SoftContextMenu(menuObject, this._itemSelected.bind(this));
+    if (this._useSoftMenu || ContextMenu._useSoftMenu ||
+        Host.InspectorFrontendHost.InspectorFrontendHostInstance.isHostedMode()) {
+      this._softMenu = new SoftContextMenu(menuObject, this._itemSelected.bind(this));
       this._softMenu.show(this._event.target.ownerDocument, new AnchorBox(this._x, this._y, 0, 0));
     } else {
-      Host.InspectorFrontendHost.showContextMenuAtPoint(this._x, this._y, menuObject, this._event.target.ownerDocument);
+      Host.InspectorFrontendHost.InspectorFrontendHostInstance.showContextMenuAtPoint(
+          this._x, this._y, menuObject, this._event.target.ownerDocument);
 
       /**
        * @this {ContextMenu}
        */
       function listenToEvents() {
-        Host.InspectorFrontendHost.events.addEventListener(
+        Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.addEventListener(
             Host.InspectorFrontendHostAPI.Events.ContextMenuCleared, this._menuCleared, this);
-        Host.InspectorFrontendHost.events.addEventListener(
+        Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.addEventListener(
             Host.InspectorFrontendHostAPI.Events.ContextMenuItemSelected, this._onItemSelected, this);
       }
 
@@ -513,7 +523,7 @@ export default class ContextMenu extends SubMenu {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onItemSelected(event) {
     this._itemSelected(/** @type {string} */ (event.data));
@@ -530,9 +540,9 @@ export default class ContextMenu extends SubMenu {
   }
 
   _menuCleared() {
-    Host.InspectorFrontendHost.events.removeEventListener(
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.removeEventListener(
         Host.InspectorFrontendHostAPI.Events.ContextMenuCleared, this._menuCleared, this);
-    Host.InspectorFrontendHost.events.removeEventListener(
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.removeEventListener(
         Host.InspectorFrontendHostAPI.Events.ContextMenuItemSelected, this._onItemSelected, this);
   }
 
@@ -568,28 +578,4 @@ export class Provider {
   appendApplicableItems(event, contextMenu, target) {}
 }
 
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.ContextMenu = ContextMenu;
-
 ContextMenu._groupWeights = _groupWeights;
-
-/**
- * @constructor
- */
-UI.ContextMenuItem = Item;
-
-/**
- * @constructor
- */
-UI.ContextMenuSection = Section;
-
-/**
- * @interface
- */
-UI.ContextMenu.Provider = Provider;

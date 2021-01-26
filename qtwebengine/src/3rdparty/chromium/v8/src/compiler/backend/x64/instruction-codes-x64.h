@@ -155,8 +155,6 @@ namespace compiler {
   V(X64F64x2Splat)                        \
   V(X64F64x2ExtractLane)                  \
   V(X64F64x2ReplaceLane)                  \
-  V(X64F64x2SConvertI64x2)                \
-  V(X64F64x2UConvertI64x2)                \
   V(X64F64x2Abs)                          \
   V(X64F64x2Neg)                          \
   V(X64F64x2Sqrt)                         \
@@ -242,6 +240,7 @@ namespace compiler {
   V(X64I32x4MaxU)                         \
   V(X64I32x4GtU)                          \
   V(X64I32x4GeU)                          \
+  V(X64I32x4Abs)                          \
   V(X64I16x8Splat)                        \
   V(X64I16x8ExtractLaneU)                 \
   V(X64I16x8ExtractLaneS)                 \
@@ -274,6 +273,8 @@ namespace compiler {
   V(X64I16x8MaxU)                         \
   V(X64I16x8GtU)                          \
   V(X64I16x8GeU)                          \
+  V(X64I16x8RoundingAverageU)             \
+  V(X64I16x8Abs)                          \
   V(X64I8x16Splat)                        \
   V(X64I8x16ExtractLaneU)                 \
   V(X64I8x16ExtractLaneS)                 \
@@ -301,12 +302,15 @@ namespace compiler {
   V(X64I8x16MaxU)                         \
   V(X64I8x16GtU)                          \
   V(X64I8x16GeU)                          \
+  V(X64I8x16RoundingAverageU)             \
+  V(X64I8x16Abs)                          \
   V(X64S128Zero)                          \
   V(X64S128Not)                           \
   V(X64S128And)                           \
   V(X64S128Or)                            \
   V(X64S128Xor)                           \
   V(X64S128Select)                        \
+  V(X64S128AndNot)                        \
   V(X64S8x16Swizzle)                      \
   V(X64S8x16Shuffle)                      \
   V(X64S8x16LoadSplat)                    \

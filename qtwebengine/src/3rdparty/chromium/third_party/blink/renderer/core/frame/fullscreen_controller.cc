@@ -33,14 +33,15 @@
 #include "base/memory/ptr_util.h"
 #include "third_party/blink/public/mojom/frame/fullscreen.mojom-blink.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_fullscreen_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/page_scale_constraints_set.h"
+#include "third_party/blink/renderer/core/frame/screen.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
-#include "third_party/blink/renderer/core/fullscreen/fullscreen_options.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/spatial_navigation.h"
@@ -60,8 +61,12 @@ void FullscreenController::DidEnterFullscreen() {
     return;
 
   UpdatePageScaleConstraints(false);
-  web_view_base_->SetPageScaleFactor(1.0f);
-  web_view_base_->SetVisualViewportOffset(FloatPoint());
+
+  // Only reset the scale for the local main frame.
+  if (web_view_base_->MainFrameImpl()) {
+    web_view_base_->SetPageScaleFactor(1.0f);
+    web_view_base_->SetVisualViewportOffset(FloatPoint());
+  }
 
   state_ = State::kFullscreen;
 
@@ -141,14 +146,24 @@ void FullscreenController::EnterFullscreen(LocalFrame& frame,
     return;
 
   DCHECK(state_ == State::kInitial);
+  auto fullscreen_options = mojom::blink::FullscreenOptions::New();
+  fullscreen_options->prefers_navigation_bar =
+      options->navigationUI() != "hide";
+  if (options->hasScreen()) {
+    DCHECK(RuntimeEnabledFeatures::WindowPlacementEnabled());
+    if (options->screen()->DisplayId() != Screen::kInvalidDisplayId)
+      fullscreen_options->display_id = options->screen()->DisplayId();
+  }
+
   // Don't send redundant EnterFullscreen message to the browser for the
   // ancestor frames if the subframe has already entered fullscreen.
   if (!for_cross_process_descendant) {
-      frame.GetLocalFrameHostRemote().EnterFullscreen(
-          mojom::blink::FullscreenOptions::New(options->navigationUI() != "hide"),
-          WTF::Bind(&FullscreenController::EnterFullscreenCallback,
-                    WTF::Unretained(this)));
+    frame.GetLocalFrameHostRemote().EnterFullscreen(
+        std::move(fullscreen_options),
+        WTF::Bind(&FullscreenController::EnterFullscreenCallback,
+                  WTF::Unretained(this)));
   }
+
   state_ = State::kEnteringFullscreen;
 }
 

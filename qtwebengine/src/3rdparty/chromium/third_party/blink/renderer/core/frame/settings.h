@@ -32,6 +32,7 @@
 
 #include "base/macros.h"
 #include "third_party/blink/public/common/css/navigation_controls.h"
+#include "third_party/blink/public/common/css/preferred_color_scheme.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom-shared.h"
 #include "third_party/blink/public/platform/pointer_properties.h"
 #include "third_party/blink/public/platform/web_effective_connection_type.h"
@@ -82,9 +83,6 @@ class CORE_EXPORT Settings {
     return text_autosizing_window_size_override_;
   }
 
-  void SetForceDarkModeEnabled(bool enabled);
-  bool ForceDarkModeEnabled() const { return force_dark_mode_; }
-
   SETTINGS_GETTERS_AND_SETTERS
 
   void SetDelegate(SettingsDelegate*);
@@ -98,7 +96,6 @@ class CORE_EXPORT Settings {
   IntSize text_autosizing_window_size_override_;
   bool text_autosizing_enabled_ : 1;
   bool bypass_csp_ = false;
-  bool force_dark_mode_ = false;
 
   SETTINGS_MEMBER_VARIABLES
 

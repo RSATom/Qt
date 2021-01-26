@@ -21,21 +21,6 @@
 namespace extensions {
 namespace declarative_net_request {
 
-namespace {
-
-base::Optional<RequestAction> GetMaxPriorityAction(
-    base::Optional<RequestAction> lhs,
-    base::Optional<RequestAction> rhs) {
-  if (!lhs)
-    return rhs;
-  if (!rhs)
-    return lhs;
-  return lhs->rule_priority > rhs->rule_priority ? std::move(lhs)
-                                                 : std::move(rhs);
-}
-
-}  // namespace
-
 // static
 RulesetMatcher::LoadRulesetResult RulesetMatcher::CreateVerifiedMatcher(
     const RulesetSource& source,
@@ -70,47 +55,19 @@ RulesetMatcher::LoadRulesetResult RulesetMatcher::CreateVerifiedMatcher(
 
   // Using WrapUnique instead of make_unique since this class has a private
   // constructor.
-  *matcher = base::WrapUnique(new RulesetMatcher(
-      std::move(ruleset_data), source.id(), source.priority(), source.type(),
-      source.extension_id()));
+  *matcher = base::WrapUnique(new RulesetMatcher(std::move(ruleset_data),
+                                                 source.id(), source.type(),
+                                                 source.extension_id()));
   return kLoadSuccess;
 }
 
 RulesetMatcher::~RulesetMatcher() = default;
 
-base::Optional<RequestAction> RulesetMatcher::GetBlockOrCollapseAction(
-    const RequestParams& params) const {
-  base::Optional<RequestAction> action =
-      url_pattern_index_matcher_.GetBlockOrCollapseAction(params);
-  if (!action)
-    action = regex_matcher_.GetBlockOrCollapseAction(params);
-  return action;
-}
-
-base::Optional<RequestAction> RulesetMatcher::GetAllowAction(
-    const RequestParams& params) const {
-  base::Optional<RequestAction> action =
-      url_pattern_index_matcher_.GetAllowAction(params);
-  if (!action)
-    action = regex_matcher_.GetAllowAction(params);
-  return std::move(action);
-}
-
-base::Optional<RequestAction> RulesetMatcher::GetRedirectAction(
+base::Optional<RequestAction> RulesetMatcher::GetBeforeRequestAction(
     const RequestParams& params) const {
   return GetMaxPriorityAction(
-      url_pattern_index_matcher_.GetRedirectAction(params),
-      regex_matcher_.GetRedirectAction(params));
-}
-
-base::Optional<RequestAction> RulesetMatcher::GetUpgradeAction(
-    const RequestParams& params) const {
-  if (!IsUpgradeableRequest(params))
-    return base::nullopt;
-
-  return GetMaxPriorityAction(
-      url_pattern_index_matcher_.GetUpgradeAction(params),
-      regex_matcher_.GetUpgradeAction(params));
+      url_pattern_index_matcher_.GetBeforeRequestAction(params),
+      regex_matcher_.GetBeforeRequestAction(params));
 }
 
 uint8_t RulesetMatcher::GetRemoveHeadersMask(
@@ -134,24 +91,37 @@ bool RulesetMatcher::IsExtraHeadersMatcher() const {
          regex_matcher_.IsExtraHeadersMatcher();
 }
 
+void RulesetMatcher::OnRenderFrameCreated(content::RenderFrameHost* host) {
+  url_pattern_index_matcher_.OnRenderFrameCreated(host);
+  regex_matcher_.OnRenderFrameCreated(host);
+}
+
+void RulesetMatcher::OnRenderFrameDeleted(content::RenderFrameHost* host) {
+  url_pattern_index_matcher_.OnRenderFrameDeleted(host);
+  regex_matcher_.OnRenderFrameDeleted(host);
+}
+
+void RulesetMatcher::OnDidFinishNavigation(content::RenderFrameHost* host) {
+  url_pattern_index_matcher_.OnDidFinishNavigation(host);
+  regex_matcher_.OnDidFinishNavigation(host);
+}
+
 base::Optional<RequestAction>
-RulesetMatcher::GetRedirectOrUpgradeActionByPriority(
-    const RequestParams& params) const {
-  return GetMaxPriorityAction(GetRedirectAction(params),
-                              GetUpgradeAction(params));
+RulesetMatcher::GetAllowlistedFrameActionForTesting(
+    content::RenderFrameHost* host) const {
+  return GetMaxPriorityAction(
+      url_pattern_index_matcher_.GetAllowlistedFrameActionForTesting(host),
+      regex_matcher_.GetAllowlistedFrameActionForTesting(host));
 }
 
 RulesetMatcher::RulesetMatcher(
     std::string ruleset_data,
-    size_t id,
-    size_t priority,
+    int id,
     api::declarative_net_request::SourceType source_type,
     const ExtensionId& extension_id)
-    : RulesetMatcherBase(extension_id, source_type),
-      ruleset_data_(std::move(ruleset_data)),
+    : ruleset_data_(std::move(ruleset_data)),
       root_(flat::GetExtensionIndexedRuleset(ruleset_data_.data())),
       id_(id),
-      priority_(priority),
       url_pattern_index_matcher_(extension_id,
                                  source_type,
                                  root_->index_list(),

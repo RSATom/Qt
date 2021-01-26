@@ -21,6 +21,7 @@ extern const Substitution CSubstitutionCFlagsCc;
 extern const Substitution CSubstitutionCFlagsObjC;
 extern const Substitution CSubstitutionCFlagsObjCc;
 extern const Substitution CSubstitutionDefines;
+extern const Substitution CSubstitutionFrameworkDirs;
 extern const Substitution CSubstitutionIncludeDirs;
 
 // Valid for linker tools.
@@ -30,6 +31,7 @@ extern const Substitution CSubstitutionLdFlags;
 extern const Substitution CSubstitutionLibs;
 extern const Substitution CSubstitutionOutputExtension;
 extern const Substitution CSubstitutionSoLibs;
+extern const Substitution CSubstitutionFrameworks;
 
 // Valid for alink only.
 extern const Substitution CSubstitutionArFlags;

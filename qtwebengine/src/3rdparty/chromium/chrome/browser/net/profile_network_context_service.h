@@ -104,7 +104,7 @@ class ProfileNetworkContextService
       ProfileNetworkContextServiceCertVerifierBuiltinFeaturePolicyTest,
       Test);
 
-  friend class AmbientAuthenticationTestWithPolicy;
+  friend class AmbientAuthenticationTestHelper;
 
   // Checks |quic_allowed_|, and disables QUIC if needed.
   void DisableQuicIfNotAllowed();
@@ -112,9 +112,6 @@ class ProfileNetworkContextService
   // Forwards changes to |pref_accept_language_| to the NetworkContext, after
   // formatting them as appropriate.
   void UpdateAcceptLanguage();
-
-  // Forwards changes to |block_third_party_cookies_| to the NetworkContext.
-  void UpdateBlockThirdPartyCookies();
 
   // Computes appropriate value of Accept-Language header based on
   // |pref_accept_language_|

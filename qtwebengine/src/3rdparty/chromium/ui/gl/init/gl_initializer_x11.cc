@@ -153,7 +153,8 @@ bool InitializeGLOneOffPlatform() {
     case kGLImplementationSwiftShaderGL:
     case kGLImplementationEGLGLES2:
     case kGLImplementationEGLANGLE:
-      if (!GLSurfaceEGL::InitializeOneOff(gfx::GetXDisplay())) {
+      if (!GLSurfaceEGL::InitializeOneOff(
+              EGLDisplayPlatform(gfx::GetXDisplay()))) {
         LOG(ERROR) << "GLSurfaceEGL::InitializeOneOff failed.";
         return false;
       }
@@ -194,12 +195,6 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
   return false;
 }
 #endif // !defined(TOOLKIT_QT)
-
-void InitializeLogGLBindings() {
-  InitializeLogGLBindingsEGL();
-  InitializeLogGLBindingsGL();
-  InitializeLogGLBindingsGLX();
-}
 
 void ShutdownGLPlatform() {
   GLSurfaceEGL::ShutdownOneOff();

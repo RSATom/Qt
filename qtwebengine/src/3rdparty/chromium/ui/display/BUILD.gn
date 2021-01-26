@@ -9,7 +9,7 @@ import("//ui/display/display.gni")
 
 # Reset sources_assignment_filter for the BUILD.gn file to prevent
 # regression during the migration of Chromium away from the feature.
-# See build/no_sources_assignment_filter.md for more information.
+# See docs/no_sources_assignment_filter.md for more information.
 # TODO(crbug.com/1018739): remove this when migration is done.
 set_sources_assignment_filter([])
 
@@ -34,6 +34,8 @@ jumbo_component("display") {
     "display_observer.h",
     "display_switches.cc",
     "display_switches.h",
+    "display_transform.cc",
+    "display_transform.h",
     "screen.cc",
     "screen.h",
     "screen_base.cc",
@@ -120,9 +122,7 @@ component("display_manager_test_api") {
 
   defines = [ "DISPLAY_IMPLEMENTATION" ]
 
-  public_deps = [
-    "//ui/display/manager",
-  ]
+  public_deps = [ "//ui/display/manager" ]
 
   deps = [
     "//base",
@@ -145,6 +145,8 @@ jumbo_static_library("test_support") {
 
   if (is_win) {
     sources += [
+      "win/test/scoped_screen_win.cc",
+      "win/test/scoped_screen_win.h",
       "win/test/screen_util_win.cc",
       "win/test/screen_util_win.h",
     ]

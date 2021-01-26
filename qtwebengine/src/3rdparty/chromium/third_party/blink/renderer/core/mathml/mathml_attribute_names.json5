@@ -8,9 +8,15 @@
 
   data: [
     "definitionURL",
+    "depth",
+    "display",
+    "displaystyle",
     "encoding",
+    "height",
+    "linethickness",
     "mathbackground",
     "mathcolor",
     "mathsize",
+    "width",
   ],
 }

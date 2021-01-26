@@ -163,15 +163,17 @@ void TabsEventRouter::TabEntry::WebContentsDestroyed() {
 }
 
 TabsEventRouter::TabsEventRouter(Profile* profile)
-    : profile_(profile), browser_tab_strip_tracker_(this, this, this) {
+    : profile_(profile), browser_tab_strip_tracker_(this, this) {
   DCHECK(!profile->IsOffTheRecord());
 
+  BrowserList::AddObserver(this);
   browser_tab_strip_tracker_.Init();
 
   tab_manager_scoped_observer_.Add(g_browser_process->GetTabManager());
 }
 
 TabsEventRouter::~TabsEventRouter() {
+  BrowserList::RemoveObserver(this);
 }
 
 bool TabsEventRouter::ShouldTrackBrowser(Browser* browser) {
@@ -302,7 +304,13 @@ void TabsEventRouter::OnDiscardedStateChange(
     ::mojom::LifecycleUnitDiscardReason reason,
     bool is_discarded) {
   std::set<std::string> changed_property_names;
+  // If the "discarded" property changes, so does the "status" property:
+  // - a discarded tab has status "unloaded", and will transition to "loading"
+  //   on un-discarding; and,
+  // - a tab can only be discarded if its status is "complete" or "loading", in
+  //   which case it will transition to "unloaded".
   changed_property_names.insert(tabs_constants::kDiscardedKey);
+  changed_property_names.insert(tabs_constants::kStatusKey);
   DispatchTabUpdatedEvent(contents, std::move(changed_property_names));
 }
 

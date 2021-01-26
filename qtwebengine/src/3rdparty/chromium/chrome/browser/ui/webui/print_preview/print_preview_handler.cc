@@ -16,12 +16,14 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
+#include "base/containers/flat_set.h"
 #include "base/feature_list.h"
 #include "base/i18n/number_formatting.h"
 #include "base/json/json_reader.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -60,7 +62,6 @@
 #include "components/prefs/pref_service.h"
 #include "components/printing/browser/printer_capabilities.h"
 #include "components/printing/common/cloud_print_cdd_conversion.h"
-#include "components/printing/common/print_messages.h"
 #include "components/signin/public/identity_manager/accounts_in_cookie_jar_info.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
 #include "components/url_formatter/url_formatter.h"
@@ -75,16 +76,17 @@
 #include "printing/backend/print_backend_consts.h"
 #include "printing/buildflags/buildflags.h"
 #include "printing/print_settings.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/icu/source/i18n/unicode/ulocdata.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/account_manager/account_manager_util.h"
-#include "chrome/browser/chromeos/settings/device_oauth2_token_service.h"
-#include "chrome/browser/chromeos/settings/device_oauth2_token_service_factory.h"
+#include "chrome/browser/device_identity/device_oauth2_token_service.h"
+#include "chrome/browser/device_identity/device_oauth2_token_service_factory.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/webui/signin/inline_login_handler_dialog_chromeos.h"
 #include "chromeos/printing/printer_configuration.h"
-#include "services/identity/public/cpp/scope_set.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 #endif
 
 using content::RenderFrameHost;
@@ -170,16 +172,16 @@ void ReportPrintSettingHistogram(PrintSettingsBuckets setting) {
 
 void ReportPrintDocumentTypeAndSizeHistograms(PrintDocumentTypeBuckets doctype,
                                               size_t average_page_size_in_kb) {
-  UMA_HISTOGRAM_ENUMERATION("PrintPreview.PrintDocumentType", doctype,
-                            PRINT_DOCUMENT_TYPE_BUCKET_BOUNDARY);
+  base::UmaHistogramEnumeration("PrintPreview.PrintDocumentType", doctype,
+                                PRINT_DOCUMENT_TYPE_BUCKET_BOUNDARY);
   switch (doctype) {
     case HTML_DOCUMENT:
-      UMA_HISTOGRAM_MEMORY_KB("PrintPreview.PrintDocumentSize.HTML",
-                              average_page_size_in_kb);
+      base::UmaHistogramMemoryKB("PrintPreview.PrintDocumentSize.HTML",
+                                 average_page_size_in_kb);
       break;
     case PDF_DOCUMENT:
-      UMA_HISTOGRAM_MEMORY_KB("PrintPreview.PrintDocumentSize.PDF",
-                              average_page_size_in_kb);
+      base::UmaHistogramMemoryKB("PrintPreview.PrintDocumentSize.PDF",
+                                 average_page_size_in_kb);
       break;
     default:
       NOTREACHED();
@@ -339,9 +341,24 @@ void ReportPrintSettingsStats(const base::Value& print_settings,
     ReportPrintSettingHistogram(duplex_mode_opt.value() ? DUPLEX : SIMPLEX);
 
   base::Optional<int> color_mode_opt = print_settings.FindIntKey(kSettingColor);
-  if (color_mode_opt) {
-    ReportPrintSettingHistogram(
-        IsColorModelSelected(color_mode_opt.value()) ? COLOR : BLACK_AND_WHITE);
+  if (color_mode_opt.has_value()) {
+    bool unknown_color_model = color_mode_opt.value() == UNKNOWN_COLOR_MODEL;
+    if (!unknown_color_model) {
+      base::Optional<bool> is_color =
+          IsColorModelSelected(color_mode_opt.value());
+      ReportPrintSettingHistogram(is_color.value() ? COLOR : BLACK_AND_WHITE);
+    }
+
+    // Record whether the printing backend does not understand the printer's
+    // color capabilities. Do this only once per device.
+    static base::NoDestructor<base::flat_set<std::string>> seen_devices;
+    auto result =
+        seen_devices->insert(*print_settings.FindStringKey(kSettingDeviceName));
+    bool is_new_device = result.second;
+    if (is_new_device) {
+      base::UmaHistogramBoolean("Printing.CUPS.UnknownPpdColorModel",
+                                unknown_color_model);
+    }
   }
 
   if (preview_settings.FindIntKey(kSettingMarginsType).value_or(0) != 0)
@@ -470,15 +487,12 @@ class PrintPreviewHandler::AccessTokenService
   void RequestToken(base::OnceCallback<void(const std::string&)> callback) {
     // There can only be one pending request at a time. See
     // cloud_print_interface_js.js.
-    const identity::ScopeSet scopes{cloud_devices::kCloudPrintAuthScope};
+    const signin::ScopeSet scopes{cloud_devices::kCloudPrintAuthScope};
     DCHECK(!device_request_callback_);
 
-    chromeos::DeviceOAuth2TokenService* token_service =
-        chromeos::DeviceOAuth2TokenServiceFactory::Get();
-    CoreAccountId account_id = token_service->GetRobotAccountId();
-
-    device_request_ =
-        token_service->StartAccessTokenRequest(account_id, scopes, this);
+    DeviceOAuth2TokenService* token_service =
+        DeviceOAuth2TokenServiceFactory::Get();
+    device_request_ = token_service->StartAccessTokenRequest(scopes, this);
     device_request_callback_ = std::move(callback);
   }
 
@@ -518,8 +532,8 @@ PrintPreviewHandler::PrintPreviewHandler()
 }
 
 PrintPreviewHandler::~PrintPreviewHandler() {
-  UMA_HISTOGRAM_COUNTS_1M("PrintPreview.ManagePrinters",
-                          manage_printers_dialog_request_count_);
+  base::UmaHistogramCounts1M("PrintPreview.ManagePrinters",
+                             manage_printers_dialog_request_count_);
   UnregisterForGaiaCookieChanges();
 }
 
@@ -821,16 +835,19 @@ void PrintPreviewHandler::HandleGetPreview(const base::ListValue* args) {
 
   VLOG(1) << "Print preview request start";
 
-  rfh->Send(new PrintMsg_PrintPreview(
-      rfh->GetRoutingID(), static_cast<base::DictionaryValue&>(settings)));
+  if (!print_render_frame_.is_bound())
+    rfh->GetRemoteAssociatedInterfaces()->GetInterface(&print_render_frame_);
+
+  print_render_frame_->PrintPreview(settings.Clone());
   last_preview_settings_ = std::move(settings);
 }
 
 void PrintPreviewHandler::HandlePrint(const base::ListValue* args) {
   // Record the number of times the user requests to regenerate preview data
   // before printing.
-  UMA_HISTOGRAM_COUNTS_1M("PrintPreview.RegeneratePreviewRequest.BeforePrint",
-                          regenerate_preview_request_count_);
+  base::UmaHistogramCounts1M(
+      "PrintPreview.RegeneratePreviewRequest.BeforePrint",
+      regenerate_preview_request_count_);
   std::string callback_id;
   CHECK(args->GetString(0, &callback_id));
   CHECK(!callback_id.empty());
@@ -1010,8 +1027,9 @@ void PrintPreviewHandler::HandleClosePreviewDialog(
 
   // Record the number of times the user requests to regenerate preview data
   // before cancelling.
-  UMA_HISTOGRAM_COUNTS_1M("PrintPreview.RegeneratePreviewRequest.BeforeCancel",
-                          regenerate_preview_request_count_);
+  base::UmaHistogramCounts1M(
+      "PrintPreview.RegeneratePreviewRequest.BeforeCancel",
+      regenerate_preview_request_count_);
 }
 
 #if defined(OS_CHROMEOS)
@@ -1257,7 +1275,7 @@ void PrintPreviewHandler::OnAccountsInCookieUpdated(
   base::Value account_list(base::Value::Type::LIST);
   const std::vector<gaia::ListedAccount>& accounts =
       accounts_in_cookie_jar_info.signed_in_accounts;
-  for (const auto account : accounts) {
+  for (const auto& account : accounts) {
     account_list.Append(account.email);
   }
   FireWebUIListener("user-accounts-updated", std::move(account_list));

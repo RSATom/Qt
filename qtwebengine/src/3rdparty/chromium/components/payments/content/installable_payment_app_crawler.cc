@@ -15,10 +15,13 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/manifest_icon_downloader.h"
 #include "content/public/browser/payment_app_provider.h"
 #include "content/public/browser/permission_controller.h"
 #include "content/public/browser/permission_type.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
@@ -30,9 +33,9 @@
 namespace payments {
 
 // TODO(crbug.com/782270): Use cache to accelerate crawling procedure.
-// TODO(crbug.com/782270): Add integration tests for this class.
 InstallablePaymentAppCrawler::InstallablePaymentAppCrawler(
     const url::Origin& merchant_origin,
+    content::RenderFrameHost* initiator_render_frame_host,
     content::WebContents* web_contents,
     PaymentManifestDownloader* downloader,
     PaymentManifestParser* parser,
@@ -40,6 +43,13 @@ InstallablePaymentAppCrawler::InstallablePaymentAppCrawler(
     : WebContentsObserver(web_contents),
       log_(web_contents),
       merchant_origin_(merchant_origin),
+      initiator_frame_routing_id_(
+          initiator_render_frame_host &&
+                  initiator_render_frame_host->GetProcess()
+              ? content::GlobalFrameRoutingId(
+                    initiator_render_frame_host->GetProcess()->GetID(),
+                    initiator_render_frame_host->GetRoutingID())
+              : content::GlobalFrameRoutingId()),
       downloader_(downloader),
       parser_(parser),
       number_of_payment_method_manifest_to_download_(0),
@@ -121,7 +131,7 @@ void InstallablePaymentAppCrawler::OnPaymentMethodManifestDownloaded(
 
   number_of_payment_method_manifest_to_parse_++;
   parser_->ParsePaymentMethodManifest(
-      content, base::BindOnce(
+      method_manifest_url, content, base::BindOnce(
                    &InstallablePaymentAppCrawler::OnPaymentMethodManifestParsed,
                    weak_ptr_factory_.GetWeakPtr(), method_manifest_url,
                    method_manifest_url_after_redirects));
@@ -224,11 +234,17 @@ void InstallablePaymentAppCrawler::OnPaymentWebAppInstallationInfo(
     std::unique_ptr<std::vector<PaymentManifestParser::WebAppIcon>> icons) {
   number_of_web_app_manifest_to_parse_--;
 
+  // Only download and decode payment app's icon if it is valid and stored.
   if (CompleteAndStorePaymentWebAppInfoIfValid(
           method_manifest_url, web_app_manifest_url, std::move(app_info))) {
-    // Only download and decode payment app's icon if it is valid and stored.
-    DownloadAndDecodeWebAppIcon(method_manifest_url, web_app_manifest_url,
-                                std::move(icons));
+    if (!DownloadAndDecodeWebAppIcon(method_manifest_url, web_app_manifest_url,
+                                     std::move(icons))) {
+      std::string error_message = base::ReplaceStringPlaceholders(
+          errors::kInvalidWebAppIcon, {web_app_manifest_url.spec()}, nullptr);
+      SetFirstError(error_message);
+      // App without a valid icon is not JIT installable.
+      installable_apps_.erase(method_manifest_url);
+    }
   }
 
   FinishCrawlingPaymentAppsIfReady();
@@ -320,7 +336,7 @@ bool InstallablePaymentAppCrawler::CompleteAndStorePaymentWebAppInfoIfValid(
   return true;
 }
 
-void InstallablePaymentAppCrawler::DownloadAndDecodeWebAppIcon(
+bool InstallablePaymentAppCrawler::DownloadAndDecodeWebAppIcon(
     const GURL& method_manifest_url,
     const GURL& web_app_manifest_url,
     std::unique_ptr<std::vector<PaymentManifestParser::WebAppIcon>> icons) {
@@ -330,7 +346,7 @@ void InstallablePaymentAppCrawler::DownloadAndDecodeWebAppIcon(
         "web app manifest \"" +
         web_app_manifest_url.spec() + "\" for payment handler manifest \"" +
         method_manifest_url.spec() + "\".");
-    return;
+    return false;
   }
 
   std::vector<blink::Manifest::ImageResource> manifest_icons;
@@ -373,7 +389,7 @@ void InstallablePaymentAppCrawler::DownloadAndDecodeWebAppIcon(
               web_app_manifest_url.spec() +
               "\" for payment handler manifest \"" +
               method_manifest_url.spec() + "\".");
-    return;
+    return false;
   }
 
   // Stop if the web_contents is gone.
@@ -383,7 +399,7 @@ void InstallablePaymentAppCrawler::DownloadAndDecodeWebAppIcon(
         "manifest \"" +
         web_app_manifest_url.spec() + "\" for payment handler manifest \"" +
         method_manifest_url.spec() + "\").");
-    return;
+    return false;
   }
 
   gfx::NativeView native_view = web_contents()->GetNativeView();
@@ -397,10 +413,29 @@ void InstallablePaymentAppCrawler::DownloadAndDecodeWebAppIcon(
               web_app_manifest_url.spec() +
               "\" for payment handler manifest \"" +
               method_manifest_url.spec() + "\".");
-    return;
+    return false;
   }
 
   number_of_web_app_icons_to_download_and_decode_++;
+
+  // If the initiator frame doesn't exists any more, e.g. the frame has
+  // navigated away, don't download the icon.
+  // TODO(crbug.com/1058840): Move this sanity check to ManifestIconDownloader
+  // after DownloadImage refactor is done.
+  content::RenderFrameHost* render_frame_host =
+      content::RenderFrameHost::FromID(initiator_frame_routing_id_);
+  if (!render_frame_host || !render_frame_host->IsCurrent() ||
+      content::WebContents::FromRenderFrameHost(render_frame_host) !=
+          web_contents()) {
+    // Post the result back asynchronously.
+    base::PostTask(
+        FROM_HERE, {content::BrowserThread::UI},
+        base::BindOnce(
+            &InstallablePaymentAppCrawler::FinishCrawlingPaymentAppsIfReady,
+            weak_ptr_factory_.GetWeakPtr()));
+    return false;
+  }
+
   bool can_download_icon = content::ManifestIconDownloader::Download(
       web_contents(), downloader_->FindTestServerURL(best_icon_url),
       IconSizeCalculator::IdealIconHeight(native_view),
@@ -409,8 +444,10 @@ void InstallablePaymentAppCrawler::DownloadAndDecodeWebAppIcon(
           &InstallablePaymentAppCrawler::OnPaymentWebAppIconDownloadAndDecoded,
           weak_ptr_factory_.GetWeakPtr(), method_manifest_url,
           web_app_manifest_url),
-      false /* square_only */);
+      false, /* square_only */
+      initiator_frame_routing_id_);
   DCHECK(can_download_icon);
+  return can_download_icon;
 }
 
 void InstallablePaymentAppCrawler::OnPaymentWebAppIconDownloadAndDecoded(
@@ -418,16 +455,19 @@ void InstallablePaymentAppCrawler::OnPaymentWebAppIconDownloadAndDecoded(
     const GURL& web_app_manifest_url,
     const SkBitmap& icon) {
   number_of_web_app_icons_to_download_and_decode_--;
+  auto it = installable_apps_.find(method_manifest_url);
+  DCHECK(it != installable_apps_.end());
+  DCHECK(IsSameOriginWith(GURL(it->second->sw_scope), web_app_manifest_url));
   if (icon.drawsNothing()) {
     log_.Error(
         "Failed to download or decode the icon from web app manifest \"" +
         web_app_manifest_url.spec() + "\" for payment handler manifest \"" +
         method_manifest_url.spec() + "\".");
+    std::string error_message = base::ReplaceStringPlaceholders(
+        errors::kInvalidWebAppIcon, {web_app_manifest_url.spec()}, nullptr);
+    SetFirstError(error_message);
+    installable_apps_.erase(it);
   } else {
-    auto it = installable_apps_.find(method_manifest_url);
-    DCHECK(it != installable_apps_.end());
-    DCHECK(IsSameOriginWith(GURL(it->second->sw_scope), web_app_manifest_url));
-
     it->second->icon = std::make_unique<SkBitmap>(icon);
   }
 

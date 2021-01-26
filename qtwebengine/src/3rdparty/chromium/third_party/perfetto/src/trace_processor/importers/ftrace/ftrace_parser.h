@@ -19,7 +19,9 @@
 
 #include "perfetto/trace_processor/status.h"
 #include "src/trace_processor/event_tracker.h"
+#include "src/trace_processor/importers/ftrace/binder_tracker.h"
 #include "src/trace_processor/importers/ftrace/ftrace_descriptors.h"
+#include "src/trace_processor/importers/ftrace/rss_stat_tracker.h"
 #include "src/trace_processor/importers/ftrace/sched_event_tracker.h"
 #include "src/trace_processor/timestamped_trace_piece.h"
 #include "src/trace_processor/trace_blob_view.h"
@@ -58,7 +60,6 @@ class FtraceParser {
   void ParseSdeTracingMarkWrite(int64_t timestamp,
                                 uint32_t pid,
                                 protozero::ConstBytes);
-  void ParseRssStat(int64_t ts, uint32_t pid, protozero::ConstBytes);
   void ParseIonHeapGrowOrShrink(int64_t ts,
                                 uint32_t pid,
                                 protozero::ConstBytes,
@@ -76,24 +77,10 @@ class FtraceParser {
                         uint32_t source_tid,
                         protozero::ConstBytes);
   void ParseTaskRename(protozero::ConstBytes);
-  void ParseBinderTransaction(int64_t timestamp,
-                              uint32_t pid,
-                              protozero::ConstBytes);
-  void ParseBinderTransactionReceived(int64_t timestamp,
-                                      uint32_t pid,
-                                      protozero::ConstBytes);
-  void ParseBinderTransactionAllocBuf(int64_t timestamp,
-                                      uint32_t pid,
-                                      protozero::ConstBytes);
-  void ParseBinderLocked(int64_t timestamp,
-                         uint32_t pid,
-                         protozero::ConstBytes);
-  void ParseBinderLock(int64_t timestamp, uint32_t pid, protozero::ConstBytes);
-  void ParseBinderUnlock(int64_t timestamp,
-                         uint32_t pid,
-                         protozero::ConstBytes);
 
   TraceProcessorContext* context_;
+  BinderTracker binder_tracker_;
+  RssStatTracker rss_stat_tracker_;
 
   const StringId sched_wakeup_name_id_;
   const StringId sched_waking_name_id_;
@@ -107,12 +94,11 @@ class FtraceParser {
   const StringId oom_score_adj_id_;
   const StringId lmk_id_;
   const StringId comm_name_id_;
-
-  std::vector<StringId> rss_members_;
+  const StringId signal_name_id_;
 
   struct FtraceMessageStrings {
     // The string id of name of the event field (e.g. sched_switch's id).
-    StringId message_name_id = 0;
+    StringId message_name_id = kNullStringId;
     std::array<StringId, kMaxFtraceEventFields> field_name_ids;
   };
   std::vector<FtraceMessageStrings> ftrace_message_strings_;
@@ -122,9 +108,9 @@ class FtraceParser {
     MmEventCounterNames(StringId _count, StringId _max_lat, StringId _avg_lat)
         : count(_count), max_lat(_max_lat), avg_lat(_avg_lat) {}
 
-    StringId count = 0;
-    StringId max_lat = 0;
-    StringId avg_lat = 0;
+    StringId count = kNullStringId;
+    StringId max_lat = kNullStringId;
+    StringId avg_lat = kNullStringId;
   };
 
   // Keep kMmEventCounterSize equal to mm_event_type::MM_TYPE_NUM in the kernel.

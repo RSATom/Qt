@@ -2,46 +2,50 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../common/common.js';
+import * as UI from '../ui/ui.js';
+
+import {PlayerEventsView} from './EventDisplayTable.js';
+import {Event, MediaChangeTypeKeys} from './MediaModel.js';  // eslint-disable-line no-unused-vars
+import {PlayerPropertiesView} from './PlayerPropertiesView.js';
+
+/**
+ * @enum {string}
+ */
+export const PlayerDetailViewTabs = {
+  Events: 'events',
+  Properties: 'properties',
+};
+
 /**
  * @unrestricted
  */
-Media.PlayerDetailView = class extends UI.TabbedPane {
+export class PlayerDetailView extends UI.TabbedPane.TabbedPane {
   constructor() {
     super();
 
-    const propertyTable = new Media.MediaPlayerPropertiesRenderer();
-    const eventTable = new Media.MediaPlayerEventTableRenderer();
+    const eventView = new PlayerEventsView();
+    const propertyView = new PlayerPropertiesView();
 
     // maps handler type to a list of panels that support rendering changes.
-    this._panels = new Map([
-      [Media.MediaModel.MediaChangeTypeKeys.Property, [propertyTable]],
-      [Media.MediaModel.MediaChangeTypeKeys.Event, [eventTable]]
-    ]);
+    this._panels = new Map([[MediaChangeTypeKeys.Property, [propertyView]], [MediaChangeTypeKeys.Event, [eventView]]]);
 
     this.appendTab(
-        Media.PlayerDetailView.Tabs.Properties, Common.UIString('Properties'), propertyTable,
-        Common.UIString('Player properties'));
+        PlayerDetailViewTabs.Properties, Common.UIString.UIString('Properties'), propertyView,
+        Common.UIString.UIString('Player properties'));
 
     this.appendTab(
-        Media.PlayerDetailView.Tabs.Events, Common.UIString('Events'), eventTable, Common.UIString('Player events'));
+        PlayerDetailViewTabs.Events, Common.UIString.UIString('Events'), eventView, Common.UIString.UIString('Player events'));
   }
 
   /**
    * @param {string} playerID
-   * @param {!Array.<!Media.Event>} changes
-   * @param {!Media.MediaModel.MediaChangeTypeKeys} changeType
+   * @param {!Array.<!Event>} changes
+   * @param {!MediaChangeTypeKeys} changeType
    */
   renderChanges(playerID, changes, changeType) {
     for (const panel of this._panels.get(changeType)) {
       panel.renderChanges(playerID, changes, changeType);
     }
   }
-};
-
-/**
- * @enum {string}
- */
-Media.PlayerDetailView.Tabs = {
-  Events: 'events',
-  Properties: 'properties',
-};
+}

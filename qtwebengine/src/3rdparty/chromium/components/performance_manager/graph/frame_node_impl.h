@@ -57,8 +57,7 @@ class FrameNodeImpl
   // optionally with a |parent_frame_node|. For the main frame of |page_node|
   // the |parent_frame_node| parameter should be nullptr. |render_frame_id| is
   // the routing id of the frame (from RenderFrameHost::GetRoutingID).
-  FrameNodeImpl(GraphImpl* graph,
-                ProcessNodeImpl* process_node,
+  FrameNodeImpl(ProcessNodeImpl* process_node,
                 PageNodeImpl* page_node,
                 FrameNodeImpl* parent_frame_node,
                 int frame_tree_node_id,
@@ -77,6 +76,7 @@ class FrameNodeImpl
   void SetOriginTrialFreezePolicy(mojom::InterventionPolicy policy) override;
   void SetIsAdFrame() override;
   void OnNonPersistentNotificationCreated() override;
+  void SetHadFormInteraction() override;
 
   // Partial FrameNode implementation:
   bool IsMainFrame() const override;
@@ -104,6 +104,7 @@ class FrameNodeImpl
   bool is_holding_indexeddb_lock() const;
   const base::flat_set<WorkerNodeImpl*>& child_worker_nodes() const;
   const PriorityAndReason& priority_and_reason() const;
+  bool had_form_interaction() const;
 
   // Setters are not thread safe.
   void SetIsCurrent(bool is_current);
@@ -146,6 +147,7 @@ class FrameNodeImpl
   bool IsHoldingIndexedDBLock() const override;
   const base::flat_set<const WorkerNode*> GetChildWorkerNodes() const override;
   const PriorityAndReason& GetPriorityAndReason() const override;
+  bool HadFormInteraction() const override;
 
   // Properties associated with a Document, which are reset when a
   // different-document navigation is committed in the frame.
@@ -175,14 +177,21 @@ class FrameNodeImpl
         const mojom::InterventionPolicy&,
         &FrameNodeObserver::OnOriginTrialFreezePolicyChanged>
         origin_trial_freeze_policy{mojom::InterventionPolicy::kDefault};
+
+    // Indicates if a form in the frame has been interacted with.
+    ObservedProperty::NotifiesOnlyOnChanges<
+        bool,
+        &FrameNodeObserver::OnHadFormInteractionChanged>
+        had_form_interaction{false};
   };
 
   // Invoked by subframes on joining/leaving the graph.
   void AddChildFrame(FrameNodeImpl* frame_node);
   void RemoveChildFrame(FrameNodeImpl* frame_node);
 
-  void JoinGraph() override;
-  void LeaveGraph() override;
+  // NodeBase:
+  void OnJoiningGraph() override;
+  void OnBeforeLeavingGraph() override;
 
   bool HasFrameNodeInAncestors(FrameNodeImpl* frame_node) const;
   bool HasFrameNodeInDescendants(FrameNodeImpl* frame_node) const;

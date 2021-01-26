@@ -14,7 +14,7 @@
 #include "src/core/SkAdvancedTypefaceMetrics.h"
 #include "src/core/SkEndian.h"
 #include "src/core/SkFontDescriptor.h"
-#include "src/core/SkMakeUnique.h"
+#include "src/core/SkScalerContext.h"
 #include "src/core/SkSurfacePriv.h"
 #include "src/core/SkTypefaceCache.h"
 #include "src/sfnt/SkOTTable_OS_2.h"
@@ -48,9 +48,10 @@ protected:
     sk_sp<SkTypeface> onMakeClone(const SkFontArguments& args) const override {
         return sk_ref_sp(this);
     }
-    SkScalerContext* onCreateScalerContext(const SkScalerContextEffects&,
-                                           const SkDescriptor*) const override {
-        return nullptr;
+    SkScalerContext* onCreateScalerContext(const SkScalerContextEffects& effects,
+                                           const SkDescriptor* desc) const override {
+        return SkScalerContext::MakeEmptyContext(
+                sk_ref_sp(const_cast<SkEmptyTypeface*>(this)), effects, desc);
     }
     void onFilterRec(SkScalerContextRec*) const override { }
     std::unique_ptr<SkAdvancedTypefaceMetrics> onGetAdvancedMetrics() const override {
@@ -291,7 +292,7 @@ std::unique_ptr<SkFontData> SkTypeface::onMakeFontData() const {
     if (!stream) {
         return nullptr;
     }
-    return skstd::make_unique<SkFontData>(std::move(stream), index, nullptr, 0);
+    return std::make_unique<SkFontData>(std::move(stream), index, nullptr, 0);
 };
 
 void SkTypeface::unicharsToGlyphs(const SkUnichar uni[], int count, SkGlyphID glyphs[]) const {
@@ -402,10 +403,7 @@ bool SkTypeface::onComputeBounds(SkRect* bounds) const {
     SkScalerContextEffects noeffects;
     SkScalerContext::AutoDescriptorGivenRecAndEffects(rec, noeffects, &ad);
 
-    std::unique_ptr<SkScalerContext> ctx = this->createScalerContext(noeffects, ad.getDesc(), true);
-    if (!ctx) {
-        return false;
-    }
+    std::unique_ptr<SkScalerContext> ctx = this->createScalerContext(noeffects, ad.getDesc());
 
     SkFontMetrics fm;
     ctx->getFontMetrics(&fm);

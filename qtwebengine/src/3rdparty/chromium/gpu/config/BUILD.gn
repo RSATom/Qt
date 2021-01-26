@@ -4,19 +4,14 @@
 
 import("//build/config/chrome_build.gni")
 import("//build/config/chromecast_build.gni")
-import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//gpu/vulkan/features.gni")
 
 group("config") {
   if (is_component_build) {
-    public_deps = [
-      "//gpu",
-    ]
+    public_deps = [ "//gpu" ]
   } else {
-    public_deps = [
-      ":config_sources",
-    ]
+    public_deps = [ ":config_sources" ]
   }
 }
 
@@ -63,9 +58,7 @@ action("process_json") {
     args += [ "linux" ]
   }
 
-  public_deps = [
-    ":workaround_list",
-  ]
+  public_deps = [ ":workaround_list" ]
 }
 
 action("workaround_list") {
@@ -77,9 +70,7 @@ action("workaround_list") {
     skia_workaround_list,
   ]
 
-  outputs = [
-    "$target_gen_dir/gpu_driver_bug_workaround_autogen.h",
-  ]
+  outputs = [ "$target_gen_dir/gpu_driver_bug_workaround_autogen.h" ]
 
   args = [
     "--output-file",
@@ -99,9 +90,7 @@ if (enable_vulkan) {
 
     configs += [ "//gpu:gpu_implementation" ]
 
-    deps = [
-      "//gpu/ipc/common:vulkan_interface",
-    ]
+    deps = [ "//gpu/ipc/common:vulkan_interface" ]
 
     all_dependent_configs = [ "//third_party/vulkan:vulkan_config" ]
 
@@ -115,12 +104,14 @@ if (enable_vulkan) {
   }
 }
 
-jumbo_source_set("config_sources") {
+source_set("config_sources") {
   # External code should depend on this via //gpu/config above rather than
   # depending on this directly or the component build will break.
   visibility = [ "//gpu/*" ]
 
   sources = [
+    "device_perf_info.cc",
+    "device_perf_info.h",
     "dx_diag_node.cc",
     "dx_diag_node.h",
     "gpu_blocklist.cc",
@@ -164,6 +155,8 @@ jumbo_source_set("config_sources") {
     "gpu_test_expectations_parser.h",
     "gpu_util.cc",
     "gpu_util.h",
+    "skia_limits.cc",
+    "skia_limits.h",
   ]
 
   if (is_fuchsia) {
@@ -174,9 +167,7 @@ jumbo_source_set("config_sources") {
 
   configs += [ "//gpu:gpu_implementation" ]
 
-  public_deps = [
-    "//components/crash/core/common:crash_key",
-  ]
+  public_deps = [ "//components/crash/core/common:crash_key" ]
 
   if (enable_vulkan) {
     public_deps += [ ":vulkan_info" ]
@@ -186,6 +177,8 @@ jumbo_source_set("config_sources") {
     ":process_json",
     "//base",
     "//build:branding_buildflags",
+    "//build:chromecast_buildflags",
+    "//gpu/command_buffer/common:common_sources",
     "//gpu/ipc/common:gpu_preferences_interface",
     "//gpu/vulkan:buildflags",
     "//media:media_buildflags",
@@ -221,5 +214,8 @@ jumbo_source_set("config_sources") {
   }
   if (is_linux || is_mac) {
     deps += [ "//third_party/angle:angle_gpu_info_util" ]
+  }
+  if (use_x11) {
+    deps += [ "//ui/gfx/linux:gpu_memory_buffer_support_x11" ]
   }
 }

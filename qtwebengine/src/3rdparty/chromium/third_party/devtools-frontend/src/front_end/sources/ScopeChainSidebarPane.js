@@ -23,19 +23,29 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+import * as Common from '../common/common.js';
+import * as Components from '../components/components.js';
+import * as ObjectUI from '../object_ui/object_ui.js';
+import * as SDK from '../sdk/sdk.js';
+import * as UI from '../ui/ui.js';
+
+import {resolveScopeInObject, resolveThisObject} from './SourceMapNamesResolver.js';
+
 /**
- * @implements {UI.ContextFlavorListener}
+ * @implements {UI.ContextFlavorListener.ContextFlavorListener}
  * @unrestricted
  */
-Sources.ScopeChainSidebarPane = class extends UI.VBox {
+export class ScopeChainSidebarPaneBase extends UI.Widget.VBox {
   constructor() {
     super(true);
     this.registerRequiredCSS('sources/scopeChainSidebarPane.css');
-    this._treeOutline = new ObjectUI.ObjectPropertiesSectionsTreeOutline();
+    this._treeOutline = new ObjectUI.ObjectPropertiesSection.ObjectPropertiesSectionsTreeOutline();
     this._treeOutline.registerRequiredCSS('sources/scopeChainSidebarPane.css');
     this._treeOutline.setShowSelectionOnKeyboardFocus(/* show */ true);
-    this._expandController = new ObjectUI.ObjectPropertiesSectionsTreeExpandController(this._treeOutline);
-    this._linkifier = new Components.Linkifier();
+    this._expandController =
+        new ObjectUI.ObjectPropertiesSection.ObjectPropertiesSectionsTreeExpandController(this._treeOutline);
+    this._linkifier = new Components.Linkifier.Linkifier();
     this._infoElement = createElement('div');
     this._infoElement.className = 'gray-info-message';
     this._infoElement.textContent = ls`Not paused`;
@@ -59,22 +69,26 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
       return;
     }
 
-    if (UI.context.flavor(SDK.DebuggerPausedDetails)) {
+    if (self.UI.context.flavor(SDK.DebuggerModel.DebuggerPausedDetails)) {
       this._treeOutline.forceSelect();
     }
   }
 
+  _getScopeChain(callFrame) {
+    return [];
+  }
+
   _update() {
-    const callFrame = UI.context.flavor(SDK.DebuggerModel.CallFrame);
-    const details = UI.context.flavor(SDK.DebuggerPausedDetails);
+    const callFrame = self.UI.context.flavor(SDK.DebuggerModel.CallFrame);
+    const details = self.UI.context.flavor(SDK.DebuggerModel.DebuggerPausedDetails);
     this._linkifier.reset();
-    Sources.SourceMapNamesResolver.resolveThisObject(callFrame).then(this._innerUpdate.bind(this, details, callFrame));
+    resolveThisObject(callFrame).then(this._innerUpdate.bind(this, details, callFrame));
   }
 
   /**
-   * @param {?SDK.DebuggerPausedDetails} details
+   * @param {?SDK.DebuggerModel.DebuggerPausedDetails} details
    * @param {?SDK.DebuggerModel.CallFrame} callFrame
-   * @param {?SDK.RemoteObject} thisObject
+   * @param {?SDK.RemoteObject.RemoteObject} thisObject
    */
   _innerUpdate(details, callFrame, thisObject) {
     this._treeOutline.removeChildren();
@@ -87,25 +101,27 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
 
     this.contentElement.appendChild(this._treeOutline.element);
     let foundLocalScope = false;
-    const scopeChain = callFrame.scopeChain();
-    for (let i = 0; i < scopeChain.length; ++i) {
-      const scope = scopeChain[i];
-      const extraProperties = this._extraPropertiesForScope(scope, details, callFrame, thisObject, i === 0);
+    const scopeChain = this._getScopeChain(callFrame);
+    if (scopeChain) {
+      for (let i = 0; i < scopeChain.length; ++i) {
+        const scope = scopeChain[i];
+        const extraProperties = this._extraPropertiesForScope(scope, details, callFrame, thisObject, i === 0);
 
-      if (scope.type() === Protocol.Debugger.ScopeType.Local) {
-        foundLocalScope = true;
-      }
+        if (scope.type() === Protocol.Debugger.ScopeType.Local) {
+          foundLocalScope = true;
+        }
 
-      const section = this._createScopeSectionTreeElement(scope, extraProperties);
-      if (scope.type() === Protocol.Debugger.ScopeType.Global) {
-        section.collapse();
-      } else if (!foundLocalScope || scope.type() === Protocol.Debugger.ScopeType.Local) {
-        section.expand();
-      }
+        const section = this._createScopeSectionTreeElement(scope, extraProperties);
+        if (scope.type() === Protocol.Debugger.ScopeType.Global) {
+          section.collapse();
+        } else if (!foundLocalScope || scope.type() === Protocol.Debugger.ScopeType.Local) {
+          section.expand();
+        }
 
-      this._treeOutline.appendChild(section);
-      if (i === 0) {
-        section.select(/* omitFocus */ true);
+        this._treeOutline.appendChild(section);
+        if (i === 0) {
+          section.select(/* omitFocus */ true);
+        }
       }
     }
     this._sidebarPaneUpdatedForTest();
@@ -113,7 +129,7 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
 
   /**
    * @param {!SDK.DebuggerModel.Scope} scope
-   * @param {!Array.<!SDK.RemoteObjectProperty>} extraProperties
+   * @param {!Array.<!SDK.RemoteObject.RemoteObjectProperty>} extraProperties
    * @return {!ObjectUI.ObjectPropertiesSection.RootElement}
    */
   _createScopeSectionTreeElement(scope, extraProperties) {
@@ -126,7 +142,7 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
     if (scope.type() === Protocol.Debugger.ScopeType.Closure) {
       const scopeName = scope.name();
       if (scopeName) {
-        title = ls`Closure (${UI.beautifyFunctionName(scopeName)})`;
+        title = ls`Closure (${UI.UIUtils.beautifyFunctionName(scopeName)})`;
       } else {
         title = ls`Closure`;
       }
@@ -141,7 +157,7 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
     titleElement.createChild('div', 'scope-chain-sidebar-pane-section-title').textContent = title;
 
     const section = new ObjectUI.ObjectPropertiesSection.RootElement(
-        Sources.SourceMapNamesResolver.resolveScopeInObject(scope), this._linkifier, emptyPlaceholder,
+        resolveScopeInObject(scope), this._linkifier, emptyPlaceholder,
         /* ignoreHasOwnProperty */ true, extraProperties);
     section.title = titleElement;
     section.listItemElement.classList.add('scope-chain-sidebar-pane-section');
@@ -152,11 +168,11 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
 
   /**
    * @param {!SDK.DebuggerModel.Scope} scope
-   * @param {?SDK.DebuggerPausedDetails} details
+   * @param {?SDK.DebuggerModel.DebuggerPausedDetails} details
    * @param {?SDK.DebuggerModel.CallFrame} callFrame
-   * @param {?SDK.RemoteObject} thisObject
+   * @param {?SDK.RemoteObject.RemoteObject} thisObject
    * @param {boolean} isFirstScope
-   * @return {!Array.<!SDK.RemoteObjectProperty>}
+   * @return {!Array.<!SDK.RemoteObject.RemoteObjectProperty>}
    */
   _extraPropertiesForScope(scope, details, callFrame, thisObject, isFirstScope) {
     if (scope.type() !== Protocol.Debugger.ScopeType.Local) {
@@ -165,19 +181,20 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
 
     const extraProperties = [];
     if (thisObject) {
-      extraProperties.push(new SDK.RemoteObjectProperty('this', thisObject));
+      extraProperties.push(new SDK.RemoteObject.RemoteObjectProperty('this', thisObject));
     }
     if (isFirstScope) {
       const exception = details.exception();
       if (exception) {
-        extraProperties.push(new SDK.RemoteObjectProperty(
-            Common.UIString('Exception'), exception, undefined, undefined, undefined, undefined, undefined,
+        extraProperties.push(new SDK.RemoteObject.RemoteObjectProperty(
+            Common.UIString.UIString('Exception'), exception, undefined, undefined, undefined, undefined, undefined,
             /* synthetic */ true));
       }
       const returnValue = callFrame.returnValue();
       if (returnValue) {
-        extraProperties.push(new SDK.RemoteObjectProperty(
-            Common.UIString('Return value'), returnValue, undefined, undefined, undefined, undefined, undefined,
+        extraProperties.push(new SDK.RemoteObject.RemoteObjectProperty(
+            Common.UIString.UIString('Return value'), returnValue, undefined, undefined, undefined, undefined,
+            undefined,
             /* synthetic */ true, callFrame.setReturnValue.bind(callFrame)));
       }
     }
@@ -187,6 +204,34 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
 
   _sidebarPaneUpdatedForTest() {
   }
-};
+}
 
-Sources.ScopeChainSidebarPane._pathSymbol = Symbol('path');
+/**
+ * @unrestricted
+ */
+export class SourceScopeChainSidebarPane extends ScopeChainSidebarPaneBase {
+  constructor() {
+    super();
+  }
+  /**
+   * @override
+   */
+  _getScopeChain(callFrame) {
+    return callFrame.sourceScopeChain;
+  }
+}
+
+/**
+ * @unrestricted
+ */
+export class ScopeChainSidebarPane extends ScopeChainSidebarPaneBase {
+  /**
+   * @override
+   */
+  _getScopeChain(callFrame) {
+    return callFrame.scopeChain();
+  }
+}
+
+
+export const pathSymbol = Symbol('path');

@@ -42,7 +42,7 @@
 
     The \c Window class contains the application logic and constructs the user
     interface from a Qt Designer UI file as described in the
-    \l{Using a Designer UI File in Your Application#The Multiple Inheritance Approach}{Qt Designer manual}.
+    \l{Using a Designer UI File in Your C++ Application#The Multiple Inheritance Approach}{Qt Designer manual}.
     It also contains the code to write an SVG file.
 
     The \c DisplayWidget class performs all the work of painting a picture on

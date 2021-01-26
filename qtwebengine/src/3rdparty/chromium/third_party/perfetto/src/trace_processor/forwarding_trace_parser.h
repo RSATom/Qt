@@ -32,6 +32,7 @@ enum TraceType {
   kSystraceTraceType,
   kGzipTraceType,
   kCtraceTraceType,
+  kNinjaLogTraceType,
 };
 
 TraceType GuessTraceType(const uint8_t* data, size_t size);
@@ -43,6 +44,7 @@ class ForwardingTraceParser : public ChunkedTraceReader {
 
   // ChunkedTraceReader implementation
   util::Status Parse(std::unique_ptr<uint8_t[]>, size_t) override;
+  void NotifyEndOfFile() override;
 
  private:
   TraceProcessorContext* const context_;

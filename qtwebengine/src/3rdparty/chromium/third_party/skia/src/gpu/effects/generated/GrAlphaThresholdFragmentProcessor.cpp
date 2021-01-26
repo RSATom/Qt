@@ -19,7 +19,7 @@ inline GrFragmentProcessor::OptimizationFlags GrAlphaThresholdFragmentProcessor:
         return kCompatibleWithCoverageAsAlpha_OptimizationFlag;
     }
 }
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
@@ -111,7 +111,7 @@ GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrAlphaThresholdFragmentProcessor);
 #if GR_TEST_UTILS
 std::unique_ptr<GrFragmentProcessor> GrAlphaThresholdFragmentProcessor::TestCreate(
         GrProcessorTestData* testData) {
-    sk_sp<GrTextureProxy> maskProxy = testData->textureProxy(GrProcessorUnitTest::kAlphaTextureIdx);
+    auto[maskView, ct, at] = testData->randomAlphaOnlyView();
     // Make the inner and outer thresholds be in (0, 1) exclusive and be sorted correctly.
     float innerThresh = testData->fRandom->nextUScalar1() * .99f + 0.005f;
     float outerThresh = testData->fRandom->nextUScalar1() * .99f + 0.005f;
@@ -122,7 +122,8 @@ std::unique_ptr<GrFragmentProcessor> GrAlphaThresholdFragmentProcessor::TestCrea
     uint32_t x = testData->fRandom->nextULessThan(kMaxWidth - width);
     uint32_t y = testData->fRandom->nextULessThan(kMaxHeight - height);
     SkIRect bounds = SkIRect::MakeXYWH(x, y, width, height);
-    return GrAlphaThresholdFragmentProcessor::Make(std::move(maskProxy), innerThresh, outerThresh,
+
+    return GrAlphaThresholdFragmentProcessor::Make(std::move(maskView), innerThresh, outerThresh,
                                                    bounds);
 }
 #endif

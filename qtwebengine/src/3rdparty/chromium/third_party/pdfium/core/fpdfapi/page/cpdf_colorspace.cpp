@@ -231,7 +231,6 @@ class CPDF_ICCBasedCS final : public CPDF_ColorSpace {
                             uint32_t nExpectedComponents);
   static RetainPtr<CPDF_ColorSpace> GetStockAlternateProfile(
       uint32_t nComponents);
-  static bool IsValidComponents(int32_t nComps);
   static std::vector<float> GetRanges(const CPDF_Dictionary* pDict,
                                       uint32_t nComponents);
 
@@ -254,7 +253,6 @@ class CPDF_IndexedCS final : public CPDF_ColorSpace {
   uint32_t v_Load(CPDF_Document* pDoc,
                   const CPDF_Array* pArray,
                   std::set<const CPDF_Object*>* pVisited) override;
-
 
  private:
   explicit CPDF_IndexedCS(CPDF_Document* pDoc);
@@ -578,6 +576,11 @@ uint32_t CPDF_ColorSpace::ComponentsForFamily(int family) {
       NOTREACHED();
       return 4;
   }
+}
+
+// static
+bool CPDF_ColorSpace::IsValidIccComponents(int components) {
+  return components == 1 || components == 3 || components == 4;
 }
 
 std::vector<float> CPDF_ColorSpace::CreateBufAndSetDefaultColor() const {
@@ -916,7 +919,7 @@ uint32_t CPDF_ICCBasedCS::v_Load(CPDF_Document* pDoc,
   // with Acrobat and reject bad values.
   const CPDF_Dictionary* pDict = pStream->GetDict();
   int32_t nDictComponents = pDict ? pDict->GetIntegerFor("N") : 0;
-  if (!IsValidComponents(nDictComponents))
+  if (!IsValidIccComponents(nDictComponents))
     return 0;
 
   uint32_t nComponents = static_cast<uint32_t>(nDictComponents);
@@ -1001,7 +1004,7 @@ void CPDF_ICCBasedCS::TranslateImageLine(uint8_t* pDestBuf,
 
   // |nMaxColors| will not overflow since |nComponents| is limited in size.
   const uint32_t nComponents = CountComponents();
-  ASSERT(IsValidComponents(nComponents));
+  ASSERT(IsValidIccComponents(nComponents));
   int nMaxColors = 1;
   for (uint32_t i = 0; i < nComponents; i++)
     nMaxColors *= 52;
@@ -1095,14 +1098,9 @@ RetainPtr<CPDF_ColorSpace> CPDF_ICCBasedCS::GetStockAlternateProfile(
 }
 
 // static
-bool CPDF_ICCBasedCS::IsValidComponents(int32_t nComps) {
-  return nComps == 1 || nComps == 3 || nComps == 4;
-}
-
-// static
 std::vector<float> CPDF_ICCBasedCS::GetRanges(const CPDF_Dictionary* pDict,
                                               uint32_t nComponents) {
-  ASSERT(IsValidComponents(nComponents));
+  ASSERT(IsValidIccComponents(nComponents));
 
   std::vector<float> ranges;
   const CPDF_Array* pRanges = pDict->GetArrayFor("Range");
@@ -1163,7 +1161,7 @@ uint32_t CPDF_IndexedCS::v_Load(CPDF_Document* pDoc,
   } else if (const CPDF_Stream* pStream = pTableObj->AsStream()) {
     auto pAcc = pdfium::MakeRetain<CPDF_StreamAcc>(pStream);
     pAcc->LoadAllDataFiltered();
-    m_Table = ByteStringView(pAcc->GetData(), pAcc->GetSize());
+    m_Table = ByteStringView(pAcc->GetSpan());
   }
   return 1;
 }

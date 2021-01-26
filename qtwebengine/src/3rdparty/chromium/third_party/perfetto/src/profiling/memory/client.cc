@@ -35,9 +35,9 @@
 #include <new>
 
 #include "perfetto/base/logging.h"
+#include "perfetto/base/thread_utils.h"
 #include "perfetto/base/time.h"
 #include "perfetto/ext/base/scoped_file.h"
-#include "perfetto/ext/base/thread_utils.h"
 #include "perfetto/ext/base/unix_socket.h"
 #include "perfetto/ext/base/utils.h"
 #include "src/profiling/memory/sampler.h"
@@ -56,8 +56,12 @@ inline bool IsMainThread() {
   return getpid() == base::GetThreadId();
 }
 
-// TODO(b/117203899): Remove this after making bionic implementation safe to
-// use.
+// The implementation of pthread_getattr_np for the main thread uses malloc,
+// so we cannot use it in GetStackBase, which we use inside of RecordMalloc
+// (which is called from malloc). We would re-enter malloc if we used it.
+//
+// This is why we find the stack base for the main-thread when constructing
+// the client and remember it.
 char* FindMainThreadStack() {
   base::ScopedFstream maps(fopen("/proc/self/maps", "r"));
   if (!maps) {
@@ -170,7 +174,7 @@ std::shared_ptr<Client> Client::CreateAndHandshake(
 
   base::ScopedFile page_idle(base::OpenFile("/proc/self/page_idle", O_RDWR));
   if (!page_idle) {
-    PERFETTO_LOG("Failed to open /proc/self/page_idle. Continuing.");
+    PERFETTO_DLOG("Failed to open /proc/self/page_idle. Continuing.");
     num_send_fds = kHandshakeSize - 1;
   }
 
@@ -289,7 +293,8 @@ bool Client::RecordMalloc(uint64_t sample_size,
                           uint64_t alloc_size,
                           uint64_t alloc_address) {
   if (PERFETTO_UNLIKELY(getpid() != pid_at_creation_)) {
-    PERFETTO_LOG("Detected post-fork child situation, stopping profiling.");
+    PERFETTO_LOG(
+        "Detected post-fork child situation. Not profiling the child.");
     return false;
   }
 

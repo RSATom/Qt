@@ -67,7 +67,7 @@ class CORE_EXPORT PaintWorkletStylePropertyMap
 
   unsigned int size() const override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   const CrossThreadData& StyleMapDataForTest() const { return data_; }
 

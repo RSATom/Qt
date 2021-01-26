@@ -1,12 +1,21 @@
 // Copyright 2016 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';
+import * as HostModule from '../host/host.js';
+import * as Platform from '../platform/platform.js';
+
+import {cssMetadata, GridAreaRowRegex} from './CSSMetadata.js';
+import {Edit} from './CSSModel.js';                            // eslint-disable-line no-unused-vars
+import {CSSStyleDeclaration} from './CSSStyleDeclaration.js';  // eslint-disable-line no-unused-vars
+
 /**
  * @unrestricted
  */
-export default class CSSProperty {
+export class CSSProperty {
   /**
-   * @param {!SDK.CSSStyleDeclaration} ownerStyle
+   * @param {!CSSStyleDeclaration} ownerStyle
    * @param {number} index
    * @param {string} name
    * @param {string} value
@@ -34,7 +43,7 @@ export default class CSSProperty {
   }
 
   /**
-   * @param {!SDK.CSSStyleDeclaration} ownerStyle
+   * @param {!CSSStyleDeclaration} ownerStyle
    * @param {number} index
    * @param {!Protocol.CSS.CSSProperty} payload
    * @return {!CSSProperty}
@@ -107,7 +116,7 @@ export default class CSSProperty {
   }
 
   /**
-   * @param {!SDK.CSSModel.Edit} edit
+   * @param {!Edit} edit
    */
   rebase(edit) {
     if (this.ownerStyle.styleSheetId !== edit.styleSheetId) {
@@ -163,7 +172,7 @@ export default class CSSProperty {
     }
 
     if (majorChange) {
-      Host.userMetrics.actionTaken(Host.UserMetrics.Action.StyleRuleEdited);
+      HostModule.userMetrics.actionTaken(Host.UserMetrics.Action.StyleRuleEdited);
     }
 
     if (overwrite && propertyText === this.propertyText) {
@@ -172,11 +181,12 @@ export default class CSSProperty {
     }
 
     const range = this.range.relativeTo(this.ownerStyle.range.startLine, this.ownerStyle.range.startColumn);
-    const indentation = this.ownerStyle.cssText ? this._detectIndentation(this.ownerStyle.cssText) :
-                                                  Common.moduleSetting('textEditorIndent').get();
+    const indentation = this.ownerStyle.cssText ?
+        this._detectIndentation(this.ownerStyle.cssText) :
+        Common.Settings.Settings.instance().moduleSetting('textEditorIndent').get();
     const endIndentation = this.ownerStyle.cssText ? indentation.substring(0, this.ownerStyle.range.endColumn) : '';
     const text = new TextUtils.Text(this.ownerStyle.cssText || '');
-    const newStyleText = text.replaceRange(range, String.sprintf(';%s;', propertyText));
+    const newStyleText = text.replaceRange(range, Platform.StringUtilities.sprintf(';%s;', propertyText));
 
     const tokenizerFactory = await self.runtime.extension(TextUtils.TokenizerFactory).instance();
     const styleText = CSSProperty._formatStyle(newStyleText, indentation, endIndentation, tokenizerFactory);
@@ -247,8 +257,8 @@ export default class CSSProperty {
           result += '}';
         }
       } else {
-        if (SDK.cssMetadata().isGridAreaDefiningProperty(propertyName)) {
-          const rowResult = SDK.CSSMetadata.GridAreaRowRegex.exec(token);
+        if (cssMetadata().isGridAreaDefiningProperty(propertyName)) {
+          const rowResult = GridAreaRowRegex.exec(token);
           if (rowResult && rowResult.index === 0 && !propertyText.trimRight().endsWith(']')) {
             propertyText = propertyText.trimRight() + '\n' + doubleIndent;
           }
@@ -270,7 +280,7 @@ export default class CSSProperty {
         return false;
       }
       const propertyName = text.substring(2, colon).trim();
-      return SDK.cssMetadata().isCSSPropertyName(propertyName);
+      return cssMetadata().isCSSPropertyName(propertyName);
     }
   }
 
@@ -313,12 +323,3 @@ export default class CSSProperty {
     return this.setText(text, true, true);
   }
 }
-
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.CSSProperty = CSSProperty;

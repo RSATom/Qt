@@ -24,7 +24,7 @@
 #include "content/public/test/hit_test_region_observer.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 
 namespace content {
 
@@ -137,8 +137,7 @@ IN_PROC_BROWSER_TEST_F(SyntheticInputTest, SmoothScrollWheel) {
   params.speed_in_pixels_s = 10000000.f;
 
   // Use PrecisePixel to avoid animating.
-  params.granularity =
-      ui::input_types::ScrollGranularity::kScrollByPrecisePixel;
+  params.granularity = ui::ScrollGranularity::kScrollByPrecisePixel;
 
   runner_.reset(new base::RunLoop());
 

@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "platform/api/task_runner.h"
 #include "util/logging.h"
 
 namespace openscreen {
@@ -17,47 +18,50 @@ static constexpr char kLocalDomain[] = "local";
 
 }  // namespace
 
-QuerierImpl::QuerierImpl(MdnsService* mdns_querier)
-    : mdns_querier_(mdns_querier) {
+QuerierImpl::QuerierImpl(MdnsService* mdns_querier, TaskRunner* task_runner)
+    : mdns_querier_(mdns_querier), task_runner_(task_runner) {
   OSP_DCHECK(mdns_querier_);
+  OSP_DCHECK(task_runner_);
 }
 
 QuerierImpl::~QuerierImpl() = default;
 
-void QuerierImpl::StartQuery(absl::string_view service, Callback* callback) {
+void QuerierImpl::StartQuery(const std::string& service, Callback* callback) {
   OSP_DCHECK(callback);
+  OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
+
+  OSP_DVLOG << "Starting query for service '" << service << "'";
 
   ServiceKey key(service, kLocalDomain);
-  DnsQueryInfo query = GetPtrQueryInfo(key);
   if (!IsQueryRunning(key)) {
-    callback_map_[key] = {};
-    StartDnsQuery(query);
+    callback_map_[key] = {callback};
+    StartDnsQuery(std::move(key));
   } else {
-    const std::vector<InstanceKey> keys = GetMatchingInstances(key);
-    for (const auto& key : keys) {
-      auto it = received_records_.find(key);
-      if (it == received_records_.end()) {
-        continue;
-      }
+    callback_map_[key].push_back(callback);
 
-      ErrorOr<DnsSdInstanceRecord> record = it->second.CreateRecord();
-      if (record.is_value()) {
-        callback->OnInstanceCreated(record.value());
+    for (auto& kvp : received_records_) {
+      if (kvp.first == key) {
+        ErrorOr<DnsSdInstanceRecord> record = kvp.second.CreateRecord();
+        if (record.is_value()) {
+          callback->OnInstanceCreated(record.value());
+        }
       }
     }
   }
-  callback_map_[key].push_back(callback);
 }
 
-bool QuerierImpl::IsQueryRunning(absl::string_view service) const {
+bool QuerierImpl::IsQueryRunning(const std::string& service) const {
+  OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
   return IsQueryRunning(ServiceKey(service, kLocalDomain));
 }
 
-void QuerierImpl::StopQuery(absl::string_view service, Callback* callback) {
+void QuerierImpl::StopQuery(const std::string& service, Callback* callback) {
   OSP_DCHECK(callback);
+  OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
+
+  OSP_DVLOG << "Stopping query for service '" << service << "'";
 
   ServiceKey key(service, kLocalDomain);
-  DnsQueryInfo query = GetPtrQueryInfo(key);
   auto callback_it = callback_map_.find(key);
   if (callback_it == callback_map_.end()) {
     return;
@@ -68,15 +72,42 @@ void QuerierImpl::StopQuery(absl::string_view service, Callback* callback) {
   if (it != callbacks->end()) {
     callbacks->erase(it);
     if (callbacks->empty()) {
-      EraseInstancesOf(key);
       callback_map_.erase(callback_it);
-      StopDnsQuery(query);
+      StopDnsQuery(std::move(key));
     }
   }
 }
 
+void QuerierImpl::ReinitializeQueries(const std::string& service) {
+  OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
+
+  OSP_DVLOG << "Re-initializing query for service '" << service << "'";
+
+  const ServiceKey key(service, kLocalDomain);
+
+  // Stop instance-specific queries and erase all instance data received so far.
+  std::vector<InstanceKey> keys_to_remove;
+  for (const auto& pair : received_records_) {
+    if (key == pair.first) {
+      keys_to_remove.push_back(pair.first);
+    }
+  }
+  for (InstanceKey& ik : keys_to_remove) {
+    StopDnsQuery(std::move(ik), false);
+  }
+
+  // Restart top-level queries.
+  mdns_querier_->ReinitializeQueries(GetPtrQueryInfo(key).name);
+}
+
 void QuerierImpl::OnRecordChanged(const MdnsRecord& record,
                                   RecordChangedEvent event) {
+  OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
+
+  OSP_DVLOG << "Record with name '" << record.name().ToString()
+            << "' and type '" << record.dns_type()
+            << "' has received change of type '" << event << "'";
+
   IsPtrRecord(record) ? HandlePtrRecordChange(record, event)
                       : HandleNonPtrRecordChange(record, event);
 }
@@ -88,15 +119,12 @@ Error QuerierImpl::HandlePtrRecordChange(const MdnsRecord& record,
     return Error::Code::kParameterInvalid;
   }
 
-  InstanceKey key(record);
-  DnsQueryInfo query = GetInstanceQueryInfo(key);
   switch (event) {
     case RecordChangedEvent::kCreated:
-      StartDnsQuery(query);
+      StartDnsQuery(InstanceKey(record));
       return Error::None();
     case RecordChangedEvent::kExpired:
-      StopDnsQuery(query);
-      EraseInstancesOf(ServiceKey(key));
+      StopDnsQuery(InstanceKey(record));
       return Error::None();
     case RecordChangedEvent::kUpdated:
       return Error::Code::kOperationInvalid;
@@ -165,54 +193,65 @@ void QuerierImpl::NotifyCallbacks(
   }
 }
 
-void QuerierImpl::EraseInstancesOf(const ServiceKey& key) {
-  std::vector<InstanceKey> keys = GetMatchingInstances(key);
-  const auto it = callback_map_.find(key);
-  std::vector<Callback*> callbacks;
-  if (it != callback_map_.end()) {
-    callbacks = it->second;
+void QuerierImpl::StartDnsQuery(InstanceKey key) {
+  auto pair = received_records_.emplace(key, DnsData(key));
+  if (!pair.second) {
+    // This means that a query is already ongoing.
+    return;
   }
 
-  for (const auto& key : keys) {
-    auto recieved_record = received_records_.find(key);
-    if (recieved_record == received_records_.end()) {
-      continue;
-    }
-
-    ErrorOr<DnsSdInstanceRecord> instance_record =
-        recieved_record->second.CreateRecord();
-    if (instance_record.is_value()) {
-      for (Callback* callback : callbacks) {
-        callback->OnInstanceDeleted(instance_record.value());
-      }
-    }
-
-    received_records_.erase(recieved_record);
-  }
-}
-
-std::vector<InstanceKey> QuerierImpl::GetMatchingInstances(
-    const ServiceKey& key) {
-  // Because only one or two PTR queries are expected at a time, expect >=1/2 of
-  // the records to be associated with a given PTR. They can't be removed in
-  // less than O(n) time, so just iterate across them all.
-  std::vector<InstanceKey> keys;
-  for (auto it = received_records_.begin(); it != received_records_.end();
-       it++) {
-    if (it->first.IsInstanceOf(key)) {
-      keys.push_back(it->first);
-    }
-  }
-
-  return keys;
-}
-
-void QuerierImpl::StartDnsQuery(const DnsQueryInfo& query) {
+  DnsQueryInfo query = GetInstanceQueryInfo(key);
   mdns_querier_->StartQuery(query.name, query.dns_type, query.dns_class, this);
 }
 
-void QuerierImpl::StopDnsQuery(const DnsQueryInfo& query) {
+void QuerierImpl::StopDnsQuery(InstanceKey key, bool should_inform_callbacks) {
+  // If the instance is not being queried for, return.
+  auto record_it = received_records_.find(key);
+  if (record_it == received_records_.end()) {
+    return;
+  }
+
+  // If the instance has enough associated data that an instance was provided to
+  // the higher layer, call the deleted callback for all associated callbacks.
+  ErrorOr<DnsSdInstanceRecord> instance_record =
+      record_it->second.CreateRecord();
+  if (should_inform_callbacks && instance_record.is_value()) {
+    const auto it = callback_map_.find(key);
+    if (it != callback_map_.end()) {
+      for (Callback* callback : it->second) {
+        callback->OnInstanceDeleted(instance_record.value());
+      }
+    }
+  }
+
+  // Erase the key to mark the instance as no longer being queried for.
+  received_records_.erase(record_it);
+
+  // Call to the mDNS layer to stop the query.
+  DnsQueryInfo query = GetInstanceQueryInfo(key);
   mdns_querier_->StopQuery(query.name, query.dns_type, query.dns_class, this);
+}
+
+void QuerierImpl::StartDnsQuery(ServiceKey key) {
+  DnsQueryInfo query = GetPtrQueryInfo(key);
+  mdns_querier_->StartQuery(query.name, query.dns_type, query.dns_class, this);
+}
+
+void QuerierImpl::StopDnsQuery(ServiceKey key) {
+  DnsQueryInfo query = GetPtrQueryInfo(key);
+  mdns_querier_->StopQuery(query.name, query.dns_type, query.dns_class, this);
+
+  // Stop any ongoing instance-specific queries.
+  std::vector<InstanceKey> keys_to_remove;
+  for (const auto& pair : received_records_) {
+    const bool key_is_service_from_query = (key == pair.first);
+    if (key_is_service_from_query) {
+      keys_to_remove.push_back(pair.first);
+    }
+  }
+  for (auto it = keys_to_remove.begin(); it != keys_to_remove.end(); it++) {
+    StopDnsQuery(std::move(*it));
+  }
 }
 
 }  // namespace discovery

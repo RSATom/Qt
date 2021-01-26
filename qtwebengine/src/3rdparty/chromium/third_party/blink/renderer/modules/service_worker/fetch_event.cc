@@ -91,12 +91,10 @@ FetchEvent::FetchEvent(ScriptState* script_state,
                            worker_timing_remote,
                        bool navigation_preload_sent)
     : ExtendableEvent(type, initializer, wait_until_observer),
-      ContextClient(ExecutionContext::From(script_state)),
+      ExecutionContextClient(ExecutionContext::From(script_state)),
       observer_(respond_with_observer),
       preload_response_property_(MakeGarbageCollected<PreloadResponseProperty>(
-          ExecutionContext::From(script_state),
-          this,
-          PreloadResponseProperty::kPreloadResponse)),
+          ExecutionContext::From(script_state))),
       worker_timing_remote_(std::move(worker_timing_remote)) {
   if (!navigation_preload_sent)
     preload_response_property_->ResolveWithUndefined();
@@ -130,12 +128,12 @@ void FetchEvent::OnNavigationPreloadResponse(
   }
   // TODO(ricea): Verify that this response can't be aborted from JS.
   FetchResponseData* response_data =
-      bytes_consumer ? FetchResponseData::CreateWithBuffer(
-                           MakeGarbageCollected<BodyStreamBuffer>(
-                               script_state, bytes_consumer,
-                               MakeGarbageCollected<AbortSignal>(
-                                   ExecutionContext::From(script_state))))
-                     : FetchResponseData::Create();
+      bytes_consumer
+          ? FetchResponseData::CreateWithBuffer(BodyStreamBuffer::Create(
+                script_state, bytes_consumer,
+                MakeGarbageCollected<AbortSignal>(
+                    ExecutionContext::From(script_state))))
+          : FetchResponseData::Create();
   Vector<KURL> url_list(1);
   url_list[0] = preload_response_->CurrentRequestUrl();
   response_data->SetURLList(url_list);
@@ -198,7 +196,8 @@ void FetchEvent::OnNavigationPreloadComplete(
   // According to the Resource Timing spec, the initiator type of
   // navigation preload request is "navigation".
   scoped_refptr<ResourceTimingInfo> info = ResourceTimingInfo::Create(
-      "navigation", request_time, request_->GetRequestContextType());
+      "navigation", request_time, request_->GetRequestContextType(),
+      request_->GetRequestDestination());
   info->SetNegativeAllowed(true);
   info->SetLoadResponseEnd(completion_time);
   info->SetInitialURL(request_->url());
@@ -227,13 +226,13 @@ void FetchEvent::addPerformanceEntry(PerformanceMeasure* performance_measure) {
   }
 }
 
-void FetchEvent::Trace(blink::Visitor* visitor) {
+void FetchEvent::Trace(Visitor* visitor) {
   visitor->Trace(observer_);
   visitor->Trace(request_);
   visitor->Trace(preload_response_property_);
   visitor->Trace(body_completion_notifier_);
   ExtendableEvent::Trace(visitor);
-  ContextClient::Trace(visitor);
+  ExecutionContextClient::Trace(visitor);
 }
 
 }  // namespace blink

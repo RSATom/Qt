@@ -29,10 +29,11 @@ import sys
 import tempfile
 import time
 import urllib
+import uuid
 
 TRACE_TO_TEXT_SHAS = {
-    'linux': '74cb40d9413d7ad756e327e09e46a8adde90db92',
-    'mac': '47045bc6abd4f9113969211f37fdd2259b0c1cc3',
+    'linux': '8e7b02e8ce710f8c8f9c7c7d5aa00cc724a7c059',
+    'mac': '332099f1650ec7eaa57069344b5bcf3c23a08839',
 }
 TRACE_TO_TEXT_PATH = tempfile.gettempdir()
 TRACE_TO_TEXT_BASE_URL = ('https://storage.googleapis.com/perfetto/')
@@ -43,6 +44,7 @@ NOOUT = {
     'stderr': NULL,
 }
 
+UUID = str(uuid.uuid4())
 
 def check_hash(file_name, sha_value):
   with open(file_name, 'rb') as fd:
@@ -78,7 +80,7 @@ PACKAGES_LIST_CFG = '''data_sources {
 }
 '''
 
-CFG_IDENT = '      '
+CFG_INDENT = '      '
 CFG = '''buffers {{
   size_kb: 32768
 }}
@@ -99,7 +101,10 @@ data_sources {{
 duration_ms: {duration}
 write_into_file: true
 flush_timeout_ms: 30000
+flush_period_ms: 604800000
 '''
+
+# flush_period_ms of 1 week to suppress trace_processor_shell warning.
 
 CONTINUOUS_DUMP = """
       continuous_dump_config {{
@@ -108,9 +113,11 @@ CONTINUOUS_DUMP = """
       }}
 """
 
+PROFILE_DEVICE_PATH = '/data/misc/perfetto-traces/profile-' + UUID
+PROFILE_LOCAL_PATH = '/tmp/profile-' + UUID
+
 PERFETTO_CMD = ('CFG=\'{cfg}\'; echo ${{CFG}} | '
-                'perfetto --txt -c - -o '
-                '/data/misc/perfetto-traces/profile-{user} -d')
+                'perfetto --txt -c - -o ' + PROFILE_DEVICE_PATH + ' -d')
 IS_INTERRUPTED = False
 
 
@@ -118,6 +125,13 @@ def sigint_handler(sig, frame):
   global IS_INTERRUPTED
   IS_INTERRUPTED = True
 
+
+def print_no_profile_error():
+  print("No profiles generated", file=sys.stderr)
+  print(
+    "If this is unexpected, check "
+    "https://docs.perfetto.dev/#/heapprofd?id=troubleshooting.",
+    file=sys.stderr)
 
 def main(argv):
   parser = argparse.ArgumentParser()
@@ -167,12 +181,12 @@ def main(argv):
   parser.add_argument(
       "--no-running",
       action="store_true",
-      help="Do not target already running processes.")
+      help="Do not target already running processes. Requires Android 11.")
   parser.add_argument(
       "--no-startup",
       action="store_true",
       help="Do not target processes that start during "
-      "the profile.")
+      "the profile. Requires Android 11.")
   parser.add_argument(
       "--shmem-size",
       help="Size of buffer between client and "
@@ -267,10 +281,10 @@ def main(argv):
       except ValueError:
         print("FATAL: invalid PID %s" % pid, file=sys.stderr)
         fail = True
-      target_cfg += '{}pid: {}\n'.format(CFG_IDENT, pid)
+      target_cfg += '{}pid: {}\n'.format(CFG_INDENT, pid)
   if args.name:
     for name in args.name.split(','):
-      target_cfg += '{}process_cmdline: "{}"\n'.format(CFG_IDENT, name)
+      target_cfg += '{}process_cmdline: "{}"\n'.format(CFG_INDENT, name)
 
   if fail:
     parser.print_help()
@@ -322,7 +336,6 @@ def main(argv):
       atexit.register(subprocess.check_call,
                       ['adb', 'shell', 'setprop persist.heapprofd.enable 0'])
 
-  user = subprocess.check_output(['adb', 'shell', 'whoami']).strip()
 
   if args.simpleperf:
     subprocess.check_call([
@@ -334,7 +347,7 @@ def main(argv):
 
   perfetto_pid = subprocess.check_output(
       ['adb', 'exec-out',
-       PERFETTO_CMD.format(cfg=cfg, user=user)]).strip()
+       PERFETTO_CMD.format(cfg=cfg)]).strip()
   try:
     int(perfetto_pid.strip())
   except ValueError:
@@ -344,6 +357,7 @@ def main(argv):
   old_handler = signal.signal(signal.SIGINT, sigint_handler)
   print("Profiling active. Press Ctrl+C to terminate.")
   print("You may disconnect your device.")
+  print()
   exists = True
   device_connected = True
   while not device_connected or (exists and not IS_INTERRUPTED):
@@ -372,27 +386,25 @@ def main(argv):
     time.sleep(1)
 
   subprocess.check_call([
-      'adb', 'pull', '/data/misc/perfetto-traces/profile-{}'.format(user),
-      '/tmp/profile'
-  ],
-                        stdout=NULL)
+      'adb', 'pull', PROFILE_DEVICE_PATH, PROFILE_LOCAL_PATH
+  ], stdout=NULL)
+  subprocess.check_call(
+          ['adb', 'shell', 'rm', PROFILE_DEVICE_PATH], stdout=NULL)
+
   trace_to_text_output = subprocess.check_output(
-      [trace_to_text_binary, 'profile', '/tmp/profile'])
+      [trace_to_text_binary, 'profile', PROFILE_LOCAL_PATH],
+      env=os.environ)
   profile_path = None
   for word in trace_to_text_output.split():
     if 'heap_profile-' in word:
       profile_path = word
   if profile_path is None:
-    print("Could not find trace_to_text output path.", file=sys.stderr)
+    print_no_profile_error();
     return 1
 
   profile_files = os.listdir(profile_path)
   if not profile_files:
-    print("No profiles generated", file=sys.stderr)
-    print(
-        "If this is unexpected, check "
-        "https://docs.perfetto.dev/#/heapprofd?id=troubleshooting.",
-        file=sys.stderr)
+    print_no_profile_error();
     return 1
 
   subprocess.check_call(
@@ -404,7 +416,19 @@ def main(argv):
   if os.path.lexists(symlink_path):
     os.unlink(symlink_path)
   os.symlink(profile_path, symlink_path)
-  shutil.copyfile('/tmp/profile', os.path.join(profile_path, 'raw-trace'))
+  shutil.move(PROFILE_LOCAL_PATH, os.path.join(profile_path, 'raw-trace'))
+
+  binary_path = os.getenv('PERFETTO_BINARY_PATH')
+  if binary_path is not None:
+      with open(os.path.join(profile_path, 'symbols'), 'w') as fd:
+          ret = subprocess.call([
+              trace_to_text_binary, 'symbolize',
+              os.path.join(profile_path, 'raw-trace')],
+              env=os.environ,
+              stdout=fd)
+          if ret != 0:
+              print("Failed to symbolize. Continuing without symbols.",
+                    file=sys.stderr)
 
   print("Wrote profiles to {} (symlink {})".format(profile_path, symlink_path))
   print("These can be viewed using pprof. Googlers: head to pprof/ and "

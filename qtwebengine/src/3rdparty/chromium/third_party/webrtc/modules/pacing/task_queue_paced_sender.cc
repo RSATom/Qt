@@ -23,10 +23,10 @@ namespace {
 // If no calls to MaybeProcessPackets() happen, make sure we update stats
 // at least every |kMaxTimeBetweenStatsUpdates| as long as the pacer isn't
 // completely drained.
-constexpr TimeDelta kMaxTimeBetweenStatsUpdates = TimeDelta::Millis<33>();
+constexpr TimeDelta kMaxTimeBetweenStatsUpdates = TimeDelta::Millis(33);
 // Don't call UpdateStats() more than |kMinTimeBetweenStatsUpdates| apart,
 // for performance reasons.
-constexpr TimeDelta kMinTimeBetweenStatsUpdates = TimeDelta::Millis<1>();
+constexpr TimeDelta kMinTimeBetweenStatsUpdates = TimeDelta::Millis(1);
 }  // namespace
 
 TaskQueuePacedSender::TaskQueuePacedSender(
@@ -133,6 +133,20 @@ void TaskQueuePacedSender::SetAccountForAudioPackets(bool account_for_audio) {
   task_queue_.PostTask([this, account_for_audio]() {
     RTC_DCHECK_RUN_ON(&task_queue_);
     pacing_controller_.SetAccountForAudioPackets(account_for_audio);
+  });
+}
+
+void TaskQueuePacedSender::SetIncludeOverhead() {
+  task_queue_.PostTask([this]() {
+    RTC_DCHECK_RUN_ON(&task_queue_);
+    pacing_controller_.SetIncludeOverhead();
+  });
+}
+
+void TaskQueuePacedSender::SetTransportOverhead(DataSize overhead_per_packet) {
+  task_queue_.PostTask([this, overhead_per_packet]() {
+    RTC_DCHECK_RUN_ON(&task_queue_);
+    pacing_controller_.SetTransportOverhead(overhead_per_packet);
   });
 }
 

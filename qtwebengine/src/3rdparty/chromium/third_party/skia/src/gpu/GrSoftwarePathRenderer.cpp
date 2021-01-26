@@ -5,8 +5,9 @@
  * found in the LICENSE file.
  */
 
+#include "src/gpu/GrSoftwarePathRenderer.h"
+
 #include "include/private/SkSemaphore.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkTaskGroup.h"
 #include "src/core/SkTraceEvent.h"
 #include "src/gpu/GrAuditTrail.h"
@@ -20,8 +21,8 @@
 #include "src/gpu/GrRecordingContextPriv.h"
 #include "src/gpu/GrRenderTargetContextPriv.h"
 #include "src/gpu/GrSWMaskHelper.h"
-#include "src/gpu/GrSoftwarePathRenderer.h"
 #include "src/gpu/GrSurfaceContextPriv.h"
+#include "src/gpu/SkGr.h"
 #include "src/gpu/geometry/GrShape.h"
 #include "src/gpu/ops/GrDrawOp.h"
 
@@ -79,12 +80,12 @@ bool GrSoftwarePathRenderer::GetShapeAndClipBounds(GrRenderTargetContext* render
                                devClipBounds);
 
     if (!get_unclipped_shape_dev_bounds(shape, matrix, unclippedDevShapeBounds)) {
-        *unclippedDevShapeBounds = SkIRect::EmptyIRect();
-        *clippedDevShapeBounds = SkIRect::EmptyIRect();
+        *unclippedDevShapeBounds = SkIRect::MakeEmpty();
+        *clippedDevShapeBounds = SkIRect::MakeEmpty();
         return false;
     }
     if (!clippedDevShapeBounds->intersect(*devClipBounds, *unclippedDevShapeBounds)) {
-        *clippedDevShapeBounds = SkIRect::EmptyIRect();
+        *clippedDevShapeBounds = SkIRect::MakeEmpty();
         return false;
     }
     return true;
@@ -143,7 +144,7 @@ void GrSoftwarePathRenderer::DrawAroundInvPath(GrRenderTargetContext* renderTarg
 }
 
 void GrSoftwarePathRenderer::DrawToTargetWithShapeMask(
-        sk_sp<GrTextureProxy> proxy,
+        GrSurfaceProxyView view,
         GrRenderTargetContext* renderTargetContext,
         GrPaint&& paint,
         const GrUserStencilSettings& userStencilSettings,
@@ -164,28 +165,28 @@ void GrSoftwarePathRenderer::DrawToTargetWithShapeMask(
     SkMatrix maskMatrix = SkMatrix::MakeTrans(SkIntToScalar(-textureOriginInDeviceSpace.fX),
                                               SkIntToScalar(-textureOriginInDeviceSpace.fY));
     maskMatrix.preConcat(viewMatrix);
-    paint.addCoverageFragmentProcessor(GrSimpleTextureEffect::Make(
-            std::move(proxy), kPremul_SkAlphaType, maskMatrix, GrSamplerState::Filter::kNearest));
+
+    paint.addCoverageFragmentProcessor(GrTextureEffect::Make(
+            std::move(view), kPremul_SkAlphaType, maskMatrix, GrSamplerState::Filter::kNearest));
     DrawNonAARect(renderTargetContext, std::move(paint), userStencilSettings, clip, SkMatrix::I(),
                   dstRect, invert);
 }
 
-static sk_sp<GrTextureProxy> make_deferred_mask_texture_proxy(GrRecordingContext* context,
-                                                              SkBackingFit fit,
-                                                              int width, int height) {
+static GrSurfaceProxyView make_deferred_mask_texture_view(GrRecordingContext* context,
+                                                          SkBackingFit fit,
+                                                          SkISize dimensions) {
     GrProxyProvider* proxyProvider = context->priv().proxyProvider();
     const GrCaps* caps = context->priv().caps();
-
-    GrSurfaceDesc desc;
-    desc.fWidth = width;
-    desc.fHeight = height;
-    desc.fConfig = kAlpha_8_GrPixelConfig;
 
     const GrBackendFormat format = caps->getDefaultBackendFormat(GrColorType::kAlpha_8,
                                                                  GrRenderable::kNo);
 
-    return proxyProvider->createProxy(format, desc, GrRenderable::kNo, 1, kTopLeft_GrSurfaceOrigin,
-                                      GrMipMapped::kNo, fit, SkBudgeted::kYes, GrProtected::kNo);
+    GrSwizzle swizzle = caps->getReadSwizzle(format, GrColorType::kAlpha_8);
+
+    auto proxy =
+            proxyProvider->createProxy(format, dimensions, GrRenderable::kNo, 1, GrMipMapped::kNo,
+                                       fit, SkBudgeted::kYes, GrProtected::kNo);
+    return {std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle};
 }
 
 namespace {
@@ -214,20 +215,6 @@ private:
     SkMatrix fViewMatrix;
     GrShape fShape;
     GrAA fAA;
-};
-
-// When the SkPathRef genID changes, invalidate a corresponding GrResource described by key.
-class PathInvalidator : public SkPathRef::GenIDChangeListener {
-public:
-    PathInvalidator(const GrUniqueKey& key, uint32_t contextUniqueID)
-            : fMsg(key, contextUniqueID) {}
-
-private:
-    GrUniqueKeyInvalidatedMessage fMsg;
-
-    void onChange() override {
-        SkMessageBus<GrUniqueKeyInvalidatedMessage>::Post(fMsg);
-    }
 };
 
 }
@@ -322,11 +309,16 @@ bool GrSoftwarePathRenderer::onDrawPath(const DrawPathArgs& args) {
     }
 
     sk_sp<GrTextureProxy> proxy;
+    GrSurfaceProxyView view;
     if (useCache) {
-        proxy = fProxyProvider->findOrCreateProxyByUniqueKey(maskKey, GrColorType::kAlpha_8,
-                                                             kTopLeft_GrSurfaceOrigin);
+        auto proxy = fProxyProvider->findOrCreateProxyByUniqueKey(maskKey);
+        if (proxy) {
+            GrSwizzle swizzle = args.fRenderTargetContext->caps()->getReadSwizzle(
+                    proxy->backendFormat(), GrColorType::kAlpha_8);
+            view = {std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle};
+        }
     }
-    if (!proxy) {
+    if (!view) {
         SkBackingFit fit = useCache ? SkBackingFit::kExact : SkBackingFit::kApprox;
         GrAA aa = GrAA(GrAAType::kCoverage == args.fAAType);
 
@@ -336,14 +328,12 @@ bool GrSoftwarePathRenderer::onDrawPath(const DrawPathArgs& args) {
         }
 
         if (taskGroup) {
-            proxy = make_deferred_mask_texture_proxy(args.fContext, fit,
-                                                     boundsForMask->width(),
-                                                     boundsForMask->height());
-            if (!proxy) {
+            view = make_deferred_mask_texture_view(args.fContext, fit, boundsForMask->size());
+            if (!view) {
                 return false;
             }
 
-            auto uploader = skstd::make_unique<GrTDeferredProxyUploader<SoftwarePathData>>(
+            auto uploader = std::make_unique<GrTDeferredProxyUploader<SoftwarePathData>>(
                     *boundsForMask, *args.fViewMatrix, *args.fShape, aa);
             GrTDeferredProxyUploader<SoftwarePathData>* uploaderRaw = uploader.get();
 
@@ -360,32 +350,37 @@ bool GrSoftwarePathRenderer::onDrawPath(const DrawPathArgs& args) {
                 uploaderRaw->signalAndFreeData();
             };
             taskGroup->add(std::move(drawAndUploadMask));
-            proxy->texPriv().setDeferredUploader(std::move(uploader));
+            view.asTextureProxy()->texPriv().setDeferredUploader(std::move(uploader));
         } else {
             GrSWMaskHelper helper;
             if (!helper.init(*boundsForMask)) {
                 return false;
             }
             helper.drawShape(*args.fShape, *args.fViewMatrix, SkRegion::kReplace_Op, aa, 0xFF);
-            proxy = helper.toTextureProxy(args.fContext, fit);
+            view = helper.toTextureView(args.fContext, fit);
         }
 
-        if (!proxy) {
+        if (!view) {
             return false;
         }
         if (useCache) {
-            SkASSERT(proxy->origin() == kTopLeft_GrSurfaceOrigin);
-            fProxyProvider->assignUniqueKeyToProxy(maskKey, proxy.get());
-            args.fShape->addGenIDChangeListener(
-                    sk_make_sp<PathInvalidator>(maskKey, args.fContext->priv().contextID()));
+            SkASSERT(view.origin() == kTopLeft_GrSurfaceOrigin);
+
+            // We will add an invalidator to the path so that if the path goes away we will
+            // delete or recycle the mask texture.
+            auto listener = GrMakeUniqueKeyInvalidationListener(&maskKey,
+                                                                args.fContext->priv().contextID());
+            fProxyProvider->assignUniqueKeyToProxy(maskKey, view.asTextureProxy());
+            args.fShape->addGenIDChangeListener(std::move(listener));
         }
     }
+    SkASSERT(view);
     if (inverseFilled) {
         DrawAroundInvPath(args.fRenderTargetContext, GrPaint::Clone(args.fPaint),
                           *args.fUserStencilSettings, *args.fClip, *args.fViewMatrix, devClipBounds,
                           unclippedDevShapeBounds);
     }
-    DrawToTargetWithShapeMask(std::move(proxy), args.fRenderTargetContext, std::move(args.fPaint),
+    DrawToTargetWithShapeMask(std::move(view), args.fRenderTargetContext, std::move(args.fPaint),
                               *args.fUserStencilSettings, *args.fClip, *args.fViewMatrix,
                               SkIPoint{boundsForMask->fLeft, boundsForMask->fTop}, *boundsForMask);
 

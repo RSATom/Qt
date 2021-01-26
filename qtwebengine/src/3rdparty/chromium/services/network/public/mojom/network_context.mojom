@@ -11,6 +11,7 @@ import "mojo/public/mojom/base/time.mojom";
 import "mojo/public/mojom/base/unguessable_token.mojom";
 import "mojo/public/mojom/base/values.mojom";
 import "services/network/public/mojom/address_list.mojom";
+import "services/network/public/mojom/content_security_policy.mojom";
 import "services/network/public/mojom/cookie_manager.mojom";
 import "services/network/public/mojom/default_credentials.mojom";
 import "services/network/public/mojom/cors_origin_pattern.mojom";
@@ -19,6 +20,7 @@ import "services/network/public/mojom/host_resolver.mojom";
 import "services/network/public/mojom/http_request_headers.mojom";
 import "services/network/public/mojom/ip_address.mojom";
 import "services/network/public/mojom/ip_endpoint.mojom";
+import "services/network/public/mojom/ip_address_space.mojom";
 import "services/network/public/mojom/mdns_responder.mojom";
 import "services/network/public/mojom/mutable_network_traffic_annotation_tag.mojom";
 import "services/network/public/mojom/net_log.mojom";
@@ -33,6 +35,7 @@ import "services/network/public/mojom/proxy_lookup_client.mojom";
 import "services/network/public/mojom/proxy_resolving_socket.mojom";
 import "services/network/public/mojom/quic_transport.mojom";
 import "services/network/public/mojom/restricted_cookie_manager.mojom";
+import "services/network/public/mojom/site_for_cookies.mojom";
 import "services/network/public/mojom/ssl_config.mojom";
 import "services/network/public/mojom/tcp_socket.mojom";
 import "services/network/public/mojom/udp_socket.mojom";
@@ -82,40 +85,6 @@ struct CustomProxyConfig {
   // non-idempotent methods. Can be true if the proxy is known to handle this
   // case properly.
   bool allow_non_idempotent_methods = false;
-
-  // Whether every HTTPS proxy in the custom proxy config can be assumed to
-  // also support QUIC. If this is true, the network service will try to
-  // establish an alternative QUIC stream to the proxy in parallel to the HTTPS
-  // stream in an attempt to use QUIC if possible.
-  bool assume_https_proxies_support_quic = false;
-
-  // Whether the custom proxy config can be used on HTTP URLs whose fetching
-  // causes redirect cycles. If set to false, network service will try to
-  // bypass custom proxies on HTTP requests whose fetching causes redirect
-  // cycles. In such cases, the request will be fetched directly once the
-  // redirect cycle is detected.
-  // TODO(https://crbug.com/945892): Remove this boolean once Network
-  // Servicification is fully launched.
-  bool can_use_proxy_on_http_url_redirect_cycles = true;
-
-  // The custom proxy can set these headers in this config which will be added
-  // to all requests using the proxy. This allows setting headers that may be
-  // privacy/security sensitive which we don't want to send to the renderer.
-  // Headers that require per-request logic can be added through the
-  // |custom_proxy_pre_cache_headers| and |custom_proxy_post_cache_headers|
-  // fields in ResourceRequest.
-  //
-  // Headers that will be set before the cache for http:// requests. If the
-  // request does not use a custom proxy, these headers will be removed before
-  // sending to the network. If a request already has one of these headers set,
-  // it may be overwritten if a custom proxy is used, or removed if a custom
-  // proxy is not used.
-  HttpRequestHeaders pre_cache_headers;
-
-  // Headers that will be set after the cache for http:// requests that are
-  // issued through a custom proxy. Headers here will overwrite matching
-  // headers on the request if a custom proxy is used.
-  HttpRequestHeaders post_cache_headers;
 
   // For tunneled requests (https://, ws://, wss://), these headers are added
   // to the CONNECT request. Headers here will overwrite matching headers on
@@ -230,6 +199,14 @@ struct NetworkContextParams {
 
   // Points to the cookie file. An in-memory cookie store is used if it's empty.
   mojo_base.mojom.FilePath? cookie_path;
+
+  // Points to the Trust Token database. An in-memory trust token store is used
+  // if it's empty, or (through a fallback in the initialization logic; see
+  // SQLiteTrustTokenPersister's comments) if initialization fails.
+  //
+  // Initializing the on-disk database takes place asynchronously, so requests
+  // near startup may not support Trust Tokens protocol operations.
+  mojo_base.mojom.FilePath? trust_token_path;
 
   // If true, cookies will be stored encrypted.
   bool enable_encrypted_cookies = true;
@@ -366,10 +343,14 @@ struct NetworkContextParams {
   [EnableIf=is_chromeos]
   AdditionalCertificates? initial_additional_certificates;
 
-  // If true, the built-in cert verifier will be used. If false, the platform
-  // cert verifier will be used.
+  // Specifies which cert verifier implementation to use.
+  //   kDefault - Decided by base::Feature
+  //   kBuiltin - Use CertVerifyProcBuiltin
+  //   kSystem  - Use the system CertVerifyProc implementation
   [EnableIf=is_builtin_cert_verifier_feature_supported]
-  bool use_builtin_cert_verifier = false;
+  enum CertVerifierImpl {kDefault, kBuiltin, kSystem};
+  [EnableIf=is_builtin_cert_verifier_feature_supported]
+  CertVerifierImpl use_builtin_cert_verifier = kDefault;
 
   // Parameters for the cert verifier comparison trial. This is a temporary
   // interface and embedders should not use it.
@@ -449,6 +430,12 @@ struct NetworkContextParams {
   // the dynamic preference from NetworkService side, to populate
   // HttpAuthPreference.
   HttpAuthStaticNetworkContextParams? http_auth_static_network_context_params;
+
+  // Indicates that the HttpCache back-end should be reset (e.g. when a Finch
+  // experiment changes the cache key representation via NetworkIsolationKey).
+  // A reset throws out all existing cache content when loading the cache,
+  // effectively starting with an empty cache.
+  bool reset_http_cache_backend = false;
 };
 
 struct NetworkConditions {
@@ -490,11 +477,11 @@ struct ClearDataFilter {
 struct NetworkUsage {
   // |process_id| is 0 for the browser process, otherwise it's the child process
   // ID.
-  uint32 process_id;
+  int32 process_id;
 
   // The ID of the IPC route for the consumer, which identifies the RenderFrame
   // or like-thing.
-  uint32 routing_id;
+  int32 routing_id;
 
   // Raw bytes received from the network since the start/restart of the service.
   int64 total_bytes_received;
@@ -519,8 +506,8 @@ struct SignedExchangeReport {
   mojo_base.mojom.TimeDelta elapsed_time;
 };
 
-const uint32 kBrowserProcessId = 0;
-const uint32 kInvalidProcessId = 0xffffffff;
+const int32 kBrowserProcessId = 0;
+const int32 kInvalidProcessId = -1;
 
 // URLLoaderFactory made by the network service consists of two layers of
 // factories, the "internal" one that directly talks to the //net layer, and
@@ -542,22 +529,46 @@ struct URLLoaderFactoryOverride {
 
   // A receiver for the replaced "internal" URLLoaderFactory.
   pending_receiver<URLLoaderFactory>? overridden_factory_receiver;
+
+  // Specifies if we should accept unknown schemes for CORS-enabled requests
+  // so that the |overriding_factory| can provide content for custom schemes.
+  bool skip_cors_enabled_scheme_check = false;
+};
+
+struct ClientSecurityState {
+  // https://mikewest.github.io/corpp/#integration-html
+  // https://mikewest.github.io/corpp/#initialize-embedder-policy-for-global
+  CrossOriginEmbedderPolicy cross_origin_embedder_policy;
+
+  // Whether the initiator of the requests is in a web secure context.
+  bool is_web_secure_context = false;
+
+  // The initiator's IP AddressSpace.
+  IPAddressSpace ip_address_space = IPAddressSpace.kUnknown;
 };
 
 struct URLLoaderFactoryParams {
   // Process requesting the URLLoaderFactory.
   // Set to kBrowserProcessId to indicate the browser process.
-  uint32 process_id = kInvalidProcessId;
+  int32 process_id = kInvalidProcessId;
 
   // If specified, then |request_initiator_site_lock| locks
   // |ResourceRequest::request_initiator| to the specified origin.
-  // TODO(lukasza): https://crbug.com/891872: Make this non-optional.
-  // TODO(lukasza, nasko): https://crbug.com/888079: Make this an *origin* lock
-  // (rather than just a site lock).
+  // TODO(lukasza): https://crbug.com/891872: 1) Make this non-optional,
+  // 2) Make this an *origin* lock (rather than a *site* lock).
   url.mojom.Origin? request_initiator_site_lock;
+
+  // For subresource requests from frames, |top_frame_origin| is the request's
+  // top frame's origin.
+  url.mojom.Origin? top_frame_origin;
 
   // Cross-origin read blocking (CORB) configuration.
   bool is_corb_enabled = true;
+
+  // Whether |isolated_world_origin| from network::ResourceRequest should be
+  // ignored.  Set |ignore_isolated_world_origin| to |false| to allow isolated
+  // worlds to bypass CORS security checks via OriginAccessList.
+  bool ignore_isolated_world_origin = true;
 
   // Indicate whether a request is not from web page ( probably from chrome
   // extension background page ).
@@ -569,11 +580,6 @@ struct URLLoaderFactoryParams {
   // this factory as initiated by the user agent itself, not from any
   // particular page.
   bool disable_web_security = false;
-
-  // https://mikewest.github.io/corpp/#integration-html
-  // https://mikewest.github.io/corpp/#initialize-embedder-policy-for-global
-  CrossOriginEmbedderPolicy cross_origin_embedder_policy =
-      CrossOriginEmbedderPolicy.kNone;
 
   // If this is set, requests with the kURLLoadOptionUseHeaderClient option will
   // callback to the |header_client|, allowing the Cookie/Referrer request
@@ -589,6 +595,9 @@ struct URLLoaderFactoryParams {
   // Key used to isolate shared network resources like the cache.
   NetworkIsolationKey? network_isolation_key;
 
+  // Whether secure DNS should be disabled for requests.
+  bool disable_secure_dns = false;
+
   // True if this is for exclusive use by a trusted consumer. Only trusted
   // consumers can issue requests with ResourceRequest::trusted_params
   // populated.
@@ -602,6 +611,13 @@ struct URLLoaderFactoryParams {
 
   // Replaces the "internal" factory used by security features such as CORS.
   URLLoaderFactoryOverride? factory_override;
+
+  // Used to enforce security properties on the requests loaded by the
+  // URLLoader based on the Fetch client state.
+  ClientSecurityState? client_security_state;
+
+  // Used to report CORP violations caused by COEP.
+  CrossOriginEmbedderPolicyReporter? coep_reporter;
 };
 
 // The |credentials| output parameter is given to URLRequest::SetAuth()
@@ -671,8 +687,8 @@ interface NetworkContextClient {
   // network::ResourceRequest::fetch_window_id.
   OnAuthRequired(
       mojo_base.mojom.UnguessableToken? window_id,
-      uint32 process_id,
-      uint32 routing_id,
+      int32 process_id,
+      int32 routing_id,
       uint32 request_id,
       url.mojom.Url url,
       bool first_auth_attempt,
@@ -690,8 +706,8 @@ interface NetworkContextClient {
   // making the request, see network::ResourceRequest::fetch_window_id.
   OnCertificateRequested(
       mojo_base.mojom.UnguessableToken? window_id,
-      uint32 process_id,
-      uint32 routing_id,
+      int32 process_id,
+      int32 routing_id,
       uint32 request_id,
       network.mojom.SSLCertRequestInfo cert_info,
       pending_remote<ClientCertificateResponder> cert_responder);
@@ -699,8 +715,8 @@ interface NetworkContextClient {
   // Called when an SSL certificate is encountered.
   // The callback argument is a net::ERROR value. If it's net::OK, then the
   // request is resumed. Otherwise it's cancelled with the given error.
-  OnSSLCertificateError(uint32 process_id,
-                        uint32 routing_id,
+  OnSSLCertificateError(int32 process_id,
+                        int32 routing_id,
                         url.mojom.Url url,
                         int32 net_error,
                         SSLInfo ssl_info,
@@ -714,7 +730,7 @@ interface NetworkContextClient {
   // If any files referenced by |file_paths| cannot be read, a net::ERROR will
   // be returned, and |files| will be an empty list. If the |async| parameter
   // is true, the files will be opened with FLAG_ASYNC.
-  OnFileUploadRequested(uint32 process_id,
+  OnFileUploadRequested(int32 process_id,
                         bool async,
                         array<mojo_base.mojom.FilePath> file_paths) =>
                         (int32 net_error, array<mojo_base.mojom.File> files);
@@ -732,7 +748,7 @@ interface NetworkContextClient {
   // https://www.w3.org/TR/clear-site-data/
   // TODO(crbug.com/876931): We might want to move header parsing work to
   // Network Service for security concerns (e.g. |header_value| => booleans).
-  OnClearSiteData(uint32 process_id,
+  OnClearSiteData(int32 process_id,
                   int32 routing_id,
                   url.mojom.Url url,
                   string header_value,
@@ -756,7 +772,7 @@ interface NetworkContextClient {
   // the relevant frame.
   OnCookiesChanged(
       bool is_service_worker, int32 process_id, int32 routing_id,
-      url.mojom.Url url, url.mojom.Url site_for_cookies,
+      url.mojom.Url url, SiteForCookies site_for_cookies,
       array<CookieWithStatus> cookie_list);
 
   // Called when an attempt has been made to read the cookies in |cookie_list|,
@@ -778,7 +794,7 @@ interface NetworkContextClient {
   // the relevant frame.
   OnCookiesRead(
       bool is_service_worker, int32 process_id, int32 routing_id,
-      url.mojom.Url url, url.mojom.Url site_for_cookies,
+      url.mojom.Url url, SiteForCookies site_for_cookies,
       array<CookieWithStatus> cookie_list);
 
   // Called to generate an auth token for SPNEGO authentication on Android.
@@ -817,10 +833,9 @@ interface NetworkContext {
   // Gets a RestrictedCookieManager scoped to a given origin, and applying
   // settings configured on the CookieManager associated with this domain.
   //
-  // |site_for_cookies| represents which domains the cookie manager should
-  // consider to be first-party, for purposes of SameSite cookies and any
-  // third-party cookie blocking the embedder may implement. Empty
-  // |site_for_cookies| denotes that no domains are first-party.
+  // |site_for_cookies| represents which domains (perhaps none) the cookie
+  // manager should consider to be first-party, for purposes of SameSite cookies
+  // and any third-party cookie blocking the embedder may implement.
   //
   // |top_frame_origin| represents the domain for top-level frame, and can be
   // used to look up preferences that are dependent on that.
@@ -834,7 +849,7 @@ interface NetworkContext {
       pending_receiver<RestrictedCookieManager> restricted_cookie_manager,
       RestrictedCookieManagerRole role,
       url.mojom.Origin origin,
-      url.mojom.Url site_for_cookies,
+      SiteForCookies site_for_cookies,
       url.mojom.Origin top_frame_origin,
       bool is_service_worker,
       int32 process_id, int32 routing_id);
@@ -1112,7 +1127,7 @@ interface NetworkContext {
   CreateWebSocket(
         url.mojom.Url url,
         array<string> requested_protocols,
-        url.mojom.Url site_for_cookies,
+        SiteForCookies site_for_cookies,
         NetworkIsolationKey network_isolation_key,
         array<HttpHeader> additional_headers,
         int32 process_id,
@@ -1123,7 +1138,9 @@ interface NetworkContext {
         pending_remote<AuthenticationHandler>? auth_handler,
         pending_remote<TrustedHeaderClient>? header_client);
 
-  // Creates a QuicTransport connection to |url|.
+  // Creates a QuicTransport connection to |url|. |origin| is used for the
+  // client indication - see
+  // https://tools.ietf.org/html/draft-vvv-webtransport-quic-01#section-3.2 .
   //
   // It is recommended to detect mojo connection errors on |handshake_client|.
   CreateQuicTransport(
@@ -1195,6 +1212,12 @@ interface NetworkContext {
                               string sct_list) => (int32 error_code,
                                                    CertVerifyResult cv_result,
                                                    CTVerifyResult ct_result);
+
+  // Parses a Content Security Policy originating from the browser. This is
+  // used by Signed Exchanges and Appcache requests, where the browser
+  // parses the header contents.
+  ParseContentSecurityPolicy(url.mojom.Url url, HttpResponseHeaders headers)
+      => (array<ContentSecurityPolicy> content_security_policy);
 
   // Adds explicitly-specified data as if it was processed from an
   // HSTS header. Used by tests and implementation of chrome://net-internals.

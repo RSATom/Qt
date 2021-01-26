@@ -4,6 +4,7 @@
 
 #include "chrome/renderer/worker_content_settings_client.h"
 
+#include "base/memory/ptr_util.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/renderer/content_settings_agent_impl.h"
 #include "content/public/renderer/render_frame.h"
@@ -25,7 +26,7 @@ WorkerContentSettingsClient::WorkerContentSettingsClient(
     is_unique_origin_ = true;
 
   document_origin_ = document.GetSecurityOrigin();
-  site_for_cookies_ = document.SiteForCookies();
+  site_for_cookies_ = document.SiteForCookies().RepresentativeUrl();
   top_frame_origin_ = document.TopFrameOrigin();
 
   content::ChildThread::Get()->BindHostReceiver(

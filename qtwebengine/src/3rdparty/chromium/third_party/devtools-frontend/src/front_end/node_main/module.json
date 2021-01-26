@@ -15,7 +15,10 @@
         }
     ],
     "dependencies": ["platform", "ui", "host", "components"],
-    "scripts": [
+    "scripts": [],
+    "modules": [
+        "node_main.js",
+        "node_main-legacy.js",
         "NodeConnectionsPanel.js",
         "NodeMain.js"
     ],

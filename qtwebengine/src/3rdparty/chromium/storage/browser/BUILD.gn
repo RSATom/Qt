@@ -6,9 +6,7 @@ import("//mojo/public/tools/bindings/mojom.gni")
 import("//testing/test.gni")
 
 mojom("mojom") {
-  sources = [
-    "blob/mojom/blob_storage_context.mojom",
-  ]
+  sources = [ "blob/mojom/blob_storage_context.mojom" ]
 
   public_deps = [
     "//mojo/public/mojom/base",
@@ -56,6 +54,8 @@ jumbo_component("browser") {
     "blob/blob_url_loader.h",
     "blob/blob_url_loader_factory.cc",
     "blob/blob_url_loader_factory.h",
+    "blob/blob_url_registry.cc",
+    "blob/blob_url_registry.h",
     "blob/blob_url_store_impl.cc",
     "blob/blob_url_store_impl.h",
     "blob/blob_url_utils.cc",
@@ -70,6 +70,8 @@ jumbo_component("browser") {
     "blob/shareable_file_reference.h",
     "blob/view_blob_internals_job.cc",
     "blob/view_blob_internals_job.h",
+    "blob/write_blob_to_file.cc",
+    "blob/write_blob_to_file.h",
     "database/database_quota_client.cc",
     "database/database_quota_client.h",
     "database/database_tracker.cc",
@@ -156,6 +158,7 @@ jumbo_component("browser") {
     "file_system/quota/open_file_handle_context.h",
     "file_system/quota/quota_backend_impl.cc",
     "file_system/quota/quota_backend_impl.h",
+    "file_system/quota/quota_limit_type.h",
     "file_system/quota/quota_reservation.cc",
     "file_system/quota/quota_reservation.h",
     "file_system/quota/quota_reservation_buffer.cc",
@@ -193,7 +196,6 @@ jumbo_component("browser") {
     "quota/padding_key.cc",
     "quota/padding_key.h",
     "quota/quota_callbacks.h",
-    "quota/quota_client.cc",
     "quota/quota_client.h",
     "quota/quota_database.cc",
     "quota/quota_database.h",
@@ -201,7 +203,6 @@ jumbo_component("browser") {
     "quota/quota_device_info_helper.h",
     "quota/quota_features.cc",
     "quota/quota_features.h",
-    "quota/quota_limit_type.h",
     "quota/quota_macros.h",
     "quota/quota_manager.cc",
     "quota/quota_manager.h",
@@ -247,9 +248,7 @@ jumbo_component("browser") {
 }
 
 executable("dump_file_system") {
-  sources = [
-    "file_system/dump_file_system.cc",
-  ]
+  sources = [ "file_system/dump_file_system.cc" ]
 
   deps = [
     ":browser",
@@ -273,9 +272,11 @@ source_set("unittests") {
     "blob/blob_reader_unittest.cc",
     "blob/blob_registry_impl_unittest.cc",
     "blob/blob_slice_unittest.cc",
+    "blob/blob_storage_context_mojo_unittest.cc",
     "blob/blob_storage_context_unittest.cc",
     "blob/blob_storage_registry_unittest.cc",
     "blob/blob_transport_strategy_unittest.cc",
+    "blob/blob_url_registry_unittest.cc",
     "blob/blob_url_store_impl_unittest.cc",
     "database/database_quota_client_unittest.cc",
     "database/database_tracker_unittest.cc",

@@ -31,7 +31,6 @@
 #include "include/core/SkSurface.h"
 #include "include/core/SkTime.h"
 #include "src/core/SkAutoMalloc.h"
-#include "src/core/SkBBoxHierarchy.h"
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkLeanWindows.h"
 #include "src/core/SkOSFile.h"
@@ -57,6 +56,8 @@
 #include <thread>
 
 extern bool gSkForceRasterPipelineBlitter;
+extern bool gUseSkVMBlitter;
+extern bool gSkVMJITViaDylib;
 
 #ifndef SK_BUILD_FOR_WIN
     #include <unistd.h>
@@ -128,6 +129,7 @@ static DEFINE_string(benchType,  "",
         "piping, playback, skcodec, etc.");
 
 static DEFINE_bool(forceRasterPipeline, false, "sets gSkForceRasterPipelineBlitter");
+static DEFINE_bool(skvm, false, "sets gUseSkVMBlitter and gSkVMJITViaDylib");
 
 static DEFINE_bool2(pre_log, p, false,
                     "Log before running each test. May be incomprehensible when threading");
@@ -216,7 +218,7 @@ struct GPUTarget : public Target {
     }
     void endTiming() override {
         if (this->contextInfo.testContext()) {
-            this->contextInfo.testContext()->waitOnSyncOrSwap();
+            this->contextInfo.testContext()->flushAndWaitOnSync(contextInfo.grContext());
         }
     }
     void fence() override { this->contextInfo.testContext()->finish(); }
@@ -250,6 +252,7 @@ struct GPUTarget : public Target {
         return true;
     }
     void fillOptions(NanoJSONResultsWriter& log) override {
+#ifdef SK_GL
         const GrGLubyte* version;
         if (this->contextInfo.backend() == GrBackendApi::kOpenGL) {
             const GrGLInterface* gl =
@@ -267,6 +270,7 @@ struct GPUTarget : public Target {
             GR_GL_CALL_RET(gl, version, GetString(GR_GL_SHADING_LANGUAGE_VERSION));
             log.appendString("GL_SHADING_LANGUAGE_VERSION", (const char*) version);
         }
+#endif
     }
 
     void dumpStats() override {
@@ -284,9 +288,6 @@ static double time(int loops, Benchmark* bench, Target* target) {
     double start = now_ms();
     canvas = target->beginTiming(canvas);
     bench->draw(loops, canvas);
-    if (canvas) {
-        canvas->flush();
-    }
     target->endTiming();
     double elapsed = now_ms() - start;
     bench->postDraw(canvas);
@@ -953,7 +954,7 @@ public:
             while (fCurrentSampleSize < (int) SK_ARRAY_COUNT(sampleSizes)) {
                 int sampleSize = sampleSizes[fCurrentSampleSize];
                 fCurrentSampleSize++;
-                if (10 * sampleSize > SkTMin(codec->getInfo().width(), codec->getInfo().height())) {
+                if (10 * sampleSize > std::min(codec->getInfo().width(), codec->getInfo().height())) {
                     // Avoid benchmarking scaled decodes of already small images.
                     break;
                 }
@@ -1226,9 +1227,8 @@ int main(int argc, char** argv) {
 
     SetAnalyticAAFromCommonFlags();
 
-    if (FLAGS_forceRasterPipeline) {
-        gSkForceRasterPipelineBlitter = true;
-    }
+    if (FLAGS_forceRasterPipeline) { gSkForceRasterPipelineBlitter = true; }
+    if (FLAGS_skvm) { gUseSkVMBlitter = gSkVMJITViaDylib = true; }
 
     int runs = 0;
     BenchmarkStream benchStream;
@@ -1290,6 +1290,7 @@ int main(int argc, char** argv) {
                 auto stop = now_ms() + 1000;
                 do {
                     time(loops, bench.get(), target);
+                    pool.drain();
                 } while (now_ms() < stop);
             }
 
@@ -1298,11 +1299,13 @@ int main(int argc, char** argv) {
                 auto stop = now_ms() + FLAGS_ms;
                 do {
                     samples.push_back(time(loops, bench.get(), target) / loops);
+                    pool.drain();
                 } while (now_ms() < stop);
             } else {
                 samples.reset(FLAGS_samples);
                 for (int s = 0; s < FLAGS_samples; s++) {
                     samples[s] = time(loops, bench.get(), target) / loops;
+                    pool.drain();
                 }
             }
 

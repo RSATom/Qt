@@ -17,7 +17,6 @@
 #include "core/fpdfapi/parser/cfdf_document.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
-#include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
@@ -32,9 +31,9 @@
 
 namespace {
 
-const CPDF_Object* FPDF_GetFieldAttrRecursive(const CPDF_Dictionary* pFieldDict,
-                                              const char* name,
-                                              int nLevel) {
+const CPDF_Object* GetFieldAttrRecursive(const CPDF_Dictionary* pFieldDict,
+                                         const ByteString& name,
+                                         int nLevel) {
   static constexpr int kGetFieldMaxRecursion = 32;
   if (!pFieldDict || nLevel > kGetFieldMaxRecursion)
     return nullptr;
@@ -43,13 +42,14 @@ const CPDF_Object* FPDF_GetFieldAttrRecursive(const CPDF_Dictionary* pFieldDict,
   if (pAttr)
     return pAttr;
 
-  return FPDF_GetFieldAttrRecursive(
+  return GetFieldAttrRecursive(
       pFieldDict->GetDictFor(pdfium::form_fields::kParent), name, nLevel + 1);
 }
 
 }  // namespace
 
-Optional<FormFieldType> IntToFormFieldType(int value) {
+// static
+Optional<FormFieldType> CPDF_FormField::IntToFormFieldType(int value) {
   if (value >= static_cast<int>(FormFieldType::kUnknown) &&
       value < static_cast<int>(kFormFieldTypeCount)) {
     return {static_cast<FormFieldType>(value)};
@@ -57,17 +57,22 @@ Optional<FormFieldType> IntToFormFieldType(int value) {
   return {};
 }
 
-const CPDF_Object* FPDF_GetFieldAttr(const CPDF_Dictionary* pFieldDict,
-                                     const char* name) {
-  return FPDF_GetFieldAttrRecursive(pFieldDict, name, 0);
+// static
+const CPDF_Object* CPDF_FormField::GetFieldAttr(
+    const CPDF_Dictionary* pFieldDict,
+    const ByteString& name) {
+  return GetFieldAttrRecursive(pFieldDict, name, 0);
 }
 
-CPDF_Object* FPDF_GetFieldAttr(CPDF_Dictionary* pFieldDict, const char* name) {
-  return const_cast<CPDF_Object*>(FPDF_GetFieldAttrRecursive(
+// static
+CPDF_Object* CPDF_FormField::GetFieldAttr(CPDF_Dictionary* pFieldDict,
+                                          const ByteString& name) {
+  return const_cast<CPDF_Object*>(GetFieldAttrRecursive(
       static_cast<const CPDF_Dictionary*>(pFieldDict), name, 0));
 }
 
-WideString FPDF_GetFullName(CPDF_Dictionary* pFieldDict) {
+// static
+WideString CPDF_FormField::GetFullNameForDict(CPDF_Dictionary* pFieldDict) {
   WideString full_name;
   std::set<CPDF_Dictionary*> visited;
   CPDF_Dictionary* pLevel = pFieldDict;
@@ -97,7 +102,7 @@ CPDF_FormField::~CPDF_FormField() = default;
 
 void CPDF_FormField::InitFieldFlags() {
   const CPDF_Object* ft_attr =
-      FPDF_GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kFT);
+      GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kFT);
   ByteString type_name = ft_attr ? ft_attr->GetString() : ByteString();
   uint32_t flags = GetFieldFlags();
   m_bRequired = flags & pdfium::form_flags::kRequired;
@@ -135,7 +140,7 @@ void CPDF_FormField::InitFieldFlags() {
 }
 
 WideString CPDF_FormField::GetFullName() const {
-  return FPDF_GetFullName(m_pDict.Get());
+  return GetFullNameForDict(m_pDict.Get());
 }
 
 bool CPDF_FormField::ResetField(NotificationOption notify) {
@@ -186,7 +191,7 @@ bool CPDF_FormField::ResetField(NotificationOption notify) {
           csValue = pV->GetUnicodeText();
       }
 
-      bool bHasRV = !!FPDF_GetFieldAttr(m_pDict.Get(), "RV");
+      bool bHasRV = !!GetFieldAttr(m_pDict.Get(), "RV");
       if (!bHasRV && (csDValue == csValue))
         return false;
 
@@ -256,31 +261,30 @@ FormFieldType CPDF_FormField::GetFieldType() const {
 }
 
 CPDF_AAction CPDF_FormField::GetAdditionalAction() const {
-  CPDF_Object* pObj =
-      FPDF_GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kAA);
+  CPDF_Object* pObj = GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kAA);
   return CPDF_AAction(pObj ? pObj->GetDict() : nullptr);
 }
 
 WideString CPDF_FormField::GetAlternateName() const {
   const CPDF_Object* pObj =
-      FPDF_GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kTU);
+      GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kTU);
   return pObj ? pObj->GetUnicodeText() : WideString();
 }
 
 WideString CPDF_FormField::GetMappingName() const {
   const CPDF_Object* pObj =
-      FPDF_GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kTM);
+      GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kTM);
   return pObj ? pObj->GetUnicodeText() : WideString();
 }
 
 uint32_t CPDF_FormField::GetFieldFlags() const {
   const CPDF_Object* pObj =
-      FPDF_GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kFf);
+      GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kFf);
   return pObj ? pObj->GetInteger() : 0;
 }
 
 ByteString CPDF_FormField::GetDefaultStyle() const {
-  const CPDF_Object* pObj = FPDF_GetFieldAttr(m_pDict.Get(), "DS");
+  const CPDF_Object* pObj = GetFieldAttr(m_pDict.Get(), "DS");
   return pObj ? pObj->GetString() : ByteString();
 }
 
@@ -393,7 +397,7 @@ bool CPDF_FormField::SetValue(const WideString& value,
 }
 
 int CPDF_FormField::GetMaxLen() const {
-  if (const CPDF_Object* pObj = FPDF_GetFieldAttr(m_pDict.Get(), "MaxLen"))
+  if (const CPDF_Object* pObj = GetFieldAttr(m_pDict.Get(), "MaxLen"))
     return pObj->GetInteger();
 
   for (auto& pControl : GetControls()) {
@@ -530,7 +534,7 @@ void CPDF_FormField::SetItemSelectionSelected(int index,
   if (GetType() != kListBox) {
     m_pDict->SetNewFor<CPDF_String>(pdfium::form_fields::kV, opt_value);
     CPDF_Array* pI = m_pDict->SetNewFor<CPDF_Array>("I");
-    pI->AddNew<CPDF_Number>(index);
+    pI->AppendNew<CPDF_Number>(index);
     return;
   }
 
@@ -543,7 +547,7 @@ void CPDF_FormField::SetItemSelectionSelected(int index,
   CPDF_Array* pArray = m_pDict->SetNewFor<CPDF_Array>(pdfium::form_fields::kV);
   for (int i = 0; i < CountOptions(); i++) {
     if (i == index || IsItemSelected(i))
-      pArray->AddNew<CPDF_String>(GetOptionValue(i));
+      pArray->AppendNew<CPDF_String>(GetOptionValue(i));
   }
 }
 
@@ -573,7 +577,7 @@ void CPDF_FormField::SetItemSelectionUnselected(int index,
   auto pArray = pdfium::MakeRetain<CPDF_Array>();
   for (int i = 0; i < CountOptions(); i++) {
     if (i != index && IsItemSelected(i))
-      pArray->AddNew<CPDF_String>(GetOptionValue(i));
+      pArray->AppendNew<CPDF_String>(GetOptionValue(i));
   }
   if (pArray->size() > 0) {
     m_pDict->SetFor(pdfium::form_fields::kV, pArray);
@@ -604,12 +608,12 @@ int CPDF_FormField::GetDefaultSelectedItem() const {
 }
 
 int CPDF_FormField::CountOptions() const {
-  const CPDF_Array* pArray = ToArray(FPDF_GetFieldAttr(m_pDict.Get(), "Opt"));
+  const CPDF_Array* pArray = ToArray(GetFieldAttr(m_pDict.Get(), "Opt"));
   return pArray ? pArray->size() : 0;
 }
 
 WideString CPDF_FormField::GetOptionText(int index, int sub_index) const {
-  const CPDF_Array* pArray = ToArray(FPDF_GetFieldAttr(m_pDict.Get(), "Opt"));
+  const CPDF_Array* pArray = ToArray(GetFieldAttr(m_pDict.Get(), "Opt"));
   if (!pArray)
     return WideString();
 
@@ -671,7 +675,7 @@ bool CPDF_FormField::CheckControl(int iControlIndex,
     }
   }
 
-  const CPDF_Object* pOpt = FPDF_GetFieldAttr(m_pDict.Get(), "Opt");
+  const CPDF_Object* pOpt = GetFieldAttr(m_pDict.Get(), "Opt");
   if (!ToArray(pOpt)) {
     ByteString csBExport = PDF_EncodeText(csWExport);
     if (bChecked) {
@@ -731,7 +735,7 @@ bool CPDF_FormField::SetCheckValue(const WideString& value,
 }
 
 int CPDF_FormField::GetTopVisibleIndex() const {
-  const CPDF_Object* pObj = FPDF_GetFieldAttr(m_pDict.Get(), "TI");
+  const CPDF_Object* pObj = GetFieldAttr(m_pDict.Get(), "TI");
   return pObj ? pObj->GetInteger() : 0;
 }
 
@@ -808,7 +812,7 @@ bool CPDF_FormField::SelectOption(int iOptIndex,
   }
   if (!bReturn) {
     if (bSelected)
-      pArray->AddNew<CPDF_Number>(iOptIndex);
+      pArray->AppendNew<CPDF_Number>(iOptIndex);
     if (pArray->IsEmpty())
       m_pDict->RemoveFor("I");
   }
@@ -824,7 +828,7 @@ void CPDF_FormField::LoadDA() {
     return;
 
   ByteString DA;
-  if (const CPDF_Object* pObj = FPDF_GetFieldAttr(m_pDict.Get(), "DA"))
+  if (const CPDF_Object* pObj = GetFieldAttr(m_pDict.Get(), "DA"))
     DA = pObj->GetString();
 
   if (DA.IsEmpty())
@@ -901,16 +905,16 @@ void CPDF_FormField::NotifyListOrComboBoxAfterChange() {
 }
 
 const CPDF_Object* CPDF_FormField::GetDefaultValueObject() const {
-  return FPDF_GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kDV);
+  return GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kDV);
 }
 
 const CPDF_Object* CPDF_FormField::GetValueObject() const {
-  return FPDF_GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kV);
+  return GetFieldAttr(m_pDict.Get(), pdfium::form_fields::kV);
 }
 
 const CPDF_Object* CPDF_FormField::GetSelectedIndicesObject() const {
   ASSERT(GetType() == kComboBox || GetType() == kListBox);
-  return FPDF_GetFieldAttr(m_pDict.Get(), "I");
+  return GetFieldAttr(m_pDict.Get(), "I");
 }
 
 const CPDF_Object* CPDF_FormField::GetValueOrSelectedIndicesObject() const {

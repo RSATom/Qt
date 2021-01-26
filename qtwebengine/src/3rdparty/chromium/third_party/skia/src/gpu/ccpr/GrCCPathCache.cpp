@@ -87,7 +87,7 @@ uint32_t* GrCCPathCache::Key::data() {
     return reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(this) + sizeof(Key));
 }
 
-void GrCCPathCache::Key::onChange() {
+void GrCCPathCache::Key::changed() {
     // Our key's corresponding path was invalidated. Post a thread-safe eviction message.
     SkMessageBus<sk_sp<Key>>::Post(sk_ref_sp(this));
 }
@@ -147,7 +147,7 @@ public:
             memcpy(&out[kStrokeWidthIdx], &width, sizeof(float));
             memcpy(&out[kStrokeMiterIdx], &miterLimit, sizeof(float));
             out[kStrokeCapJoinIdx] = (stroke.getCap() << 16) | stroke.getJoin();
-            GR_STATIC_ASSERT(sizeof(out[kStrokeWidthIdx]) == sizeof(float));
+            static_assert(sizeof(out[kStrokeWidthIdx]) == sizeof(float), "");
         }
 
         // Shape unstyled key.
@@ -231,10 +231,8 @@ GrCCPathCache::OnFlushEntryRef GrCCPathCache::find(
             SkASSERT(SkToBool(entry->fCachedAtlas->peekOnFlushRefCnt()) ==
                      SkToBool(entry->fCachedAtlas->getOnFlushProxy()));
             if (!entry->fCachedAtlas->getOnFlushProxy()) {
-                auto ct = GrCCAtlas::CoverageTypeToColorType(entry->fCachedAtlas->coverageType());
                 if (sk_sp<GrTextureProxy> onFlushProxy = onFlushRP->findOrCreateProxyByUniqueKey(
-                            entry->fCachedAtlas->textureKey(), ct, GrCCAtlas::kTextureOrigin,
-                            GrSurfaceProxy::UseAllocator::kNo)) {
+                            entry->fCachedAtlas->textureKey(), GrSurfaceProxy::UseAllocator::kNo)) {
                     entry->fCachedAtlas->setOnFlushProxy(std::move(onFlushProxy));
                 }
             }
@@ -258,7 +256,7 @@ void GrCCPathCache::evict(const GrCCPathCache::Key& key, GrCCPathCacheEntry* ent
     }
     SkASSERT(*entry->fCacheKey == key);
     SkASSERT(!entry->hasBeenEvicted());
-    entry->fCacheKey->markShouldUnregisterFromPath();  // Unregister the path listener.
+    entry->fCacheKey->markShouldDeregister();  // Unregister the path listener.
     entry->releaseCachedAtlas(this);
     fLRU.remove(entry);
     fHashTable.remove(key);
@@ -325,7 +323,7 @@ void GrCCPathCache::evictInvalidatedCacheKeys() {
     SkTArray<sk_sp<Key>> invalidatedKeys;
     fInvalidatedKeysInbox.poll(&invalidatedKeys);
     for (const sk_sp<Key>& key : invalidatedKeys) {
-        bool isInCache = !key->shouldUnregisterFromPath();  // Gets set upon exiting the cache.
+        bool isInCache = !key->shouldDeregister();  // Gets set upon exiting the cache.
         if (isInCache) {
             this->evict(*key);
         }

@@ -160,6 +160,14 @@ def _ParseOptions():
       '--disable-checkdiscard',
       action='store_true',
       help='Disable -checkdiscard directives')
+  parser.add_argument('--sourcefile', help='Value for source file attribute')
+  parser.add_argument(
+      '--force-enable-assertions',
+      action='store_true',
+      help='Forcefully enable javac generated assertion code.')
+  parser.add_argument(
+      '--desugar', action='store_true', help='Enable R8 Desugaring')
+
 
   options = parser.parse_args(args)
 
@@ -216,24 +224,22 @@ def _OptimizeWithR8(options,
     # from failing.
     build_utils.Touch(tmp_mapping_path)
 
-    output_is_zipped = not options.output_path.endswith('.dex')
     tmp_output = os.path.join(tmp_dir, 'r8out')
-    if output_is_zipped:
-      tmp_output += '.jar'
-    else:
-      os.mkdir(tmp_output)
+    os.mkdir(tmp_output)
 
     cmd = [
         build_utils.JAVA_PATH,
         '-jar',
         options.r8_path,
-        '--no-desugaring',
         '--no-data-resources',
         '--output',
         tmp_output,
         '--pg-map-output',
         tmp_mapping_path,
     ]
+
+    if not options.desugar:
+      cmd += ['--no-desugaring']
 
     for lib in libraries:
       cmd += ['--lib', lib]
@@ -243,6 +249,9 @@ def _OptimizeWithR8(options,
 
     if options.min_api:
       cmd += ['--min-api', options.min_api]
+
+    if options.force_enable_assertions:
+      cmd += ['--force-enable-assertions']
 
     if options.main_dex_rules_path:
       for main_dex_rule in options.main_dex_rules_path:
@@ -265,14 +274,17 @@ def _OptimizeWithR8(options,
           'android/docs/java_optimization.md#Debugging-common-failures\n'))
       raise ProguardProcessError(err, debugging_link)
 
-    if not output_is_zipped:
-      found_files = os.listdir(tmp_output)
+    found_files = build_utils.FindInDirectory(tmp_output)
+    if not options.output_path.endswith('.dex'):
+      # Add to .jar using Python rather than having R8 output to a .zip directly
+      # in order to disable compression of the .jar, saving ~500ms.
+      tmp_jar_output = tmp_output + '.jar'
+      build_utils.DoZip(found_files, tmp_jar_output, base_dir=tmp_output)
+      shutil.move(tmp_jar_output, options.output_path)
+    else:
       if len(found_files) > 1:
         raise Exception('Too many files created: {}'.format(found_files))
-      tmp_output = os.path.join(tmp_output, found_files[0])
-
-    # Copy output files to correct locations.
-    shutil.move(tmp_output, options.output_path)
+      shutil.move(found_files[0], options.output_path)
 
     with open(options.mapping_output, 'w') as out_file, \
         open(tmp_mapping_path) as in_file:
@@ -381,6 +393,10 @@ def _CreateDynamicConfig(options):
   public static final int SDK_INT return %s..9999;
 }""" % options.min_api)
 
+  if options.sourcefile:
+    ret.append("-renamesourcefileattribute '%s' # OMIT FROM EXPECTATIONS" %
+               options.sourcefile)
+
   if options.apply_mapping:
     ret.append("-applymapping '%s'" % os.path.abspath(options.apply_mapping))
   if options.repackage_classes:
@@ -428,6 +444,10 @@ def main():
 
   libraries = []
   for p in options.classpath:
+    # TODO(bjoyce): Remove filter once old android support libraries are gone.
+    # Fix for having Library class extend program class dependency problem.
+    if 'com_android_support' in p or 'android_support_test' in p:
+      continue
     # If a jar is part of input no need to include it as library jar.
     if p not in libraries and p not in options.input_paths:
       libraries.append(p)

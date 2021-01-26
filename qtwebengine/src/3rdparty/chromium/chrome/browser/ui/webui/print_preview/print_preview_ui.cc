@@ -15,7 +15,7 @@
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -44,7 +44,6 @@
 #include "chrome/grit/print_preview_resources.h"
 #include "chrome/grit/print_preview_resources_map.h"
 #include "components/prefs/pref_service.h"
-#include "components/printing/browser/print_manager_utils.h"
 #include "components/printing/common/print_messages.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/user_manager/user_manager.h"
@@ -56,6 +55,7 @@
 #include "printing/print_job_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_features.h"
+#include "ui/base/webui/web_ui_util.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 #include "ui/web_dialogs/web_dialog_ui.h"
@@ -254,8 +254,6 @@ void AddPrintPreviewStrings(content::WebUIDataSource* source) {
     {"printPagesLabel", IDS_PRINT_PREVIEW_PRINT_PAGES_LABEL},
     {"printPreviewPageLabelPlural", IDS_PRINT_PREVIEW_PAGE_LABEL_PLURAL},
     {"printPreviewPageLabelSingular", IDS_PRINT_PREVIEW_PAGE_LABEL_SINGULAR},
-    {"printPreviewNewSummaryFormatShort",
-     IDS_PRINT_PREVIEW_NEW_SUMMARY_FORMAT_SHORT},
     {"printPreviewSheetsLabelPlural", IDS_PRINT_PREVIEW_SHEETS_LABEL_PLURAL},
     {"printPreviewSheetsLabelSingular",
      IDS_PRINT_PREVIEW_SHEETS_LABEL_SINGULAR},
@@ -280,6 +278,8 @@ void AddPrintPreviewStrings(content::WebUIDataSource* source) {
     {"scalingInstruction", IDS_PRINT_PREVIEW_SCALING_INSTRUCTION},
     {"scalingLabel", IDS_PRINT_PREVIEW_SCALING_LABEL},
     {"searchBoxPlaceholder", IDS_PRINT_PREVIEW_SEARCH_BOX_PLACEHOLDER},
+    {"searchResultBubbleText", IDS_SEARCH_RESULT_BUBBLE_TEXT},
+    {"searchResultsBubbleText", IDS_SEARCH_RESULTS_BUBBLE_TEXT},
     {"selectButton", IDS_PRINT_PREVIEW_BUTTON_SELECT},
     {"seeMore", IDS_PRINT_PREVIEW_SEE_MORE},
     {"seeMoreDestinationsLabel", IDS_PRINT_PREVIEW_SEE_MORE_DESTINATIONS_LABEL},
@@ -343,6 +343,7 @@ void SetupPrintPreviewPlugin(content::WebUIDataSource* source) {
     int id;
   } kPdfResources[] = {
     {"pdf/browser_api.js", IDR_PDF_BROWSER_API_JS},
+    {"pdf/constants.js", IDR_PDF_CONSTANTS_JS},
     {"pdf/controller.js", IDR_PDF_CONTROLLER_JS},
     {"pdf/elements/icons.js", IDR_PDF_ICONS_JS},
     {"pdf/elements/shared-vars.js", IDR_PDF_SHARED_VARS_JS},
@@ -371,7 +372,6 @@ void SetupPrintPreviewPlugin(content::WebUIDataSource* source) {
     {"pdf/metrics.js", IDR_PDF_METRICS_JS},
     {"pdf/navigator.js", IDR_PDF_NAVIGATOR_JS},
     {"pdf/open_pdf_params_parser.js", IDR_PDF_OPEN_PDF_PARAMS_PARSER_JS},
-    {"pdf/pdf_fitting_type.js", IDR_PDF_PDF_FITTING_TYPE_JS},
     {"pdf/pdf_scripting_api.js", IDR_PDF_PDF_SCRIPTING_API_JS},
     {"pdf/pdf_viewer.js", IDR_PDF_PDF_VIEWER_JS},
     {"pdf/toolbar_manager.js", IDR_PDF_TOOLBAR_MANAGER_JS},
@@ -508,10 +508,6 @@ void PrintPreviewUI::SetInitiatorTitle(
   initiator_title_ = job_title;
 }
 
-bool PrintPreviewUI::ShouldCompositeDocumentUsingIndividualPages() const {
-  return printing::IsOopifEnabled() && source_is_modifiable_;
-}
-
 bool PrintPreviewUI::LastPageComposited(int page_number) const {
   if (pages_to_render_.empty())
     return false;
@@ -596,8 +592,9 @@ void PrintPreviewUI::OnPrintPreviewCancelled(int request_id) {
 
 void PrintPreviewUI::OnPrintPreviewRequest(int request_id) {
   if (!initial_preview_start_time_.is_null()) {
-    UMA_HISTOGRAM_TIMES("PrintPreview.InitializationTime",
-                        base::TimeTicks::Now() - initial_preview_start_time_);
+    base::UmaHistogramTimes(
+        "PrintPreview.InitializationTime",
+        base::TimeTicks::Now() - initial_preview_start_time_);
   }
   g_print_preview_request_id_map.Get().Set(*id_, request_id);
 }
@@ -672,16 +669,13 @@ void PrintPreviewUI::OnDidPreviewPage(
 }
 
 void PrintPreviewUI::OnPreviewDataIsAvailable(
-    int expected_pages_count,
     scoped_refptr<base::RefCountedMemory> data,
     int preview_request_id) {
-  VLOG(1) << "Print preview request finished with "
-          << expected_pages_count << " pages";
-
   if (!initial_preview_start_time_.is_null()) {
-    UMA_HISTOGRAM_TIMES("PrintPreview.InitialDisplayTime",
-                        base::TimeTicks::Now() - initial_preview_start_time_);
-    UMA_HISTOGRAM_COUNTS_1M(
+    base::UmaHistogramTimes(
+        "PrintPreview.InitialDisplayTime",
+        base::TimeTicks::Now() - initial_preview_start_time_);
+    base::UmaHistogramCounts1M(
         "PrintPreview.RegeneratePreviewRequest.BeforeFirstData",
         handler_->regenerate_preview_request_count());
     initial_preview_start_time_ = base::TimeTicks();

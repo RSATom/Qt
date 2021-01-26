@@ -273,7 +273,8 @@ void ContentRendererClientQt::PrepareErrorPage(content::RenderFrame *renderFrame
 {
     GetNavigationErrorStringsInternal(
             renderFrame, httpMethod,
-            error_page::Error::NetError(web_error.url(), web_error.reason(), web_error.has_copy_in_cache()), errorHtml);
+            error_page::Error::NetError((GURL)web_error.url(), web_error.reason(), net::ResolveErrorInfo(), web_error.has_copy_in_cache()),
+            errorHtml);
 }
 
 void ContentRendererClientQt::PrepareErrorPageForHttpStatusError(content::RenderFrame *renderFrame,
@@ -306,8 +307,8 @@ void ContentRendererClientQt::GetNavigationErrorStringsInternal(content::RenderF
         error_page::LocalizedError::PageState errorPageState =
             error_page::LocalizedError::GetPageState(
                 error.reason(), error.domain(), error.url(), isPost,
-                error.stale_copy_in_cache(), false, RenderThreadObserverQt::is_incognito_process(), false,
-                false, locale, std::unique_ptr<error_page::ErrorPageParams>());
+                false, error.stale_copy_in_cache(), false, RenderThreadObserverQt::is_incognito_process(), false,
+                false, false, locale, std::unique_ptr<error_page::ErrorPageParams>());
 
         resourceId = IDR_NET_ERROR_HTML;
 
@@ -359,6 +360,11 @@ bool ContentRendererClientQt::OverrideCreatePlugin(content::RenderFrame *render_
     }
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
     return content::ContentRendererClient::OverrideCreatePlugin(render_frame, params, plugin);
+}
+
+bool ContentRendererClientQt::IsOriginIsolatedPepperPlugin(const base::FilePath& plugin_path)
+{
+    return plugin_path.value() == FILE_PATH_LITERAL("internal-pdf-viewer/");
 }
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -606,7 +612,7 @@ void ContentRendererClientQt::InitSpellCheck()
 void ContentRendererClientQt::WillSendRequest(blink::WebLocalFrame *frame,
                                               ui::PageTransition transition_type,
                                               const blink::WebURL &url,
-                                              const blink::WebURL &site_for_cookies,
+                                              const net::SiteForCookies &site_for_cookies,
                                               const url::Origin *initiator_origin,
                                               GURL *new_url,
                                               bool *attach_same_site_cookies)

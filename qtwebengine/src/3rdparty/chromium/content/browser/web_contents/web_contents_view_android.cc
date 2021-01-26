@@ -261,9 +261,6 @@ RenderWidgetHostViewBase* WebContentsViewAndroid::CreateViewForChildWidget(
   return new RenderWidgetHostViewAndroid(rwhi, nullptr);
 }
 
-void WebContentsViewAndroid::RenderViewCreated(RenderViewHost* host) {
-}
-
 void WebContentsViewAndroid::RenderViewReady() {
   if (device_orientation_ == 0)
     return;
@@ -480,6 +477,7 @@ void WebContentsViewAndroid::OnDragExited() {
 void WebContentsViewAndroid::OnPerformDrop(DropData* drop_data,
                                            const gfx::PointF& location,
                                            const gfx::PointF& screen_location) {
+  web_contents_->Focus();
   web_contents_->GetRenderViewHost()->GetWidget()->FilterDropData(drop_data);
   web_contents_->GetRenderViewHost()->GetWidget()->DragTargetDrop(
       *drop_data, location, screen_location, 0);
@@ -621,6 +619,13 @@ void WebContentsViewAndroid::OnSizeChanged() {
 void WebContentsViewAndroid::OnPhysicalBackingSizeChanged() {
   if (web_contents_->GetRenderWidgetHostView())
     web_contents_->SendScreenRects();
+}
+
+void WebContentsViewAndroid::OnBrowserControlsHeightChanged() {
+  auto* rwhv = GetRenderWidgetHostViewAndroid();
+  if (rwhv)
+    rwhv->SynchronizeVisualProperties(cc::DeadlinePolicy::UseDefaultDeadline(),
+                                      base::nullopt);
 }
 
 } // namespace content

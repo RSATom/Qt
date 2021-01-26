@@ -286,8 +286,11 @@ QLocale QTextToSpeechEngineAndroid::locale() const
 {
     auto locale = m_speech.callObjectMethod("getLocale", "()Ljava/util/Locale;");
     if (locale.isValid()) {
-        auto localeName = locale.callObjectMethod<jstring>("toString").toString();
-        return QLocale(localeName);
+        auto localeLanguage = locale.callObjectMethod<jstring>("getLanguage").toString();
+        auto localeCountry = locale.callObjectMethod<jstring>("getCountry").toString();
+        if (!localeCountry.isEmpty())
+            localeLanguage += QString("_%1").arg(localeCountry).toUpper();
+        return QLocale(localeLanguage);
     }
     return QLocale();
 }

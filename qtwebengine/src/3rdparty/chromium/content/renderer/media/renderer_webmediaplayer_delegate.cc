@@ -18,22 +18,18 @@
 #include "content/public/renderer/render_thread.h"
 #include "third_party/blink/public/platform/web_fullscreen_video_status.h"
 #include "third_party/blink/public/platform/web_size.h"
-#include "third_party/blink/public/web/web_scoped_user_gesture.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "ui/gfx/geometry/size.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/build_info.h"
 #endif
 
-namespace {
+namespace media {
 
-void RecordAction(const base::UserMetricsAction& action) {
+static void RecordAction(const base::UserMetricsAction& action) {
   content::RenderThread::Get()->RecordAction(action);
 }
-
-}  // namespace
-
-namespace media {
 
 RendererWebMediaPlayerDelegate::RendererWebMediaPlayerDelegate(
     content::RenderFrame* render_frame)
@@ -200,8 +196,15 @@ void RendererWebMediaPlayerDelegate::DidPlayerSizeChange(
                                                          delegate_id, size));
 }
 
+void RendererWebMediaPlayerDelegate::DidPictureInPictureAvailabilityChange(
+    int delegate_id,
+    bool available) {
+  Send(new MediaPlayerDelegateHostMsg_OnPictureInPictureAvailabilityChanged(
+      routing_id(), delegate_id, available));
+}
+
 void RendererWebMediaPlayerDelegate::WasHidden() {
-  RecordAction(base::UserMetricsAction("Media.Hidden"));
+  media::RecordAction(base::UserMetricsAction("Media.Hidden"));
 
   for (base::IDMap<Observer*>::iterator it(&id_map_); !it.IsAtEnd();
        it.Advance())
@@ -211,7 +214,7 @@ void RendererWebMediaPlayerDelegate::WasHidden() {
 }
 
 void RendererWebMediaPlayerDelegate::WasShown() {
-  RecordAction(base::UserMetricsAction("Media.Shown"));
+  media::RecordAction(base::UserMetricsAction("Media.Shown"));
   is_frame_closed_ = false;
 
   for (base::IDMap<Observer*>::iterator it(&id_map_); !it.IsAtEnd();
@@ -237,6 +240,12 @@ bool RendererWebMediaPlayerDelegate::OnMessageReceived(
                         OnMediaDelegateVolumeMultiplierUpdate)
     IPC_MESSAGE_HANDLER(MediaPlayerDelegateMsg_BecamePersistentVideo,
                         OnMediaDelegateBecamePersistentVideo)
+    IPC_MESSAGE_HANDLER(MediaPlayerDelegateMsg_EnterPictureInPicture,
+                        OnMediaDelegateEnterPictureInPicture)
+    IPC_MESSAGE_HANDLER(MediaPlayerDelegateMsg_ExitPictureInPicture,
+                        OnMediaDelegateExitPictureInPicture)
+    IPC_MESSAGE_HANDLER(MediaPlayerDelegateMsg_NotifyPowerExperimentState,
+                        OnMediaDelegatePowerExperimentState)
     IPC_MESSAGE_UNHANDLED(return false)
   IPC_END_MESSAGE_MAP()
   return true;
@@ -270,33 +279,28 @@ void RendererWebMediaPlayerDelegate::SetFrameHiddenForTesting(bool is_hidden) {
 void RendererWebMediaPlayerDelegate::OnMediaDelegatePause(
     int player_id,
     bool triggered_by_user) {
-  RecordAction(base::UserMetricsAction("Media.Controls.RemotePause"));
+  media::RecordAction(base::UserMetricsAction("Media.Controls.RemotePause"));
 
   Observer* observer = id_map_.Lookup(player_id);
   if (observer) {
-    if (triggered_by_user) {
+    if (triggered_by_user && render_frame()) {
       // TODO(avayvod): remove when default play/pause is handled via
       // the MediaSession code path.
-      std::unique_ptr<blink::WebScopedUserGesture> gesture(
-          render_frame()
-              ? new blink::WebScopedUserGesture(render_frame()->GetWebFrame())
-              : nullptr);
+      render_frame()->GetWebFrame()->NotifyUserActivation();
     }
     observer->OnPause();
   }
 }
 
 void RendererWebMediaPlayerDelegate::OnMediaDelegatePlay(int player_id) {
-  RecordAction(base::UserMetricsAction("Media.Controls.RemotePlay"));
+  media::RecordAction(base::UserMetricsAction("Media.Controls.RemotePlay"));
 
   Observer* observer = id_map_.Lookup(player_id);
   if (observer) {
     // TODO(avayvod): remove when default play/pause is handled via
     // the MediaSession code path.
-    std::unique_ptr<blink::WebScopedUserGesture> gesture(
-        render_frame()
-            ? new blink::WebScopedUserGesture(render_frame()->GetWebFrame())
-            : nullptr);
+    if (render_frame())
+      render_frame()->GetWebFrame()->NotifyUserActivation();
     observer->OnPlay();
   }
 }
@@ -311,7 +315,7 @@ void RendererWebMediaPlayerDelegate::OnMediaDelegateMuted(int player_id,
 void RendererWebMediaPlayerDelegate::OnMediaDelegateSeekForward(
     int player_id,
     base::TimeDelta seek_time) {
-  RecordAction(base::UserMetricsAction("Media.Controls.RemoteSeekForward"));
+  media::RecordAction(base::UserMetricsAction("Media.Controls.RemoteSeekForward"));
 
   Observer* observer = id_map_.Lookup(player_id);
   if (observer)
@@ -321,7 +325,7 @@ void RendererWebMediaPlayerDelegate::OnMediaDelegateSeekForward(
 void RendererWebMediaPlayerDelegate::OnMediaDelegateSeekBackward(
     int player_id,
     base::TimeDelta seek_time) {
-  RecordAction(base::UserMetricsAction("Media.Controls.RemoteSeekBackward"));
+  media::RecordAction(base::UserMetricsAction("Media.Controls.RemoteSeekBackward"));
 
   Observer* observer = id_map_.Lookup(player_id);
   if (observer)
@@ -350,6 +354,28 @@ void RendererWebMediaPlayerDelegate::OnMediaDelegateBecamePersistentVideo(
   Observer* observer = id_map_.Lookup(player_id);
   if (observer)
     observer->OnBecamePersistentVideo(value);
+}
+
+void RendererWebMediaPlayerDelegate::OnMediaDelegateEnterPictureInPicture(
+    int player_id) {
+  Observer* observer = id_map_.Lookup(player_id);
+  if (observer)
+    observer->OnEnterPictureInPicture();
+}
+
+void RendererWebMediaPlayerDelegate::OnMediaDelegateExitPictureInPicture(
+    int player_id) {
+  Observer* observer = id_map_.Lookup(player_id);
+  if (observer)
+    observer->OnExitPictureInPicture();
+}
+
+void RendererWebMediaPlayerDelegate::OnMediaDelegatePowerExperimentState(
+    int player_id,
+    bool state) {
+  Observer* observer = id_map_.Lookup(player_id);
+  if (observer)
+    observer->OnPowerExperimentState(state);
 }
 
 void RendererWebMediaPlayerDelegate::ScheduleUpdateTask() {
@@ -417,10 +443,10 @@ void RendererWebMediaPlayerDelegate::RecordBackgroundVideoPlayback() {
     was_playing_background_video_ = has_playing_background_video;
 
     if (has_playing_background_video) {
-      RecordAction(base::UserMetricsAction("Media.Session.BackgroundResume"));
+      media::RecordAction(base::UserMetricsAction("Media.Session.BackgroundResume"));
       background_video_start_time_ = base::TimeTicks::Now();
     } else {
-      RecordAction(base::UserMetricsAction("Media.Session.BackgroundSuspend"));
+      media::RecordAction(base::UserMetricsAction("Media.Session.BackgroundSuspend"));
       UMA_HISTOGRAM_CUSTOM_TIMES(
           "Media.Android.BackgroundVideoTime",
           base::TimeTicks::Now() - background_video_start_time_,

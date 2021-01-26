@@ -49,6 +49,10 @@ public:
     skottie::TransformPropertyValue getTransform(const PropKey&) const;
     bool setTransform(const PropKey&, const skottie::TransformPropertyValue&);
 
+    std::vector<PropKey> getTextProps() const;
+    skottie::TextPropertyValue getText(const PropKey&) const;
+    bool setText(const PropKey&, const skottie::TextPropertyValue&);
+
     struct MarkerInfo {
         std::string name;
         float       t0, t1;
@@ -94,7 +98,9 @@ private:
     PropMap<skottie::ColorPropertyHandle>     fColorMap;
     PropMap<skottie::OpacityPropertyHandle>   fOpacityMap;
     PropMap<skottie::TransformPropertyHandle> fTransformMap;
+    PropMap<skottie::TextPropertyHandle>      fTextMap;
     std::vector<MarkerInfo>                   fMarkers;
+    std::string                               fCurrentNode;
 };
 
 } // namespace skottie_utils

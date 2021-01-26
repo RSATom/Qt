@@ -52,13 +52,10 @@
 #include "third_party/blink/renderer/core/css/css_uri_value.h"
 #include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
 #include "third_party/blink/renderer/core/css/resolver/filter_operation_resolver.h"
-#include "third_party/blink/renderer/core/css/resolver/style_resolver_state.h"
 #include "third_party/blink/renderer/core/css/resolver/transform_builder.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
-#include "third_party/blink/renderer/core/style/computed_style.h"
-#include "third_party/blink/renderer/core/style/intrinsic_length.h"
 #include "third_party/blink/renderer/core/style/reference_clip_path_operation.h"
 #include "third_party/blink/renderer/core/style/shape_clip_path_operation.h"
 #include "third_party/blink/renderer/core/style/style_svg_resource.h"
@@ -130,7 +127,7 @@ scoped_refptr<StyleSVGResource> StyleBuilderConverter::ConvertElementReference(
     return nullptr;
   SVGResource* resource =
       state.GetElementStyleResources().GetSVGResourceFromValue(
-          state.GetTreeScope(), *url_value);
+          state.GetElement().OriginatingTreeScope(), *url_value);
   return StyleSVGResource::Create(resource, url_value->ValueForSerialization());
 }
 
@@ -152,7 +149,7 @@ scoped_refptr<ClipPathOperation> StyleBuilderConverter::ConvertClipPath(
   if (const auto* url_value = DynamicTo<cssvalue::CSSURIValue>(value)) {
     SVGResource* resource =
         state.GetElementStyleResources().GetSVGResourceFromValue(
-            state.GetTreeScope(), *url_value);
+            state.GetElement().OriginatingTreeScope(), *url_value);
     // TODO(fs): Doesn't work with external SVG references (crbug.com/109212.)
     return ReferenceClipPathOperation::Create(
         url_value->ValueForSerialization(), resource);
@@ -190,8 +187,6 @@ static FontDescription::GenericFamilyType ConvertGenericFamily(
       return FontDescription::kFantasyFamily;
     case CSSValueID::kMonospace:
       return FontDescription::kMonospaceFamily;
-    case CSSValueID::kWebkitPictograph:
-      return FontDescription::kPictographFamily;
     default:
       return FontDescription::kNoFamily;
   }
@@ -940,28 +935,6 @@ void StyleBuilderConverter::ConvertGridTrackList(
   DCHECK(!track_sizes.IsEmpty() || !auto_repeat_track_sizes.IsEmpty());
 }
 
-void StyleBuilderConverter::ConvertOrderedNamedGridLinesMapToNamedGridLinesMap(
-    const OrderedNamedGridLines& ordered_named_grid_lines,
-    NamedGridLinesMap& named_grid_lines) {
-  DCHECK_EQ(named_grid_lines.size(), 0u);
-
-  if (ordered_named_grid_lines.size() == 0)
-    return;
-
-  for (auto& ordered_named_grid_line : ordered_named_grid_lines) {
-    for (auto& line_name : ordered_named_grid_line.value) {
-      NamedGridLinesMap::AddResult start_result =
-          named_grid_lines.insert(line_name, Vector<size_t>());
-      start_result.stored_value->value.push_back(ordered_named_grid_line.key);
-    }
-  }
-
-  for (auto& named_grid_line : named_grid_lines) {
-    Vector<size_t>& grid_line_indexes = named_grid_line.value;
-    std::sort(grid_line_indexes.begin(), grid_line_indexes.end());
-  }
-}
-
 void StyleBuilderConverter::CreateImplicitNamedGridLinesFromGridArea(
     const NamedGridAreaMap& named_grid_areas,
     NamedGridLinesMap& named_grid_lines,
@@ -1001,8 +974,13 @@ float StyleBuilderConverter::ConvertBorderWidth(StyleResolverState& state,
     return 0;
   }
   const auto& primitive_value = To<CSSPrimitiveValue>(value);
-  return primitive_value.ComputeLength<float>(
-      state.CssToLengthConversionData());
+  double result =
+      primitive_value.ComputeLength<float>(state.CssToLengthConversionData());
+  double zoomed_result = state.StyleRef().EffectiveZoom() * result;
+  if (zoomed_result > 0.0 && zoomed_result < 1.0)
+    return 1.0;
+  return clampTo<float>(result, defaultMinimumForClamp<float>(),
+                        defaultMaximumForClamp<float>());
 }
 
 GapLength StyleBuilderConverter::ConvertGapLength(StyleResolverState& state,
@@ -1089,7 +1067,7 @@ Length StyleBuilderConverter::ConvertLengthMaxSizing(StyleResolverState& state,
                                                      const CSSValue& value) {
   auto* identifier_value = DynamicTo<CSSIdentifierValue>(value);
   if (identifier_value && identifier_value->GetValueID() == CSSValueID::kNone)
-    return Length::MaxSizeNone();
+    return Length::None();
   return ConvertLengthSizing(state, value);
 }
 
@@ -1683,11 +1661,11 @@ scoped_refptr<ScaleTransformOperation> StyleBuilderConverter::ConvertScale(
 RespectImageOrientationEnum StyleBuilderConverter::ConvertImageOrientation(
     StyleResolverState& state,
     const CSSValue& value) {
+  // The default is kFromImage, so branch on the only other valid value, kNone
   auto* identifier_value = DynamicTo<CSSIdentifierValue>(value);
-  return identifier_value &&
-                 identifier_value->GetValueID() == CSSValueID::kFromImage
-             ? kRespectImageOrientation
-             : kDoNotRespectImageOrientation;
+  return identifier_value && identifier_value->GetValueID() == CSSValueID::kNone
+             ? kDoNotRespectImageOrientation
+             : kRespectImageOrientation;
 }
 
 scoped_refptr<StylePath> StyleBuilderConverter::ConvertPathOrNone(
@@ -1861,17 +1839,47 @@ StyleBuilderConverter::CssToLengthConversionData(StyleResolverState& state) {
   return state.CssToLengthConversionData();
 }
 
-IntrinsicLength StyleBuilderConverter::ConvertIntrinsicLength(
+LengthSize StyleBuilderConverter::ConvertIntrinsicSize(
     StyleResolverState& state,
     const CSSValue& value) {
   auto* identifier_value = DynamicTo<CSSIdentifierValue>(value);
-  if (identifier_value) {
-    if (identifier_value->GetValueID() == CSSValueID::kLegacy)
-      return IntrinsicLength::MakeLegacy();
-    if (identifier_value->GetValueID() == CSSValueID::kAuto)
-      return IntrinsicLength::MakeAuto();
-  }
-  return IntrinsicLength::Make(ConvertLength(state, value));
+  if (identifier_value && identifier_value->GetValueID() == CSSValueID::kAuto)
+    return LengthSize(Length::Auto(), Length::Auto());
+  const CSSValuePair& pair = To<CSSValuePair>(value);
+  Length width = ConvertLength(state, pair.First());
+  Length height = ConvertLength(state, pair.Second());
+  return LengthSize(width, height);
+}
+
+base::Optional<IntSize> StyleBuilderConverter::ConvertAspectRatio(
+    StyleResolverState& state,
+    const CSSValue& value) {
+  auto* identifier_value = DynamicTo<CSSIdentifierValue>(value);
+  if (identifier_value && identifier_value->GetValueID() == CSSValueID::kAuto)
+    return base::nullopt;
+  const CSSValueList& list = To<CSSValueList>(value);
+  DCHECK_EQ(list.length(), 2u);
+  int width = To<CSSPrimitiveValue>(list.Item(0)).GetIntValue();
+  int height = To<CSSPrimitiveValue>(list.Item(1)).GetIntValue();
+  return IntSize(width, height);
+}
+
+bool StyleBuilderConverter::ConvertInternalEmptyLineHeight(
+    StyleResolverState&,
+    const CSSValue& value) {
+  auto* identifier_value = DynamicTo<CSSIdentifierValue>(value);
+  return identifier_value &&
+         identifier_value->GetValueID() == CSSValueID::kFabricated;
+}
+
+AtomicString StyleBuilderConverter::ConvertPage(StyleResolverState& state,
+                                                const CSSValue& value) {
+  if (auto* custom_ident_value = DynamicTo<CSSCustomIdentValue>(value))
+    return AtomicString(custom_ident_value->Value());
+  DCHECK(DynamicTo<CSSIdentifierValue>(value));
+  DCHECK_EQ(DynamicTo<CSSIdentifierValue>(value)->GetValueID(),
+            CSSValueID::kAuto);
+  return AtomicString();
 }
 
 }  // namespace blink

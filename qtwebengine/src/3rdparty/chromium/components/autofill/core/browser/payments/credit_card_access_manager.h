@@ -13,6 +13,7 @@
 
 #include "base/strings/string16.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/cancelable_task_tracker.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/autofill_driver.h"
@@ -30,6 +31,19 @@ namespace autofill {
 
 class AutofillManager;
 enum class WebauthnDialogCallbackType;
+
+// Flow type denotes which card unmask authentication method was used.
+enum class UnmaskAuthFlowType {
+  kNone = 0,
+  // Only CVC prompt was shown.
+  kCvc = 1,
+  // Only WebAuthn prompt was shown.
+  kFido = 2,
+  // CVC authentication was required in addition to WebAuthn.
+  kCvcThenFido = 3,
+  // WebAuthn prompt failed and fell back to CVC prompt.
+  kCvcFallbackFromFido = 4,
+};
 
 // Manages logic for accessing credit cards either stored locally or stored
 // with Google Payments. Owned by AutofillManager.
@@ -49,13 +63,11 @@ class CreditCardAccessManager : public CreditCardCVCAuthenticator::Requester,
         const base::string16& cvc = base::string16()) = 0;
   };
 
-  explicit CreditCardAccessManager(AutofillDriver* driver,
-                                   AutofillManager* autofill_manager);
   CreditCardAccessManager(
       AutofillDriver* driver,
       AutofillClient* client,
       PersonalDataManager* personal_data_manager,
-      CreditCardFormEventLogger* credit_card_form_event_logger = nullptr);
+      CreditCardFormEventLogger* credit_card_form_event_logger);
   ~CreditCardAccessManager() override;
 
   // Logs information about current credit card data.
@@ -129,8 +141,12 @@ class CreditCardAccessManager : public CreditCardCVCAuthenticator::Requester,
 
   // Sets |unmask_details_|. May be ignored if response is too late and user is
   // not opted-in for FIDO auth, or if user does not select a card.
-  void OnDidGetUnmaskDetails(AutofillClient::PaymentsRpcResult result,
-                             AutofillClient::UnmaskDetails& unmask_details);
+  void OnDidGetUnmaskDetails(
+      AutofillClient::PaymentsRpcResult result,
+      payments::PaymentsClient::UnmaskDetails& unmask_details);
+
+  // Determines what form of authentication is required.
+  UnmaskAuthFlowType GetAuthenticationType(bool get_unmask_details_returned);
 
   // If OnDidGetUnmaskDetails() was invoked by PaymentsClient, then
   // |get_unmask_details_returned| should be set to true. Based on the
@@ -143,11 +159,14 @@ class CreditCardAccessManager : public CreditCardCVCAuthenticator::Requester,
   void OnCVCAuthenticationComplete(
       const CreditCardCVCAuthenticator::CVCAuthenticationResponse& response)
       override;
+  bool ShouldOfferFidoAuth() const override;
 
 #if !defined(OS_IOS)
   // CreditCardFIDOAuthenticator::Requester:
-  void OnFIDOAuthenticationComplete(bool did_succeed,
-                                    const CreditCard* card = nullptr) override;
+  void OnFIDOAuthenticationComplete(
+      bool did_succeed,
+      const CreditCard* card = nullptr,
+      const base::string16& cvc = base::string16()) override;
   void OnFidoAuthorizationComplete(bool did_succeed) override;
 #endif
 
@@ -162,6 +181,10 @@ class CreditCardAccessManager : public CreditCardCVCAuthenticator::Requester,
   // authentication. If false, FetchCreditCard() can begin authentication
   // immediately.
   bool IsFidoAuthenticationEnabled();
+
+  // Returns true if |unmask_details_| is set and the card selected is listed as
+  // FIDO eligible.
+  bool IsSelectedCardFidoAuthorized();
 
   // TODO(crbug.com/991037): Move this function under the build flags after the
   // refactoring is done.
@@ -182,14 +205,19 @@ class CreditCardAccessManager : public CreditCardCVCAuthenticator::Requester,
   // after a timeout.
   void SignalCanFetchUnmaskDetails();
 
+  // Additionlly authorizes the card with FIDO. It also delays the form filling.
+  // It should only be called when registering a new card or opting-in from
+  // Android.
+  void AdditionallyPerformFidoAuth(
+      const CreditCardCVCAuthenticator::CVCAuthenticationResponse& response,
+      base::Value request_options);
+
+  // The current form of authentication in progress.
+  UnmaskAuthFlowType unmask_auth_flow_type_ = UnmaskAuthFlowType::kNone;
+
   // Is set to true only when waiting for the callback to
   // OnCVCAuthenticationComplete() to be executed.
   bool is_authentication_in_progress_ = false;
-
-  // Set to true if the card selected needs to be authenticated through CVC
-  // first, and then FIDO. This happens when a user is opted-in but has not
-  // previously authenticated this card with CVC on this device.
-  bool should_follow_up_cvc_with_fido_auth_ = false;
 
   // The associated autofill driver. Weak reference.
   AutofillDriver* const driver_;
@@ -206,29 +234,44 @@ class CreditCardAccessManager : public CreditCardCVCAuthenticator::Requester,
   // May be NULL. NULL indicates OTR.
   PersonalDataManager* personal_data_manager_;
 
-  // For logging metrics. May be NULL for tests.
+  // For logging metrics.
   CreditCardFormEventLogger* form_event_logger_;
 
-  // Timestamp used for metrics.
+  // Timestamp used for preflight call metrics.
   base::TimeTicks preflight_call_timestamp_;
+
+  // Timestamp used for user-perceived latency metrics.
+  base::Optional<base::TimeTicks>
+      card_selected_without_unmask_details_timestamp_ = base::nullopt;
 
   // Meant for histograms recorded in FullCardRequest.
   base::TimeTicks form_parsed_timestamp_;
+
+  // Timestamp for when fido_authenticator_->IsUserVerifiable() is called.
+  base::Optional<base::TimeTicks> is_user_verifiable_called_timestamp_ =
+      base::nullopt;
 
   // Authenticators for card unmasking.
   std::unique_ptr<CreditCardCVCAuthenticator> cvc_authenticator_;
 #if !defined(OS_IOS)
   std::unique_ptr<CreditCardFIDOAuthenticator> fido_authenticator_;
+
+  // User opt in/out intention when local pref and payments mismatch.
+  UserOptInIntention opt_in_intention_ = UserOptInIntention::kUnspecified;
 #endif
 
   // Suggested authentication method and other information to facilitate card
   // unmasking.
-  AutofillClient::UnmaskDetails unmask_details_;
+  payments::PaymentsClient::UnmaskDetails unmask_details_;
 
   // Resets when PrepareToFetchCreditCard() is called, if not already reset.
   // Signaled when OnDidGetUnmaskDetails() is called or after timeout.
   // Authenticate() is called when signaled.
   base::WaitableEvent ready_to_start_authentication_;
+
+  // Tracks the Authenticate() task that is signaled by
+  // |ready_to_start_authentication_|, allowing it to be canceled if necessary.
+  base::CancelableTaskTracker cancelable_authenticate_task_tracker_;
 
   // Required to avoid any unnecessary preflight calls to Payments servers.
   // Initial state is signaled. Resets when PrepareToFetchCreditCard() is

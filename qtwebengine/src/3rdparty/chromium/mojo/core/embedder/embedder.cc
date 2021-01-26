@@ -35,7 +35,7 @@ void SetDefaultProcessErrorCallback(ProcessErrorCallback callback) {
   Core::Get()->SetDefaultProcessErrorCallback(std::move(callback));
 }
 
-scoped_refptr<base::TaskRunner> GetIOTaskRunner() {
+scoped_refptr<base::SingleThreadTaskRunner> GetIOTaskRunner() {
   return Core::Get()->GetNodeController()->io_task_runner();
 }
 

@@ -643,6 +643,10 @@ bool CSSParserFastPaths::IsValidKeywordPropertyAndValue(
     case CSSPropertyID::kMaskType:
       return value_id == CSSValueID::kLuminance ||
              value_id == CSSValueID::kAlpha;
+    case CSSPropertyID::kMathStyle:
+      DCHECK(RuntimeEnabledFeatures::CSSMathStyleEnabled());
+      return value_id == CSSValueID::kInline ||
+             value_id == CSSValueID::kDisplay;
     case CSSPropertyID::kObjectFit:
       return value_id == CSSValueID::kFill ||
              value_id == CSSValueID::kContain ||
@@ -792,7 +796,7 @@ bool CSSParserFastPaths::IsValidKeywordPropertyAndValue(
     case CSSPropertyID::kWebkitAppearance:
       return (value_id >= CSSValueID::kCheckbox &&
               value_id <= CSSValueID::kTextarea) ||
-             value_id == CSSValueID::kNone;
+             value_id == CSSValueID::kNone || value_id == CSSValueID::kAuto;
     case CSSPropertyID::kBackfaceVisibility:
       return value_id == CSSValueID::kVisible ||
              value_id == CSSValueID::kHidden;
@@ -905,13 +909,6 @@ bool CSSParserFastPaths::IsValidKeywordPropertyAndValue(
              value_id == CSSValueID::kNormal ||
              value_id == CSSValueID::kStrict ||
              value_id == CSSValueID::kAfterWhiteSpace;
-    case CSSPropertyID::kWebkitMarginAfterCollapse:
-    case CSSPropertyID::kWebkitMarginBeforeCollapse:
-    case CSSPropertyID::kWebkitMarginBottomCollapse:
-    case CSSPropertyID::kWebkitMarginTopCollapse:
-      return value_id == CSSValueID::kCollapse ||
-             value_id == CSSValueID::kSeparate ||
-             value_id == CSSValueID::kDiscard;
     case CSSPropertyID::kWebkitPrintColorAdjust:
       return value_id == CSSValueID::kExact || value_id == CSSValueID::kEconomy;
     case CSSPropertyID::kWebkitRtlOrdering:
@@ -970,6 +967,8 @@ bool CSSParserFastPaths::IsValidKeywordPropertyAndValue(
     case CSSPropertyID::kOverscrollBehaviorY:
       return value_id == CSSValueID::kAuto ||
              value_id == CSSValueID::kContain || value_id == CSSValueID::kNone;
+    case CSSPropertyID::kOriginTrialTestProperty:
+      return value_id == CSSValueID::kNormal || value_id == CSSValueID::kNone;
     default:
       NOTREACHED();
       return false;
@@ -1009,6 +1008,7 @@ bool CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID property_id) {
     case CSSPropertyID::kListStylePosition:
     case CSSPropertyID::kListStyleType:
     case CSSPropertyID::kMaskType:
+    case CSSPropertyID::kMathStyle:
     case CSSPropertyID::kObjectFit:
     case CSSPropertyID::kOutlineStyle:
     case CSSPropertyID::kOverflowAnchor:
@@ -1069,10 +1069,6 @@ bool CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID property_id) {
     case CSSPropertyID::kWebkitFontSmoothing:
     case CSSPropertyID::kLineBreak:
     case CSSPropertyID::kWebkitLineBreak:
-    case CSSPropertyID::kWebkitMarginAfterCollapse:
-    case CSSPropertyID::kWebkitMarginBeforeCollapse:
-    case CSSPropertyID::kWebkitMarginBottomCollapse:
-    case CSSPropertyID::kWebkitMarginTopCollapse:
     case CSSPropertyID::kWebkitPrintColorAdjust:
     case CSSPropertyID::kWebkitRtlOrdering:
     case CSSPropertyID::kWebkitRubyPosition:
@@ -1088,6 +1084,7 @@ bool CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID property_id) {
     case CSSPropertyID::kWordBreak:
     case CSSPropertyID::kWritingMode:
     case CSSPropertyID::kScrollSnapStop:
+    case CSSPropertyID::kOriginTrialTestProperty:
       return true;
     default:
       return false;

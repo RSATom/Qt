@@ -14,6 +14,10 @@
 #include "ui/events/base_event_utils.h"
 #include "ui/events/blink/fling_booster.h"
 
+#if defined(OS_WIN)
+#include "ui/display/win/test/scoped_screen_win.h"
+#endif
+
 using blink::WebGestureEvent;
 using blink::WebInputEvent;
 using blink::WebMouseWheelEvent;
@@ -112,7 +116,7 @@ class FlingControllerTest : public FlingControllerEventSenderClient,
     scroll_begin.data.scroll_begin.inertial_phase =
         WebGestureEvent::InertialPhaseState::kNonMomentum;
     scroll_begin.data.scroll_begin.delta_hint_units =
-        ui::input_types::ScrollGranularity::kScrollByPrecisePixel;
+        ui::ScrollGranularity::kScrollByPrecisePixel;
     GestureEventWithLatencyInfo scroll_begin_with_latency(scroll_begin);
 
     fling_controller_->ObserveAndMaybeConsumeGestureEvent(
@@ -130,7 +134,7 @@ class FlingControllerTest : public FlingControllerEventSenderClient,
     scroll_update.data.scroll_update.inertial_phase =
         WebGestureEvent::InertialPhaseState::kNonMomentum;
     scroll_update.data.scroll_update.delta_units =
-        ui::input_types::ScrollGranularity::kScrollByPrecisePixel;
+        ui::ScrollGranularity::kScrollByPrecisePixel;
     GestureEventWithLatencyInfo scroll_update_with_latency(scroll_update);
 
     fling_controller_->ObserveAndMaybeConsumeGestureEvent(
@@ -172,6 +176,9 @@ class FlingControllerTest : public FlingControllerEventSenderClient,
   bool notified_client_after_fling_stop_ = false;
   bool first_wheel_event_sent_ = false;
   int sent_scroll_gesture_count_ = 0;
+#if defined(OS_WIN)
+  display::win::test::ScopedScreenWin scoped_screen_win_;
+#endif
 
  private:
   base::SimpleTestTickClock mock_clock_;

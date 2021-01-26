@@ -82,7 +82,7 @@
     attribute EventHandler onplaying;
     attribute EventHandler onprogress;
     attribute EventHandler onratechange;
-    [RuntimeEnabled=DisplayLocking] attribute EventHandler onrendersubtreeactivation;
+    [RuntimeEnabled=CSSSubtreeVisibilityActivationEvent] attribute EventHandler onrendersubtreeactivation;
     attribute EventHandler onreset;
     attribute EventHandler onresize;
     attribute EventHandler onscroll;
@@ -98,6 +98,10 @@
     attribute EventHandler ontoggle;
     attribute EventHandler onvolumechange;
     attribute EventHandler onwaiting;
+    attribute EventHandler onwebkitanimationend;
+    attribute EventHandler onwebkitanimationiteration;
+    attribute EventHandler onwebkitanimationstart;
+    attribute EventHandler onwebkittransitionend;
     attribute EventHandler onwheel;
 
     // auxclick

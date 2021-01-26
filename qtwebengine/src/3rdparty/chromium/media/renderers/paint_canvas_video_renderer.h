@@ -17,7 +17,7 @@
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_flags.h"
 #include "cc/paint/paint_image.h"
-#include "components/viz/common/gpu/context_provider.h"
+#include "components/viz/common/gpu/raster_context_provider.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "media/base/media_export.h"
 #include "media/base/timestamp_constants.h"
@@ -37,7 +37,7 @@ class GLES2Interface;
 }  // namespace gpu
 
 namespace viz {
-class ContextProvider;
+class RasterContextProvider;
 }
 
 namespace media {
@@ -60,7 +60,7 @@ class MEDIA_EXPORT PaintCanvasVideoRenderer {
              const gfx::RectF& dest_rect,
              cc::PaintFlags& flags,
              VideoTransformation video_transformation,
-             viz::ContextProvider* context_provider);
+             viz::RasterContextProvider* raster_context_provider);
 
   // Paints |video_frame| scaled to its visible size on |canvas|.
   //
@@ -68,7 +68,7 @@ class MEDIA_EXPORT PaintCanvasVideoRenderer {
   // and |context_support| must be provided.
   void Copy(scoped_refptr<VideoFrame> video_frame,
             cc::PaintCanvas* canvas,
-            viz::ContextProvider* context_provider);
+            viz::RasterContextProvider* raster_context_provider);
 
   // Convert the contents of |video_frame| to raw RGB pixels. |rgb_pixels|
   // should point into a buffer large enough to hold as many 32 bit RGBA pixels
@@ -97,7 +97,7 @@ class MEDIA_EXPORT PaintCanvasVideoRenderer {
   //
   // The format of |video_frame| must be VideoFrame::NATIVE_TEXTURE.
   bool CopyVideoFrameTexturesToGLTexture(
-      viz::ContextProvider* context_provider,
+      viz::RasterContextProvider* raster_context_provider,
       gpu::gles2::GLES2Interface* destination_gl,
       scoped_refptr<VideoFrame> video_frame,
       unsigned int target,
@@ -109,11 +109,12 @@ class MEDIA_EXPORT PaintCanvasVideoRenderer {
       bool premultiply_alpha,
       bool flip_y);
 
-  bool PrepareVideoFrameForWebGL(viz::ContextProvider* context_provider,
-                                 gpu::gles2::GLES2Interface* gl,
-                                 scoped_refptr<VideoFrame> video_frame,
-                                 unsigned int target,
-                                 unsigned int texture);
+  bool PrepareVideoFrameForWebGL(
+      viz::RasterContextProvider* raster_context_provider,
+      gpu::gles2::GLES2Interface* gl,
+      scoped_refptr<VideoFrame> video_frame,
+      unsigned int target,
+      unsigned int texture);
 
   // Copy the CPU-side YUV contents of |video_frame| to texture |texture| in
   // context |destination_gl|.
@@ -123,7 +124,7 @@ class MEDIA_EXPORT PaintCanvasVideoRenderer {
   // CorrectLastImageDimensions() ensures that the source texture will be
   // cropped to |visible_rect|. Returns true on success.
   bool CopyVideoFrameYUVDataToGLTexture(
-      viz::ContextProvider* context_provider,
+      viz::RasterContextProvider* raster_context_provider,
       gpu::gles2::GLES2Interface* destination_gl,
       const VideoFrame& video_frame,
       unsigned int target,
@@ -202,7 +203,7 @@ class MEDIA_EXPORT PaintCanvasVideoRenderer {
 
     // The context provider used to generate |source_mailbox| and
     // |source_texture|. This is only set if the VideoFrame was texture-backed.
-    scoped_refptr<viz::ContextProvider> context_provider;
+    scoped_refptr<viz::RasterContextProvider> raster_context_provider;
 
     // The mailbox for the source texture. This can be either the source
     // VideoFrame's texture (if |wraps_video_frame_texture| is true) or a newly
@@ -240,11 +241,11 @@ class MEDIA_EXPORT PaintCanvasVideoRenderer {
   // Update the cache holding the most-recently-painted frame. Returns false
   // if the image couldn't be updated.
   bool UpdateLastImage(scoped_refptr<VideoFrame> video_frame,
-                       viz::ContextProvider* context_provider,
+                       viz::RasterContextProvider* raster_context_provider,
                        bool allow_wrap_texture);
 
   bool PrepareVideoFrame(scoped_refptr<VideoFrame> video_frame,
-                         viz::ContextProvider* context_provider,
+                         viz::RasterContextProvider* raster_context_provider,
                          unsigned int textureTarget,
                          unsigned int texture);
 
@@ -264,7 +265,7 @@ class MEDIA_EXPORT PaintCanvasVideoRenderer {
     void Reset();
 
     // The ContextProvider that holds the texture.
-    scoped_refptr<viz::ContextProvider> context_provider;
+    scoped_refptr<viz::RasterContextProvider> raster_context_provider;
 
     // The size of the texture.
     gfx::Size size;

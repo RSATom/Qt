@@ -97,7 +97,7 @@ protected:
 
     // content::DevToolsAgentHostClient implementation.
     void AgentHostClosed(content::DevToolsAgentHost* agent_host) override;
-    void DispatchProtocolMessage(content::DevToolsAgentHost* agent_host, const std::string& message) override;
+    void DispatchProtocolMessage(content::DevToolsAgentHost* agent_host, base::span<const uint8_t> message) override;
 
     void SetPreferences(const std::string& json);
     virtual void HandleMessageFromDevToolsFrontend(const std::string& message);
@@ -115,7 +115,8 @@ private:
     void CreateJsonPreferences(bool clear);
 
     // We shouldn't be keeping it alive
-    QWeakPointer<WebContentsAdapter> m_webContentsAdapter;
+    QWeakPointer<WebContentsAdapter> m_frontendAdapter;
+    WebContentsAdapter *m_inspectedAdapter;
     WebContentsDelegateQt *m_frontendDelegate;
     content::WebContents *m_inspectedContents;
     scoped_refptr<content::DevToolsAgentHost> m_agentHost;

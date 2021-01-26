@@ -21,11 +21,12 @@
 
 #include <inttypes.h>
 
-#include "src/trace_processor/stats.h"
+#include "src/trace_processor/storage/stats.h"
 
 #include "src/trace_processor/syscalls_aarch32.h"
 #include "src/trace_processor/syscalls_aarch64.h"
 #include "src/trace_processor/syscalls_armeabi.h"
+#include "src/trace_processor/syscalls_x86.h"
 #include "src/trace_processor/syscalls_x86_64.h"
 
 namespace perfetto {
@@ -76,6 +77,10 @@ void SyscallTracker::SetArchitecture(Architecture arch) {
       num_syscalls = GetSyscalls(kSyscalls_x86_64);
       syscall_table = &kSyscalls_x86_64[0];
       break;
+    case kX86:
+      num_syscalls = GetSyscalls(kSyscalls_x86);
+      syscall_table = &kSyscalls_x86[0];
+      break;
     case kUnknown:
       num_syscalls = 0;
       syscall_table = &kSyscalls_Unknown[0];
@@ -83,7 +88,7 @@ void SyscallTracker::SetArchitecture(Architecture arch) {
   }
 
   for (size_t i = 0; i < kMaxSyscalls; i++) {
-    StringId id = 0;
+    StringId id = kNullStringId;
     if (i < num_syscalls && syscall_table[i] && *syscall_table[i]) {
       const char* name = syscall_table[i];
       id = context_->storage->InternString(name);

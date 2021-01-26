@@ -8,6 +8,7 @@
 
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/qbone/qbone_constants.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -52,6 +53,16 @@ int QboneClientSession::GetNumSentClientHellos() const {
       ->num_sent_client_hellos();
 }
 
+bool QboneClientSession::EarlyDataAccepted() const {
+  return static_cast<const QuicCryptoClientStreamBase*>(GetCryptoStream())
+      ->EarlyDataAccepted();
+}
+
+bool QboneClientSession::ReceivedInchoateReject() const {
+  return static_cast<const QuicCryptoClientStreamBase*>(GetCryptoStream())
+      ->ReceivedInchoateReject();
+}
+
 int QboneClientSession::GetNumReceivedServerConfigUpdates() const {
   return static_cast<const QuicCryptoClientStreamBase*>(GetCryptoStream())
       ->num_scup_messages_received();
@@ -65,11 +76,13 @@ bool QboneClientSession::SendServerRequest(const QboneServerRequest& request) {
   return control_stream_->SendRequest(request);
 }
 
-void QboneClientSession::ProcessPacketFromNetwork(QuicStringPiece packet) {
+void QboneClientSession::ProcessPacketFromNetwork(
+    quiche::QuicheStringPiece packet) {
   SendPacketToPeer(packet);
 }
 
-void QboneClientSession::ProcessPacketFromPeer(QuicStringPiece packet) {
+void QboneClientSession::ProcessPacketFromPeer(
+    quiche::QuicheStringPiece packet) {
   writer_->WritePacketToNetwork(packet.data(), packet.size());
 }
 

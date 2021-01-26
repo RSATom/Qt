@@ -1,7 +1,6 @@
 luci.list_view(
     name = 'tryserver.chromium.win',
     entries = [
-        'try/gpu-fyi-try-win-xr-builder-64',
         'try/gpu-fyi-try-win7-amd-dbg-32',
         'try/gpu-fyi-try-win7-amd-dqp-32',
         'try/gpu-fyi-try-win7-amd-rel-32',
@@ -18,6 +17,7 @@ luci.list_view(
         'try/gpu-fyi-try-win10-nvidia-exp-64',
         'try/gpu-fyi-try-win10-nvidia-rel-32',
         'try/gpu-fyi-try-win10-nvidia-rel-64',
+        'try/gpu-fyi-try-win10-nvidia-sk-dawn-rel-64',
         'try/gpu-fyi-try-win10-nvidia-skgl-64',
         'try/gpu-try-win10-nvidia-rel',
         'try/win-asan',

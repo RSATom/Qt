@@ -26,8 +26,8 @@ class GrRecordingContext;
 class GrRenderTargetContext;
 class GrRenderTargetProxy;
 class GrSoftwarePathRenderer;
+class GrSurfaceContext;
 class GrSurfaceProxyView;
-class GrTextureContext;
 class GrTextureResolveRenderTask;
 class SkDeferredDisplayList;
 
@@ -36,16 +36,6 @@ public:
     ~GrDrawingManager();
 
     void freeGpuResources();
-
-    std::unique_ptr<GrRenderTargetContext> makeRenderTargetContext(sk_sp<GrSurfaceProxy>,
-                                                                   GrColorType,
-                                                                   sk_sp<SkColorSpace>,
-                                                                   const SkSurfaceProps*,
-                                                                   bool managedOpsTask = true);
-    std::unique_ptr<GrTextureContext> makeTextureContext(sk_sp<GrSurfaceProxy>,
-                                                         GrColorType,
-                                                         SkAlphaType,
-                                                         sk_sp<SkColorSpace>);
 
     // A managed opsTask is controlled by the drawing manager (i.e., sorted & flushed with the
     // others). An unmanaged one is created and used by the onFlushCallback.

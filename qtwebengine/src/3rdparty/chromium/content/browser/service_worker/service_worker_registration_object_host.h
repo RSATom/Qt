@@ -83,10 +83,11 @@ class CONTENT_EXPORT ServiceWorkerRegistrationObjectHost
   //
   // TODO(falken): See if tests can call |Update| directly, then this separate
   // function isn't needed.
-  static void DelayUpdate(blink::mojom::ServiceWorkerProviderType provider_type,
-                          ServiceWorkerRegistration* registration,
-                          ServiceWorkerVersion* version,
-                          StatusCallback update_function);
+  static void DelayUpdate(
+      blink::mojom::ServiceWorkerContainerType container_type,
+      ServiceWorkerRegistration* registration,
+      ServiceWorkerVersion* version,
+      StatusCallback update_function);
   // Called back from ServiceWorkerContextCore when an update is complete.
   void UpdateComplete(UpdateCallback callback,
                       blink::ServiceWorkerStatusCode status,
@@ -96,13 +97,13 @@ class CONTENT_EXPORT ServiceWorkerRegistrationObjectHost
   // complete.
   void UnregistrationComplete(UnregisterCallback callback,
                               blink::ServiceWorkerStatusCode status);
-  // Called back from ServiceWorkerStorage when setting navigation preload is
+  // Called back from ServiceWorkerRegistry when setting navigation preload is
   // complete.
   void DidUpdateNavigationPreloadEnabled(
       bool enable,
       EnableNavigationPreloadCallback callback,
       blink::ServiceWorkerStatusCode status);
-  // Called back from ServiceWorkerStorage when setting navigation preload
+  // Called back from ServiceWorkerRegistry when setting navigation preload
   // header is complete.
   void DidUpdateNavigationPreloadHeader(
       const std::string& value,

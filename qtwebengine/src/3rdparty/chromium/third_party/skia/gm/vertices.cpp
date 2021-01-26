@@ -22,9 +22,14 @@
 #include "include/core/SkTypes.h"
 #include "include/core/SkVertices.h"
 #include "include/effects/SkGradientShader.h"
+#include "include/effects/SkRuntimeEffect.h"
 #include "include/private/SkTDArray.h"
 #include "include/utils/SkRandom.h"
+#include "src/core/SkVerticesPriv.h"
 #include "src/shaders/SkLocalMatrixShader.h"
+#include "src/utils/SkPatchUtils.h"
+#include "tools/Resources.h"
+#include "tools/ToolUtils.h"
 
 #include <initializer_list>
 #include <utility>
@@ -265,4 +270,126 @@ DEF_SIMPLE_GM(vertices_batching, canvas, 100, 500) {
     draw_batching(canvas);
     canvas->translate(50, 0);
     draw_batching(canvas);
+}
+
+using AttrType = SkVertices::Attribute::Type;
+
+DEF_SIMPLE_GM(vertices_data, canvas, 512, 256) {
+    for (auto attrType : {AttrType::kFloat4, AttrType::kByte4_unorm}) {
+        SkRect r = SkRect::MakeWH(256, 256);
+        int vcount = 4;  // just a quad
+        int icount = 0;
+        SkVertices::Attribute attrs[] = { attrType };
+        SkVertices::Builder builder(SkVertices::kTriangleFan_VertexMode, vcount, icount, attrs, 1);
+
+        r.toQuad(builder.positions());
+
+        if (attrType == AttrType::kFloat4) {
+            SkV4* col = (SkV4*)builder.customData();
+            col[0] = {1, 0, 0, 1};        // red
+            col[1] = {0, 1, 0, 1};        // green
+            col[2] = {0, 0, 1, 1};        // blue
+            col[3] = {0.5, 0.5, 0.5, 1};  // gray
+        } else {
+            uint32_t* col = (uint32_t*)builder.customData();
+            col[0] = 0xFF0000FF;
+            col[1] = 0xFF00FF00;
+            col[2] = 0xFFFF0000;
+            col[3] = 0xFF7F7F7F;
+        }
+
+        SkPaint paint;
+        const char* gProg = R"(
+            varying float4 vtx_color;
+            void main(float2 p, inout half4 color) {
+                color = half4(vtx_color);
+            }
+        )";
+        auto[effect, errorText] = SkRuntimeEffect::Make(SkString(gProg));
+        paint.setShader(effect->makeShader(nullptr, nullptr, 0, nullptr, true));
+        canvas->drawVertices(builder.detach(), paint);
+        canvas->translate(r.width(), 0);
+    }
+}
+
+// Test case for skbug.com/10069. We need to draw the vertices twice (with different matrices) to
+// trigger the bug.
+DEF_SIMPLE_GM(vertices_perspective, canvas, 256, 256) {
+    SkPaint paint;
+    paint.setShader(ToolUtils::create_checkerboard_shader(SK_ColorBLACK, SK_ColorWHITE, 32));
+
+    SkRect r = SkRect::MakeWH(128, 128);
+
+    SkPoint pos[4];
+    r.toQuad(pos);
+    auto verts = SkVertices::MakeCopy(SkVertices::kTriangleFan_VertexMode, 4, pos, pos, nullptr);
+
+    SkMatrix persp;
+    persp.setPerspY(SK_Scalar1 / 100);
+
+    canvas->save();
+    canvas->concat(persp);
+    canvas->drawRect(r, paint);
+    canvas->restore();
+
+    canvas->save();
+    canvas->translate(r.width(), 0);
+    canvas->concat(persp);
+    canvas->drawRect(r, paint);
+    canvas->restore();
+
+    canvas->save();
+    canvas->translate(0, r.height());
+    canvas->concat(persp);
+    canvas->drawVertices(verts, paint);
+    canvas->restore();
+
+    canvas->save();
+    canvas->translate(r.width(), r.height());
+    canvas->concat(persp);
+    canvas->drawVertices(verts, paint);
+    canvas->restore();
+}
+
+DEF_SIMPLE_GM(vertices_data_lerp, canvas, 256, 256) {
+    SkPoint pts[12] = {{0, 0},     {85, 0},    {171, 0},  {256, 0}, {256, 85}, {256, 171},
+                       {256, 256}, {171, 256}, {85, 256}, {0, 256}, {0, 171},  {0, 85}};
+
+    auto patchVerts = SkPatchUtils::MakeVertices(pts, nullptr, nullptr, 12, 12);
+    SkVerticesPriv pv(patchVerts->priv());
+
+    SkVertices::Attribute attrs[1] = { AttrType::kFloat };
+    SkVertices::Builder builder(pv.mode(), pv.vertexCount(), pv.indexCount(), attrs, 1);
+
+    memcpy(builder.positions(), pv.positions(), pv.vertexCount() * sizeof(SkPoint));
+    memcpy(builder.indices(), pv.indices(), pv.indexCount() * sizeof(uint16_t));
+
+    SkRandom rnd;
+    float* lerpData = (float*)builder.customData();
+    for (int i = 0; i < pv.vertexCount(); ++i) {
+        lerpData[i] = rnd.nextBool() ? 1.0f : 0.0f;
+    }
+
+    auto verts = builder.detach();
+
+    SkPaint paint;
+    const char* gProg = R"(
+        in fragmentProcessor c0;
+        in fragmentProcessor c1;
+        varying float vtx_lerp;
+        void main(float2 p, inout half4 color) {
+            half4 col0 = sample(c0, p);
+            half4 col1 = sample(c1, p);
+            color = mix(col0, col1, half(vtx_lerp));
+        }
+    )";
+    auto [effect, errorText] = SkRuntimeEffect::Make(SkString(gProg));
+    SkMatrix scale = SkMatrix::MakeScale(2);
+    sk_sp<SkShader> children[] = {
+        GetResourceAsImage("images/mandrill_256.png")->makeShader(),
+        GetResourceAsImage("images/color_wheel.png")->makeShader(scale),
+    };
+    paint.setShader(effect->makeShader(nullptr, children, 2, nullptr, false));
+
+    canvas->drawVertices(verts, paint);
 }

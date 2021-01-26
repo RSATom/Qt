@@ -137,17 +137,6 @@ BPF_DEATH_TEST_C(ParameterRestrictions,
   syscall(SYS_clock_nanosleep, (~0) | CLOCKFD, 0, &ts, &out_ts);
 }
 
-BPF_DEATH_TEST_C(ParameterRestrictions,
-                 clock_nanosleep_crash_clock_fd,
-                 DEATH_SEGV_MESSAGE(sandbox::GetErrorMessageContentForTests()),
-                 RestrictClockIdPolicy) {
-  struct timespec ts;
-  struct timespec out_ts;
-  ts.tv_sec = 0;
-  ts.tv_nsec = 0;
-  syscall(SYS_clock_nanosleep, (~0) | CLOCKFD, 0, &ts, &out_ts);
-}
-
 #if !defined(OS_ANDROID)
 BPF_DEATH_TEST_C(ParameterRestrictions,
                  clock_gettime_crash_cpu_clock,

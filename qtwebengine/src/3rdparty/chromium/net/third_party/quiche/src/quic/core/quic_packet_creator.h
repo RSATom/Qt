@@ -21,11 +21,13 @@
 #include <vector>
 
 #include "net/third_party/quiche/src/quic/core/frames/quic_stream_frame.h"
+#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
 #include "net/third_party/quiche/src/quic/core/quic_coalesced_packet.h"
 #include "net/third_party/quiche/src/quic/core/quic_framer.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -221,7 +223,7 @@ class QUIC_EXPORT_PRIVATE QuicPacketCreator {
   // will pad the packet to be MTU bytes long, else it will not pad the packet.
   // |payloads| is cleared.
   OwningSerializedPacketPointer SerializePathResponseConnectivityProbingPacket(
-      const QuicDeque<QuicPathFrameBuffer>& payloads,
+      const QuicCircularDeque<QuicPathFrameBuffer>& payloads,
       const bool is_padded);
 
   // Returns a dummy packet that is valid but contains no useful information.
@@ -286,7 +288,7 @@ class QUIC_EXPORT_PRIVATE QuicPacketCreator {
   void AddPendingPadding(QuicByteCount size);
 
   // Sets the retry token to be sent over the wire in IETF Initial packets.
-  void SetRetryToken(QuicStringPiece retry_token);
+  void SetRetryToken(quiche::QuicheStringPiece retry_token);
 
   // Consumes retransmittable control |frame|. Returns true if the frame is
   // successfully consumed. Returns false otherwise.
@@ -403,12 +405,13 @@ class QUIC_EXPORT_PRIVATE QuicPacketCreator {
   // frame. Also fills the packet with padding if |is_padded| is
   // true. |payloads| is always emptied, even if the packet can not be
   // successfully built.
-  size_t BuildPathResponsePacket(const QuicPacketHeader& header,
-                                 char* buffer,
-                                 size_t packet_length,
-                                 const QuicDeque<QuicPathFrameBuffer>& payloads,
-                                 const bool is_padded,
-                                 EncryptionLevel level);
+  size_t BuildPathResponsePacket(
+      const QuicPacketHeader& header,
+      char* buffer,
+      size_t packet_length,
+      const QuicCircularDeque<QuicPathFrameBuffer>& payloads,
+      const bool is_padded,
+      EncryptionLevel level);
 
   // Serializes a probing packet, which is a padded PING packet. Returns the
   // length of the packet. Returns 0 if it fails to serialize.
@@ -510,7 +513,7 @@ class QUIC_EXPORT_PRIVATE QuicPacketCreator {
 
   // Returns the retry token to send over the wire, only sent in
   // v99 IETF Initial packets.
-  QuicStringPiece GetRetryToken() const;
+  quiche::QuicheStringPiece GetRetryToken() const;
 
   // Returns length of the length variable length integer to send over the
   // wire. Is non-zero for v99 IETF Initial, 0-RTT or Handshake packets.

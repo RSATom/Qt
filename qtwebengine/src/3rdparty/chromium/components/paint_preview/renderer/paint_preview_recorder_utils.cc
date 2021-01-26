@@ -23,8 +23,7 @@ void ParseGlyphs(const cc::PaintOpBuffer* buffer,
       // Recurse into nested records if they contain text blobs (equivalent to
       // nested SkPictures).
       auto* record_op = static_cast<cc::DrawRecordOp*>(*it);
-      if (record_op->HasText())
-        ParseGlyphs(record_op->record.get(), tracker);
+      ParseGlyphs(record_op->record.get(), tracker);
     }
   }
 }
@@ -59,9 +58,10 @@ bool SerializeAsSkPicture(sk_sp<const cc::PaintRecord> record,
 
 void BuildResponse(PaintPreviewTracker* tracker,
                    mojom::PaintPreviewCaptureResponse* response) {
-  response->id = tracker->RoutingId();
+  response->embedding_token = tracker->EmbeddingToken();
   for (const auto& id_pair : *(tracker->GetPictureSerializationContext())) {
-    response->content_id_proxy_id_map.insert({id_pair.first, id_pair.second});
+    response->content_id_to_embedding_token.insert(
+        {id_pair.first, id_pair.second});
   }
   for (const auto& link : tracker->GetLinks())
     response->links.push_back(link.Clone());

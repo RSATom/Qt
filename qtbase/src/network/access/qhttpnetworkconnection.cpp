@@ -453,7 +453,14 @@ bool QHttpNetworkConnectionPrivate::handleAuthenticateChallenge(QAbstractSocket 
         if (auth->isNull())
             auth->detach();
         QAuthenticatorPrivate *priv = QAuthenticatorPrivate::getPrivate(*auth);
-        priv->parseHttpResponse(fields, isProxy);
+        priv->parseHttpResponse(fields, isProxy, reply->url().host());
+        // Update method in case it changed
+        if (priv->method == QAuthenticatorPrivate::None)
+            return false;
+        if (isProxy)
+            channels[i].proxyAuthMethod = priv->method;
+        else
+            channels[i].authMethod = priv->method;
 
         if (priv->phase == QAuthenticatorPrivate::Done) {
             pauseConnection();
@@ -1501,7 +1508,9 @@ void QHttpNetworkConnection::ignoreSslErrors(int channel)
         return;
 
     if (channel == -1) { // ignore for all channels
-        for (int i = 0; i < d->activeChannelCount; ++i) {
+        // We need to ignore for all channels, even the ones that are not in use just in case they
+        // will be in the future.
+        for (int i = 0; i < d->channelCount; ++i) {
             d->channels[i].ignoreSslErrors();
         }
 
@@ -1517,7 +1526,9 @@ void QHttpNetworkConnection::ignoreSslErrors(const QList<QSslError> &errors, int
         return;
 
     if (channel == -1) { // ignore for all channels
-        for (int i = 0; i < d->activeChannelCount; ++i) {
+        // We need to ignore for all channels, even the ones that are not in use just in case they
+        // will be in the future.
+        for (int i = 0; i < d->channelCount; ++i) {
             d->channels[i].ignoreSslErrors(errors);
         }
 

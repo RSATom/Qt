@@ -397,6 +397,7 @@ void Serializer::ObjectSerializer::SerializeJSArrayBuffer() {
   // We cannot store byte_length larger than Smi range in the snapshot.
   CHECK_LE(buffer.byte_length(), Smi::kMaxValue);
   int32_t byte_length = static_cast<int32_t>(buffer.byte_length());
+  ArrayBufferExtension* extension = buffer.extension();
 
   // The embedder-allocated backing store only exists for the off-heap case.
   if (backing_store != nullptr) {
@@ -405,9 +406,16 @@ void Serializer::ObjectSerializer::SerializeJSArrayBuffer() {
     // a backing store address. On deserialization we re-set data pointer
     // to proper value.
     buffer.set_backing_store(reinterpret_cast<void*>(static_cast<size_t>(ref)));
+
+    // Ensure deterministic output by setting extension to null during
+    // serialization.
+    buffer.set_extension(nullptr);
   }
+
   SerializeObject();
+
   buffer.set_backing_store(backing_store);
+  buffer.set_extension(extension);
 }
 
 void Serializer::ObjectSerializer::SerializeExternalString() {
@@ -554,25 +562,44 @@ void Serializer::ObjectSerializer::Serialize() {
   SerializeObject();
 }
 
-void Serializer::ObjectSerializer::SerializeObject() {
-  int size = object_.Size();
-  Map map = object_.map();
-  SnapshotSpace space;
-  if (ReadOnlyHeap::Contains(object_)) {
-    space = SnapshotSpace::kReadOnlyHeap;
+namespace {
+SnapshotSpace GetSnapshotSpace(HeapObject object) {
+#if V8_ENABLE_THIRD_PARTY_HEAP_BOOL
+    if (third_party_heap::Heap::InCodeSpace(object.address())) {
+      return SnapshotSpace::kCode;
+    } else if (ReadOnlyHeap::Contains(object)) {
+      return SnapshotSpace::kReadOnlyHeap;
+    } else if (object.Size() > kMaxRegularHeapObjectSize) {
+      return SnapshotSpace::kLargeObject;
+    } else if (object.IsMap()) {
+      return SnapshotSpace::kMap;
+    } else {
+      return SnapshotSpace::kNew;  // avoid new/young distinction in TPH
+    }
+#else
+  if (ReadOnlyHeap::Contains(object)) {
+    return SnapshotSpace::kReadOnlyHeap;
   } else {
     AllocationSpace heap_space =
-        MemoryChunk::FromHeapObject(object_)->owner_identity();
+        MemoryChunk::FromHeapObject(object)->owner_identity();
     // Large code objects are not supported and cannot be expressed by
     // SnapshotSpace.
     DCHECK_NE(heap_space, CODE_LO_SPACE);
     // Young generation large objects are tenured.
     if (heap_space == NEW_LO_SPACE) {
-      space = SnapshotSpace::kLargeObject;
+      return SnapshotSpace::kLargeObject;
     } else {
-      space = static_cast<SnapshotSpace>(heap_space);
+      return static_cast<SnapshotSpace>(heap_space);
     }
   }
+#endif
+}
+}  // namespace
+
+void Serializer::ObjectSerializer::SerializeObject() {
+  int size = object_.Size();
+  Map map = object_.map();
+  SnapshotSpace space = GetSnapshotSpace(object_);
   SerializePrologue(space, size, map);
 
   // Serialize the rest of the object.

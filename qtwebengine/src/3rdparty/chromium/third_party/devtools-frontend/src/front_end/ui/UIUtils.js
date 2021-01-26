@@ -28,8 +28,32 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+
+import * as Common from '../common/common.js';
+import * as Host from '../host/host.js';
+import * as Platform from '../platform/platform.js';
+
+import * as ARIAUtils from './ARIAUtils.js';
+import {Dialog} from './Dialog.js';
+import {Size} from './Geometry.js';
+import {GlassPane, PointerEventsBehavior, SizeBehavior} from './GlassPane.js';
+import {Icon} from './Icon.js';
+import {KeyboardShortcut} from './KeyboardShortcut.js';
+import {Toolbar, ToolbarButton} from './Toolbar.js';  // eslint-disable-line no-unused-vars
+import {TreeOutline} from './Treeoutline.js';         // eslint-disable-line no-unused-vars
+import {appendStyle} from './utils/append-style.js';
+import {createShadowRootWithCoreStyles} from './utils/create-shadow-root-with-core-styles.js';
+import {focusChanged} from './utils/focus-changed.js';
+import {injectCoreStyles} from './utils/inject-core-styles.js';
+import {measuredScrollbarWidth} from './utils/measured-scrollbar-width.js';
+import {registerCustomElement} from './utils/register-custom-element.js';
+import {XLink} from './XLink.js';
+
 export const highlightedSearchResultClassName = 'highlighted-search-result';
 export const highlightedCurrentSearchResultClassName = 'current-search-result';
+
+export {markAsFocusedByKeyboard} from './utils/focus-changed.js';
 
 /**
  * @param {!Element} element
@@ -99,8 +123,8 @@ class DragHandler {
   _createGlassPane() {
     this._glassPaneInUse = true;
     if (!DragHandler._glassPaneUsageCount++) {
-      DragHandler._glassPane = new UI.GlassPane();
-      DragHandler._glassPane.setPointerEventsBehavior(UI.GlassPane.PointerEventsBehavior.BlockedByGlassPane);
+      DragHandler._glassPane = new GlassPane();
+      DragHandler._glassPane.setPointerEventsBehavior(PointerEventsBehavior.BlockedByGlassPane);
       DragHandler._glassPane.show(DragHandler._documentForMouseOut);
     }
   }
@@ -128,7 +152,7 @@ class DragHandler {
    */
   elementDragStart(targetElement, elementDragStart, elementDrag, elementDragEnd, cursor, event) {
     // Only drag upon left button. Right will likely cause a context menu. So will ctrl-click on mac.
-    if (event.button || (Host.isMac() && event.ctrlKey)) {
+    if (event.button || (Host.Platform.isMac() && event.ctrlKey)) {
       return;
     }
 
@@ -373,7 +397,7 @@ function _modifiedHexValue(hexString, event) {
   // If no shortcut keys are pressed then increase hex value by 1.
   // Keys can be pressed together to increase RGB channels. e.g trying different shades.
   let delta = 0;
-  if (UI.KeyboardShortcut.eventHasCtrlOrMeta(mouseEvent)) {
+  if (KeyboardShortcut.eventHasCtrlOrMeta(mouseEvent)) {
     delta += Math.pow(16, channelLen * 2);
   }
   if (mouseEvent.shiftKey) {
@@ -391,7 +415,7 @@ function _modifiedHexValue(hexString, event) {
 
   // Increase hex value by 1 and clamp from 0 ... maxValue.
   const maxValue = Math.pow(16, hexStrLen) - 1;
-  const result = Number.constrain(number + delta, 0, maxValue);
+  const result = Platform.NumberUtilities.clamp(number + delta, 0, maxValue);
 
   // Ensure the result length is the same as the original hex value.
   let resultString = result.toString(16).toUpperCase();
@@ -421,7 +445,7 @@ function _modifiedFloatNumber(number, event, modifierMultiplier) {
   // When alt is pressed, increase by 0.1.
   // Otherwise increase by 1.
   let delta = 1;
-  if (UI.KeyboardShortcut.eventHasCtrlOrMeta(mouseEvent)) {
+  if (KeyboardShortcut.eventHasCtrlOrMeta(mouseEvent)) {
     delta = 100;
   } else if (mouseEvent.shiftKey) {
     delta = 10;
@@ -557,29 +581,29 @@ export function handleElementValueModifications(event, element, finishHandler, s
 Number.preciseMillisToString = function(ms, precision) {
   precision = precision || 0;
   const format = '%.' + precision + 'f\xa0ms';
-  return Common.UIString(format, ms);
+  return Common.UIString.UIString(format, ms);
 };
 
-/** @type {!Common.UIStringFormat} */
-export const _microsFormat = new Common.UIStringFormat('%.0f\xa0\u03bcs');
+/** @type {!Common.UIString.UIStringFormat} */
+export const _microsFormat = new Common.UIString.UIStringFormat('%.0f\xa0\u03bcs');
 
-/** @type {!Common.UIStringFormat} */
-export const _subMillisFormat = new Common.UIStringFormat('%.2f\xa0ms');
+/** @type {!Common.UIString.UIStringFormat} */
+export const _subMillisFormat = new Common.UIString.UIStringFormat('%.2f\xa0ms');
 
-/** @type {!Common.UIStringFormat} */
-export const _millisFormat = new Common.UIStringFormat('%.0f\xa0ms');
+/** @type {!Common.UIString.UIStringFormat} */
+export const _millisFormat = new Common.UIString.UIStringFormat('%.0f\xa0ms');
 
-/** @type {!Common.UIStringFormat} */
-export const _secondsFormat = new Common.UIStringFormat('%.2f\xa0s');
+/** @type {!Common.UIString.UIStringFormat} */
+export const _secondsFormat = new Common.UIString.UIStringFormat('%.2f\xa0s');
 
-/** @type {!Common.UIStringFormat} */
-export const _minutesFormat = new Common.UIStringFormat('%.1f\xa0min');
+/** @type {!Common.UIString.UIStringFormat} */
+export const _minutesFormat = new Common.UIString.UIStringFormat('%.1f\xa0min');
 
-/** @type {!Common.UIStringFormat} */
-export const _hoursFormat = new Common.UIStringFormat('%.1f\xa0hrs');
+/** @type {!Common.UIString.UIStringFormat} */
+export const _hoursFormat = new Common.UIString.UIStringFormat('%.1f\xa0hrs');
 
-/** @type {!Common.UIStringFormat} */
-export const _daysFormat = new Common.UIStringFormat('%.1f\xa0days');
+/** @type {!Common.UIString.UIStringFormat} */
+export const _daysFormat = new Common.UIString.UIStringFormat('%.1f\xa0days');
 
 /**
  * @param {number} ms
@@ -641,24 +665,23 @@ Number.secondsToString = function(seconds, higherResolution) {
  * @return {string}
  */
 Number.bytesToString = function(bytes) {
-  if (bytes < 1024) {
-    return Common.UIString('%.0f\xa0B', bytes);
+  if (bytes < 1000) {
+    return Common.UIString.UIString('%.0f\xA0B', bytes);
   }
 
-  const kilobytes = bytes / 1024;
+  const kilobytes = bytes / 1000;
   if (kilobytes < 100) {
-    return Common.UIString('%.1f\xa0KB', kilobytes);
+    return Common.UIString.UIString('%.1f\xA0kB', kilobytes);
   }
-  if (kilobytes < 1024) {
-    return Common.UIString('%.0f\xa0KB', kilobytes);
+  if (kilobytes < 1000) {
+    return Common.UIString.UIString('%.0f\xA0kB', kilobytes);
   }
 
-  const megabytes = kilobytes / 1024;
+  const megabytes = kilobytes / 1000;
   if (megabytes < 100) {
-    return Common.UIString('%.1f\xa0MB', megabytes);
-  } else {
-    return Common.UIString('%.0f\xa0MB', megabytes);
+    return Common.UIString.UIString('%.1f\xA0MB', megabytes);
   }
+  return Common.UIString.UIString('%.0f\xA0MB', megabytes);
 };
 
 /**
@@ -669,7 +692,7 @@ Number.withThousandsSeparator = function(num) {
   let str = num + '';
   const re = /(\d+)(\d{3})/;
   while (str.match(re)) {
-    str = str.replace(re, '$1\xa0$2');
+    str = str.replace(re, '$1\xA0$2');
   }  // \xa0 is a non-breaking space
   return str;
 };
@@ -690,7 +713,8 @@ export function formatLocalized(format, substitutions) {
     a.appendChild(typeof b === 'string' ? createTextNode(b) : b);
     return a;
   }
-  return String.format(Common.UIString(format), substitutions, formatters, createElement('span'), append)
+  return Platform.StringUtilities
+      .format(Common.UIString.UIString(format), substitutions, formatters, createElement('span'), append)
       .formattedResult;
 }
 
@@ -698,21 +722,21 @@ export function formatLocalized(format, substitutions) {
  * @return {string}
  */
 export function openLinkExternallyLabel() {
-  return Common.UIString('Open in new tab');
+  return Common.UIString.UIString('Open in new tab');
 }
 
 /**
  * @return {string}
  */
 export function copyLinkAddressLabel() {
-  return Common.UIString('Copy link address');
+  return Common.UIString.UIString('Copy link address');
 }
 
 /**
  * @return {string}
  */
 export function anotherProfilerActiveLabel() {
-  return Common.UIString('Another profiler is already active');
+  return Common.UIString.UIString('Another profiler is already active');
 }
 
 /**
@@ -723,73 +747,26 @@ export function asyncStackTraceLabel(description) {
   if (description) {
     if (description === 'Promise.resolve') {
       return ls`Promise resolved (async)`;
-    } else if (description === 'Promise.reject') {
+    }
+    if (description === 'Promise.reject') {
       return ls`Promise rejected (async)`;
     }
     return ls`${description} (async)`;
   }
-  return Common.UIString('Async Call');
+  return Common.UIString.UIString('Async Call');
 }
 
 /**
  * @param {!Element} element
  */
 export function installComponentRootStyles(element) {
-  _injectCoreStyles(element);
-  element.classList.add('platform-' + Host.platform());
+  injectCoreStyles(element);
+  element.classList.add('platform-' + Host.Platform.platform());
 
   // Detect overlay scrollbar enable by checking for nonzero scrollbar width.
-  if (!Host.isMac() && measuredScrollbarWidth(element.ownerDocument) === 0) {
+  if (!Host.Platform.isMac() && measuredScrollbarWidth(element.ownerDocument) === 0) {
     element.classList.add('overlay-scrollbar-enabled');
   }
-}
-
-/** @type {number} */
-let _measuredScrollbarWidth;
-
-/**
- * @param {?Document} document
- * @return {number}
- */
-export function measuredScrollbarWidth(document) {
-  if (typeof _measuredScrollbarWidth === 'number') {
-    return _measuredScrollbarWidth;
-  }
-  if (!document) {
-    return 16;
-  }
-  const scrollDiv = document.createElement('div');
-  scrollDiv.setAttribute('style', 'width: 100px; height: 100px; overflow: scroll;');
-  document.body.appendChild(scrollDiv);
-  _measuredScrollbarWidth = scrollDiv.offsetWidth - scrollDiv.clientWidth;
-  document.body.removeChild(scrollDiv);
-  return _measuredScrollbarWidth;
-}
-
-/**
- * @param {!Element} element
- * @param {string=} cssFile
- * @param {boolean=} delegatesFocus
- * @return {!DocumentFragment}
- */
-export function createShadowRootWithCoreStyles(element, cssFile, delegatesFocus) {
-  const shadowRoot = element.attachShadow({mode: 'open', delegatesFocus});
-  _injectCoreStyles(shadowRoot);
-  if (cssFile) {
-    appendStyle(shadowRoot, cssFile);
-  }
-  shadowRoot.addEventListener('focus', _focusChanged.bind(UI), true);
-  return shadowRoot;
-}
-
-/**
- * @param {!Element|!ShadowRoot} root
- */
-function _injectCoreStyles(root) {
-  appendStyle(root, 'ui/inspectorCommon.css');
-  appendStyle(root, 'ui/textButton.css');
-  UI.themeSupport.injectHighlightStyleSheets(root);
-  UI.themeSupport.injectCustomStyleSheets(root);
 }
 
 /**
@@ -826,24 +803,12 @@ function _windowBlurred(document, event) {
 }
 
 /**
- * @param {!Event} event
+ * @param {!Element} element
+ * @returns {boolean}
  */
-function _focusChanged(event) {
-  const document = event.target && event.target.ownerDocument;
-  const element = document ? document.deepActiveElement() : null;
-  UI.Widget.focusWidgetForNode(element);
-  UI.XWidget.focusWidgetForNode(element);
-  if (!UI._keyboardFocus) {
-    return;
-  }
-
-  UI.markAsFocusedByKeyboard(element);
+export function elementIsFocusedByKeyboard(element) {
+  return element.hasAttribute('data-keyboard-focus');
 }
-
-UI.markAsFocusedByKeyboard = function(element) {
-  element.setAttribute('data-keyboard-focus', 'true');
-  element.addEventListener('blur', () => element.removeAttribute('data-keyboard-focus'), {once: true, capture: true});
-};
 
 /**
  * @unrestricted
@@ -1035,7 +1000,7 @@ export function revertDomChanges(domChanges) {
 /**
  * @param {!Element} element
  * @param {?Element=} containerElement
- * @return {!UI.Size}
+ * @return {!Size}
  */
 export function measurePreferredSize(element, containerElement) {
   const oldParent = element.parentElement;
@@ -1051,7 +1016,7 @@ export function measurePreferredSize(element, containerElement) {
   } else {
     element.remove();
   }
-  return new UI.Size(result.width, result.height);
+  return new Size(result.width, result.height);
 }
 
 /**
@@ -1095,14 +1060,11 @@ class InvokeOnceHandlers {
   }
 
   _invoke() {
-    const handlers = this._handlers;
+    const handlers = this._handlers || new Map();  // Make closure happy. This should not be null.
     this._handlers = null;
-    const keys = handlers.keysArray();
-    for (let i = 0; i < keys.length; ++i) {
-      const object = keys[i];
-      const methods = handlers.get(object).valuesArray();
-      for (let j = 0; j < methods.length; ++j) {
-        methods[j].call(object);
+    for (const [object, methods] of handlers) {
+      for (const method of methods) {
+        method.call(object);
       }
     }
   }
@@ -1149,7 +1111,7 @@ export function animateFunction(window, func, params, duration, animationComplet
   let raf = window.requestAnimationFrame(animationStep);
 
   function animationStep(timestamp) {
-    const progress = Number.constrain((timestamp - start) / duration, 0, 1);
+    const progress = Platform.NumberUtilities.clamp((timestamp - start) / duration, 0, 1);
     func(...params.map(p => p.from + (p.to - p.from) * progress));
     if (progress < 1) {
       raf = window.requestAnimationFrame(animationStep);
@@ -1164,7 +1126,7 @@ export function animateFunction(window, func, params, duration, animationComplet
 /**
  * @unrestricted
  */
-export class LongClickController extends Common.Object {
+export class LongClickController extends Common.ObjectWrapper.ObjectWrapper {
   /**
    * @param {!Element} element
    * @param {function(!Event)} callback
@@ -1211,7 +1173,6 @@ export class LongClickController extends Common.Object {
      */
     function keyDown(e) {
       if (this._editKey(e)) {
-        e.consume(true);
         const callback = this._callback;
         this._longClickInterval = setTimeout(callback.bind(null, e), LongClickController.TIME_MS);
       }
@@ -1219,18 +1180,17 @@ export class LongClickController extends Common.Object {
 
     /**
      * @param {!Event} e
-     * @this {UI.LongClickController}
+     * @this {LongClickController}
      */
     function keyUp(e) {
       if (this._editKey(e)) {
-        e.consume(true);
         this.reset();
       }
     }
 
     /**
      * @param {!Event} e
-     * @this {UI.LongClickController}
+     * @this {LongClickController}
      */
     function mouseDown(e) {
       if (e.which !== 1) {
@@ -1266,28 +1226,35 @@ export class LongClickController extends Common.Object {
 
 LongClickController.TIME_MS = 200;
 
+function _trackKeyboardFocus() {
+  UI._keyboardFocus = true;
+  document.defaultView.requestAnimationFrame(() => void(UI._keyboardFocus = false));
+}
+
 /**
  * @param {!Document} document
- * @param {!Common.Setting} themeSetting
+ * @param {!Common.Settings.Setting} themeSetting
  */
 export function initializeUIUtils(document, themeSetting) {
   document.body.classList.toggle('inactive', !document.hasFocus());
   document.defaultView.addEventListener('focus', _windowFocused.bind(UI, document), false);
   document.defaultView.addEventListener('blur', _windowBlurred.bind(UI, document), false);
-  document.addEventListener('focus', _focusChanged.bind(UI), true);
-  document.addEventListener('keydown', event => {
-    UI._keyboardFocus = true;
-    document.defaultView.requestAnimationFrame(() => void(UI._keyboardFocus = false));
-  }, true);
+  document.addEventListener('focus', focusChanged.bind(UI), true);
 
-  if (!UI.themeSupport) {
-    UI.themeSupport = new ThemeSupport(themeSetting);
+  // Track which focus changes occur due to keyboard input.
+  // When focus changes from tab navigation (keydown).
+  // When focus() is called in keyboard initiated click events (keyup).
+  document.addEventListener('keydown', _trackKeyboardFocus, true);
+  document.addEventListener('keyup', _trackKeyboardFocus, true);
+
+  if (!self.UI.themeSupport) {
+    self.UI.themeSupport = new ThemeSupport(themeSetting);
   }
-  UI.themeSupport.applyTheme(document);
+  self.UI.themeSupport.applyTheme(document);
 
   const body = /** @type {!Element} */ (document.body);
   appendStyle(body, 'ui/inspectorStyle.css');
-  UI.GlassPane.setContainer(/** @type {!Element} */ (document.body));
+  GlassPane.setContainer(/** @type {!Element} */ (document.body));
 }
 
 /**
@@ -1295,25 +1262,7 @@ export function initializeUIUtils(document, themeSetting) {
  * @return {string}
  */
 export function beautifyFunctionName(name) {
-  return name || Common.UIString('(anonymous)');
-}
-
-/**
- * @param {string} localName
- * @param {string} typeExtension
- * @param {function(new:HTMLElement, *)} definition
- * @return {function()}
- * @suppressGlobalPropertiesCheck
- */
-export function registerCustomElement(localName, typeExtension, definition) {
-  self.customElements.define(typeExtension, class extends definition {
-    constructor() {
-      super();
-      // TODO(einbinder) convert to classes and custom element tags
-      this.setAttribute('is', typeExtension);
-    }
-  }, {extends: localName});
-  return () => createElement(localName, typeExtension);
+  return name || Common.UIString.UIString('(anonymous)');
 }
 
 /**
@@ -1362,7 +1311,7 @@ export function createLabel(title, className, associatedControl) {
   const element = createElementWithClass('label', className || '');
   element.textContent = title;
   if (associatedControl) {
-    UI.ARIAUtils.bindLabelToControl(element, associatedControl);
+    ARIAUtils.bindLabelToControl(element, associatedControl);
   }
 
   return element;
@@ -1409,28 +1358,6 @@ export function createSlider(min, max, tabIndex) {
   return element;
 }
 
-/**
- * @param {!Node} node
- * @param {string} cssFile
- * @suppressGlobalPropertiesCheck
- */
-export function appendStyle(node, cssFile) {
-  const content = Root.Runtime.cachedResources[cssFile] || '';
-  if (!content) {
-    console.error(cssFile + ' not preloaded. Check module.json');
-  }
-  let styleElement = createElement('style');
-  styleElement.textContent = content;
-  node.appendChild(styleElement);
-
-  const themeStyleSheet = UI.themeSupport.themeStyleSheet(cssFile, content);
-  if (themeStyleSheet) {
-    styleElement = createElement('style');
-    styleElement.textContent = themeStyleSheet + '\n' + Root.Runtime.resolveSourceURL(cssFile + '.theme');
-    node.appendChild(styleElement);
-  }
-}
-
 export class CheckboxLabel extends HTMLSpanElement {
   constructor() {
     super();
@@ -1465,6 +1392,7 @@ export class CheckboxLabel extends HTMLSpanElement {
     element.checkboxElement.checked = !!checked;
     if (title !== undefined) {
       element.textElement.textContent = title;
+      ARIAUtils.setAccessibleName(element.checkboxElement, title);
       if (subtitle !== undefined) {
         element.textElement.createChild('div', 'dt-checkbox-subtitle').textContent = subtitle;
       }
@@ -1537,7 +1465,7 @@ registerCustomElement('span', 'dt-icon-label', class extends HTMLSpanElement {
   constructor() {
     super();
     const root = createShadowRootWithCoreStyles(this);
-    this._iconElement = UI.Icon.create();
+    this._iconElement = Icon.create();
     this._iconElement.style.setProperty('margin-right', '4px');
     root.appendChild(this._iconElement);
     root.createChild('slot');
@@ -1600,11 +1528,11 @@ registerCustomElement('div', 'dt-close-button', class extends HTMLDivElement {
     super();
     const root = createShadowRootWithCoreStyles(this, 'ui/closeButton.css');
     this._buttonElement = root.createChild('div', 'close-button');
-    UI.ARIAUtils.setAccessibleName(this._buttonElement, ls`Close`);
-    UI.ARIAUtils.markAsButton(this._buttonElement);
-    const regularIcon = UI.Icon.create('smallicon-cross', 'default-icon');
-    this._hoverIcon = UI.Icon.create('mediumicon-red-cross-hover', 'hover-icon');
-    this._activeIcon = UI.Icon.create('mediumicon-red-cross-active', 'active-icon');
+    ARIAUtils.setAccessibleName(this._buttonElement, ls`Close`);
+    ARIAUtils.markAsButton(this._buttonElement);
+    const regularIcon = Icon.create('smallicon-cross', 'default-icon');
+    this._hoverIcon = Icon.create('mediumicon-red-cross-hover', 'hover-icon');
+    this._activeIcon = Icon.create('mediumicon-red-cross-active', 'active-icon');
     this._buttonElement.appendChild(regularIcon);
     this._buttonElement.appendChild(this._hoverIcon);
     this._buttonElement.appendChild(this._activeIcon);
@@ -1629,7 +1557,7 @@ registerCustomElement('div', 'dt-close-button', class extends HTMLDivElement {
    * @this {Element}
    */
   setAccessibleName(name) {
-    UI.ARIAUtils.setAccessibleName(this._buttonElement, name);
+    ARIAUtils.setAccessibleName(this._buttonElement, name);
   }
 
   /**
@@ -1752,7 +1680,7 @@ export function trimText(context, text, maxWidth, trimFunction) {
     }
   }
   text = trimFunction(text, l);
-  return text !== '\u2026' ? text : '';
+  return text !== '…' ? text : '';
 }
 
 /**
@@ -1810,7 +1738,7 @@ export function measureTextWidth(context, text) {
  */
 export class ThemeSupport {
   /**
-   * @param {!Common.Setting} setting
+   * @param {!Common.Settings.Setting} setting
    */
   constructor(setting) {
     const systemPreferredTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default';
@@ -1864,6 +1792,13 @@ export class ThemeSupport {
   }
 
   /**
+   * @return {boolean}
+   */
+  isForcedColorsMode() {
+    return window.matchMedia('(forced-colors: active)').matches;
+  }
+
+  /**
    * @param {string} sheetText
    */
   addCustomStylesheet(sheetText) {
@@ -1874,7 +1809,7 @@ export class ThemeSupport {
    * @param {!Document} document
    */
   applyTheme(document) {
-    if (!this.hasTheme()) {
+    if (!this.hasTheme() || this.isForcedColorsMode()) {
       return;
     }
 
@@ -1901,7 +1836,7 @@ export class ThemeSupport {
    * @suppressGlobalPropertiesCheck
    */
   themeStyleSheet(id, text) {
-    if (!this.hasTheme() || this._injectingStyleSheet) {
+    if (!this.hasTheme() || this._injectingStyleSheet || this.isForcedColorsMode()) {
       return '';
     }
 
@@ -2008,7 +1943,7 @@ export class ThemeSupport {
    * @return {string}
    */
   patchColorText(text, colorUsage) {
-    const color = Common.Color.parse(text);
+    const color = Common.Color.Color.parse(text);
     if (!color) {
       return text;
     }
@@ -2021,16 +1956,16 @@ export class ThemeSupport {
   }
 
   /**
-   * @param {!Common.Color} color
+   * @param {!Common.Color.Color} color
    * @param {!ThemeSupport.ColorUsage} colorUsage
-   * @return {!Common.Color}
+   * @return {!Common.Color.Color}
    */
   patchColor(color, colorUsage) {
     const hsla = color.hsla();
     this._patchHSLA(hsla, colorUsage);
     const rgba = [];
-    Common.Color.hsl2rgb(hsla, rgba);
-    return new Common.Color(rgba, color.format());
+    Common.Color.Color.hsl2rgb(hsla, rgba);
+    return new Common.Color.Color(rgba, color.format());
   }
 
   /**
@@ -2044,7 +1979,7 @@ export class ThemeSupport {
     const alpha = hsla[3];
 
     switch (this._themeName) {
-      case 'dark':
+      case 'dark': {
         const minCap = colorUsage & ThemeSupport.ColorUsage.Background ? 0.14 : 0;
         const maxCap = colorUsage & ThemeSupport.ColorUsage.Foreground ? 0.9 : 1;
         lit = 1 - lit;
@@ -2053,13 +1988,13 @@ export class ThemeSupport {
         } else if (lit > 2 * maxCap - 1) {
           lit = maxCap - 1 / 2 + lit / 2;
         }
-
         break;
+      }
     }
-    hsla[0] = Number.constrain(hue, 0, 1);
-    hsla[1] = Number.constrain(sat, 0, 1);
-    hsla[2] = Number.constrain(lit, 0, 1);
-    hsla[3] = Number.constrain(alpha, 0, 1);
+    hsla[0] = Platform.NumberUtilities.clamp(hue, 0, 1);
+    hsla[1] = Platform.NumberUtilities.clamp(sat, 0, 1);
+    hsla[2] = Platform.NumberUtilities.clamp(lit, 0, 1);
+    hsla[3] = Platform.NumberUtilities.clamp(alpha, 0, 1);
   }
 }
 
@@ -2078,7 +2013,48 @@ ThemeSupport.ColorUsage = {
  * @return {!Element}
  */
 export function createDocumentationLink(article, title) {
-  return UI.XLink.create('https://developers.google.com/web/tools/chrome-devtools/' + article, title);
+  return XLink.create('https://developers.google.com/web/tools/chrome-devtools/' + article, title);
+}
+
+/**
+ * @param {string} article
+ * @param {string} title
+ * @return {!Element}
+ */
+export function createWebDevLink(article, title) {
+  return XLink.create('https://web.dev/' + article, title);
+}
+
+/**
+ * Adds a 'utm_source=devtools' as query parameter to the url.
+ * @param {string} url
+ * @return {string}
+ */
+export function addReferrerToURL(url) {
+  if (/(\?|&)utm_source=devtools/.test(url)) {
+    return url;
+  }
+  if (url.indexOf('?') === -1) {
+    // If the URL does not contain a query, add the referrer query after path
+    // and before (potential) anchor.
+    return url.replace(/^([^#]*)(#.*)?$/g, '$1?utm_source=devtools$2');
+  }
+  // If the URL already contains a query, add the referrer query after the last query
+  // and before (potential) anchor.
+  return url.replace(/^([^#]*)(#.*)?$/g, '$1&utm_source=devtools$2');
+}
+
+/**
+ * We want to add a referrer query param to every request to
+ * 'web.dev' or 'developers.google.com'.
+ * @param {string} url
+ * @return {string}
+ */
+export function addReferrerToURLIfNecessary(url) {
+  if (/(\/\/developers.google.com\/|\/\/web.dev\/)/.test(url)) {
+    return addReferrerToURL(url);
+  }
+  return url;
 }
 
 /**
@@ -2131,13 +2107,13 @@ export class MessageDialog {
    * @return {!Promise}
    */
   static async show(message, where) {
-    const dialog = new UI.Dialog();
-    dialog.setSizeBehavior(UI.GlassPane.SizeBehavior.MeasureContent);
+    const dialog = new Dialog();
+    dialog.setSizeBehavior(SizeBehavior.MeasureContent);
     dialog.setDimmed(true);
     const shadowRoot = createShadowRootWithCoreStyles(dialog.contentElement, 'ui/confirmDialog.css');
     const content = shadowRoot.createChild('div', 'widget');
     await new Promise(resolve => {
-      const okButton = createTextButton(Common.UIString('OK'), resolve, '', true);
+      const okButton = createTextButton(Common.UIString.UIString('OK'), resolve, '', true);
       content.createChild('div', 'message').createChild('span').textContent = message;
       content.createChild('div', 'button').appendChild(okButton);
       dialog.setOutsideClickCallback(event => {
@@ -2158,21 +2134,25 @@ export class ConfirmDialog {
    * @return {!Promise<boolean>}
    */
   static async show(message, where) {
-    const dialog = new UI.Dialog();
-    dialog.setSizeBehavior(UI.GlassPane.SizeBehavior.MeasureContent);
+    const dialog = new Dialog();
+    dialog.setSizeBehavior(SizeBehavior.MeasureContent);
     dialog.setDimmed(true);
+    ARIAUtils.setAccessibleName(dialog.contentElement, message);
     const shadowRoot = createShadowRootWithCoreStyles(dialog.contentElement, 'ui/confirmDialog.css');
     const content = shadowRoot.createChild('div', 'widget');
     content.createChild('div', 'message').createChild('span').textContent = message;
     const buttonsBar = content.createChild('div', 'button');
     const result = await new Promise(resolve => {
-      buttonsBar.appendChild(createTextButton(Common.UIString('OK'), () => resolve(true), '', true));
-      buttonsBar.appendChild(createTextButton(Common.UIString('Cancel'), () => resolve(false)));
+      const okButton = createTextButton(
+          /* text= */ ls`OK`, /* clickHandler= */ () => resolve(true), /* className= */ '', /* primary= */ true);
+      buttonsBar.appendChild(okButton);
+      buttonsBar.appendChild(createTextButton(ls`Cancel`, () => resolve(false)));
       dialog.setOutsideClickCallback(event => {
         event.consume();
         resolve(false);
       });
       dialog.show(where);
+      okButton.focus();
     });
     dialog.hide();
     return result;
@@ -2180,63 +2160,17 @@ export class ConfirmDialog {
 }
 
 /**
- * @param {!UI.ToolbarButton} toolbarButton
+ * @param {!ToolbarButton} toolbarButton
  * @return {!Element}
  */
 export function createInlineButton(toolbarButton) {
   const element = createElement('span');
   const shadowRoot = createShadowRootWithCoreStyles(element, 'ui/inlineButton.css');
   element.classList.add('inline-button');
-  const toolbar = new UI.Toolbar('');
+  const toolbar = new Toolbar('');
   toolbar.appendToolbarItem(toolbarButton);
   shadowRoot.appendChild(toolbar.element);
   return element;
-}
-
-/**
- * @param {string} text
- * @param {number} maxLength
- * @return {!DocumentFragment}
- */
-export function createExpandableText(text, maxLength) {
-  const clickHandler = () => {
-    if (expandElement.parentElement) {
-      expandElement.parentElement.insertBefore(createTextNode(text.slice(maxLength)), expandElement);
-    }
-    expandElement.remove();
-  };
-  const fragment = createDocumentFragment();
-  fragment.textContent = text.slice(0, maxLength);
-  const expandElement = fragment.createChild('span');
-  const totalBytes = Number.bytesToString(2 * text.length);
-  if (text.length < 10000000) {
-    expandElement.setAttribute('data-text', ls`Show more (${totalBytes})`);
-    expandElement.classList.add('expandable-inline-button');
-    expandElement.addEventListener('click', clickHandler);
-    expandElement.addEventListener('keydown', event => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        clickHandler();
-      }
-    });
-    UI.ARIAUtils.markAsButton(expandElement);
-
-  } else {
-    expandElement.setAttribute('data-text', ls`long text was truncated (${totalBytes})`);
-    expandElement.classList.add('undisplayable-text');
-  }
-
-  const copyButton = fragment.createChild('span', 'expandable-inline-button');
-  copyButton.setAttribute('data-text', ls`Copy`);
-  copyButton.addEventListener('click', () => {
-    Host.InspectorFrontendHost.copyText(text);
-  });
-  copyButton.addEventListener('keydown', event => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      Host.InspectorFrontendHost.copyText(text);
-    }
-  });
-  UI.ARIAUtils.markAsButton(copyButton);
-  return fragment;
 }
 
 /**
@@ -2245,8 +2179,8 @@ export function createExpandableText(text, maxLength) {
 export class Renderer {
   /**
    * @param {!Object} object
-   * @param {!UI.Renderer.Options=} options
-   * @return {!Promise<?{node: !Node, tree: ?UI.TreeOutline}>}
+   * @param {!Options=} options
+   * @return {!Promise<?{node: !Node, tree: ?TreeOutline}>}
    */
   render(object, options) {
   }
@@ -2254,8 +2188,8 @@ export class Renderer {
 
 /**
    * @param {!Object} object
-   * @param {!UI.Renderer.Options=} options
-   * @return {!Promise<?{node: !Node, tree: ?UI.TreeOutline}>}
+   * @param {!Options=} options
+   * @return {!Promise<?{node: !Node, tree: ?TreeOutline}>}
    */
 Renderer.render = async function(object, options) {
   if (!object) {
@@ -2288,89 +2222,5 @@ export function formatTimestamp(timestamp, full) {
   }
 }
 
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @type {?ThemeSupport} */
-UI.themeSupport;
-
-UI.highlightedSearchResultClassName = highlightedSearchResultClassName;
-UI.highlightedCurrentSearchResultClassName = highlightedCurrentSearchResultClassName;
-UI.StyleValueDelimiters = StyleValueDelimiters;
-UI.MaxLengthForDisplayedURLs = MaxLengthForDisplayedURLs;
-
-/** @constructor */
-UI.ElementFocusRestorer = ElementFocusRestorer;
-
-/** @constructor */
-UI.LongClickController = LongClickController;
-
-/** @constructor */
-UI.ThemeSupport = ThemeSupport;
-
-/** @constructor */
-UI.MessageDialog = MessageDialog;
-
-/** @constructor */
-UI.ConfirmDialog = ConfirmDialog;
-
-/** @constructor */
-UI.CheckboxLabel = CheckboxLabel;
-
-/** @interface */
-UI.Renderer = Renderer;
-
 /** @typedef {!{title: (string|!Element|undefined), editable: (boolean|undefined) }} */
-UI.Renderer.Options;
-
-UI.installDragHandle = installDragHandle;
-UI.elementDragStart = elementDragStart;
-UI.isBeingEdited = isBeingEdited;
-UI.isEditing = isEditing;
-UI.markBeingEdited = markBeingEdited;
-UI.createReplacementString = createReplacementString;
-UI.handleElementValueModifications = handleElementValueModifications;
-UI.formatLocalized = formatLocalized;
-UI.openLinkExternallyLabel = openLinkExternallyLabel;
-UI.copyLinkAddressLabel = copyLinkAddressLabel;
-UI.anotherProfilerActiveLabel = anotherProfilerActiveLabel;
-UI.asyncStackTraceLabel = asyncStackTraceLabel;
-UI.installComponentRootStyles = installComponentRootStyles;
-UI.measuredScrollbarWidth = measuredScrollbarWidth;
-UI.createShadowRootWithCoreStyles = createShadowRootWithCoreStyles;
-UI.highlightSearchResult = highlightSearchResult;
-UI.highlightSearchResults = highlightSearchResults;
-UI.runCSSAnimationOnce = runCSSAnimationOnce;
-UI.highlightRangesWithStyleClass = highlightRangesWithStyleClass;
-UI.applyDomChanges = applyDomChanges;
-UI.revertDomChanges = revertDomChanges;
-UI.measurePreferredSize = measurePreferredSize;
-UI.startBatchUpdate = startBatchUpdate;
-UI.endBatchUpdate = endBatchUpdate;
-UI.invokeOnceAfterBatchUpdate = invokeOnceAfterBatchUpdate;
-UI.animateFunction = animateFunction;
-UI.initializeUIUtils = initializeUIUtils;
-UI.beautifyFunctionName = beautifyFunctionName;
-UI.registerCustomElement = registerCustomElement;
-UI.createTextButton = createTextButton;
-UI.createInput = createInput;
-UI.createLabel = createLabel;
-UI.createRadioLabel = createRadioLabel;
-UI.createIconLabel = createIconLabel;
-UI.createSlider = createSlider;
-UI.appendStyle = appendStyle;
-UI.bindInput = bindInput;
-UI.trimText = trimText;
-UI.trimTextMiddle = trimTextMiddle;
-UI.trimTextEnd = trimTextEnd;
-UI.measureTextWidth = measureTextWidth;
-UI.createDocumentationLink = createDocumentationLink;
-UI.loadImage = loadImage;
-UI.loadImageFromData = loadImageFromData;
-UI.createFileSelectorElement = createFileSelectorElement;
-UI.createInlineButton = createInlineButton;
-UI.createExpandableText = createExpandableText;
-UI.formatTimestamp = formatTimestamp;
+export let Options;

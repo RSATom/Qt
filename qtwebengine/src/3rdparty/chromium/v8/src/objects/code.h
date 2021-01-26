@@ -88,8 +88,7 @@ class Code : public HeapObject {
   // [deoptimization_data]: Array containing data for deopt.
   DECL_ACCESSORS(deoptimization_data, FixedArray)
 
-  // [source_position_table]: ByteArray for the source positions table or
-  // SourcePositionTableWithFrameCache.
+  // [source_position_table]: ByteArray for the source positions table.
   DECL_ACCESSORS(source_position_table, Object)
   inline ByteArray SourcePositionTable() const;
   inline ByteArray SourcePositionTableIfCollected() const;
@@ -425,7 +424,7 @@ class Code : public HeapObject {
   static constexpr int kHeaderPaddingSize =
       FLAG_enable_embedded_constant_pool ? 28 : 0;
 #elif V8_TARGET_ARCH_S390X
-  static constexpr int kHeaderPaddingSize = 0;
+  static constexpr int kHeaderPaddingSize = COMPRESS_POINTERS_BOOL ? 20 : 0;
 #else
 #error Unknown architecture.
 #endif
@@ -579,9 +578,6 @@ class AbstractCode : public HeapObject {
   // Return the source position table.
   inline ByteArray source_position_table();
 
-  inline Object stack_frame_cache();
-  static void SetStackFrameCache(Handle<AbstractCode> abstract_code,
-                                 Handle<SimpleNumberDictionary> cache);
   void DropStackFrameCache();
 
   // Returns the size of instructions and the metadata.
@@ -663,9 +659,9 @@ class DependentCode : public WeakFixedArray {
                                                   Handle<HeapObject> object,
                                                   DependencyGroup group);
 
-  void DeoptimizeDependentCodeGroup(Isolate* isolate, DependencyGroup group);
+  void DeoptimizeDependentCodeGroup(DependencyGroup group);
 
-  bool MarkCodeForDeoptimization(Isolate* isolate, DependencyGroup group);
+  bool MarkCodeForDeoptimization(DependencyGroup group);
 
   // The following low-level accessors are exposed only for tests.
   inline DependencyGroup group();
@@ -785,7 +781,6 @@ class BytecodeArray : public FixedArrayBase {
   // * empty_byte_array (for bytecode generated for functions that will never
   // have source positions, e.g. native functions).
   // * ByteArray (when source positions have been collected for the bytecode)
-  // * SourcePositionTableWithFrameCache (as above but with a frame cache)
   // * exception (when an error occurred while explicitly collecting source
   // positions for pre-existing bytecode).
   DECL_ACCESSORS(source_position_table, Object)
@@ -799,7 +794,6 @@ class BytecodeArray : public FixedArrayBase {
   inline ByteArray SourcePositionTableIfCollected() const;
   inline bool HasSourcePositionTable() const;
   inline bool DidSourcePositionGenerationFail() const;
-  inline void ClearFrameCacheFromSourcePositionTable();
 
   // Indicates that an attempt was made to collect source positions, but that it
   // failed most likely due to stack exhaustion. When in this state
@@ -870,7 +864,8 @@ class DeoptimizationData : public FixedArray {
   static const int kSharedFunctionInfoIndex = 6;
   static const int kInliningPositionsIndex = 7;
   static const int kDeoptExitStartIndex = 8;
-  static const int kFirstDeoptEntryIndex = 9;
+  static const int kNonLazyDeoptCountIndex = 9;
+  static const int kFirstDeoptEntryIndex = 10;
 
   // Offsets of deopt entry elements relative to the start of the entry.
   static const int kBytecodeOffsetRawOffset = 0;
@@ -892,6 +887,7 @@ class DeoptimizationData : public FixedArray {
   DECL_ELEMENT_ACCESSORS(SharedFunctionInfo, Object)
   DECL_ELEMENT_ACCESSORS(InliningPositions, PodArray<InliningPosition>)
   DECL_ELEMENT_ACCESSORS(DeoptExitStart, Smi)
+  DECL_ELEMENT_ACCESSORS(NonLazyDeoptCount, Smi)
 
 #undef DECL_ELEMENT_ACCESSORS
 
@@ -939,13 +935,6 @@ class DeoptimizationData : public FixedArray {
   static int LengthFor(int entry_count) { return IndexForEntry(entry_count); }
 
   OBJECT_CONSTRUCTORS(DeoptimizationData, FixedArray);
-};
-
-class SourcePositionTableWithFrameCache
-    : public TorqueGeneratedSourcePositionTableWithFrameCache<
-          SourcePositionTableWithFrameCache, Struct> {
- public:
-  TQ_OBJECT_CONSTRUCTORS(SourcePositionTableWithFrameCache)
 };
 
 }  // namespace internal

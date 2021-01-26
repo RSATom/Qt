@@ -27,6 +27,7 @@
 #include "modules/audio_processing/test/wav_based_simulator.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/strings/string_builder.h"
+#include "system_wrappers/include/field_trial.h"
 
 constexpr int kParameterNotSpecifiedValue = -10000;
 
@@ -102,6 +103,10 @@ ABSL_FLAG(int,
           kParameterNotSpecifiedValue,
           "Activate (1) or deactivate(0) the transient suppressor");
 ABSL_FLAG(int,
+          analog_agc,
+          kParameterNotSpecifiedValue,
+          "Activate (1) or deactivate(0) the transient suppressor");
+ABSL_FLAG(int,
           vad,
           kParameterNotSpecifiedValue,
           "Activate (1) or deactivate(0) the voice activity detector");
@@ -115,25 +120,12 @@ ABSL_FLAG(bool,
           "Activate all of the default components (will be overridden by any "
           "other settings)");
 ABSL_FLAG(int,
-          use_legacy_ns,
-          kParameterNotSpecifiedValue,
-          "Activate (1) or deactivate(0) the legacy NS");
-ABSL_FLAG(int,
-          experimental_agc,
-          kParameterNotSpecifiedValue,
-          "Activate (1) or deactivate(0) the experimental AGC");
-ABSL_FLAG(int,
-          experimental_agc_disable_digital_adaptive,
+          analog_agc_disable_digital_adaptive,
           kParameterNotSpecifiedValue,
           "Force-deactivate (1) digital adaptation in "
           "experimental AGC. Digital adaptation is active by default (0).");
 ABSL_FLAG(int,
-          experimental_agc_analyze_before_aec,
-          kParameterNotSpecifiedValue,
-          "Make level estimation happen before AEC"
-          " in the experimental AGC. After AEC is the default (0)");
-ABSL_FLAG(int,
-          experimental_agc_agc2_level_estimator,
+          analog_agc_agc2_level_estimator,
           kParameterNotSpecifiedValue,
           "AGC2 level estimation"
           " in the experimental AGC. AGC1 level estimation is the default (0)");
@@ -173,6 +165,11 @@ ABSL_FLAG(int,
           ns_level,
           kParameterNotSpecifiedValue,
           "Specify the NS level (0-3)");
+ABSL_FLAG(int,
+          ns_analysis_on_linear_aec_output,
+          kParameterNotSpecifiedValue,
+          "Specifies whether the noise suppression analysis is done on the "
+          "linear AEC output");
 ABSL_FLAG(int,
           maximum_internal_processing_rate,
           kParameterNotSpecifiedValue,
@@ -255,6 +252,17 @@ ABSL_FLAG(std::string,
           dump_data_output_dir,
           "",
           "Internal data dump output directory");
+ABSL_FLAG(bool,
+          float_wav_output,
+          false,
+          "Produce floating point wav output files.");
+
+ABSL_FLAG(std::string,
+          force_fieldtrials,
+          "",
+          "Field trials control experimental feature code which can be forced. "
+          "E.g. running with --force_fieldtrials=WebRTC-FooFeature/Enable/"
+          " will assign the group Enable to field trial WebRTC-FooFeature.");
 
 namespace webrtc {
 namespace test {
@@ -329,6 +337,7 @@ SimulationSettings CreateSettings() {
     settings.use_le = true;
     settings.use_vad = true;
     settings.use_ts = true;
+    settings.use_analog_agc = true;
     settings.use_ns = true;
     settings.use_hpf = true;
     settings.use_agc = true;
@@ -372,20 +381,14 @@ SimulationSettings CreateSettings() {
   SetSettingIfFlagSet(absl::GetFlag(FLAGS_hpf), &settings.use_hpf);
   SetSettingIfFlagSet(absl::GetFlag(FLAGS_ns), &settings.use_ns);
   SetSettingIfFlagSet(absl::GetFlag(FLAGS_ts), &settings.use_ts);
+  SetSettingIfFlagSet(absl::GetFlag(FLAGS_analog_agc),
+                      &settings.use_analog_agc);
   SetSettingIfFlagSet(absl::GetFlag(FLAGS_vad), &settings.use_vad);
   SetSettingIfFlagSet(absl::GetFlag(FLAGS_le), &settings.use_le);
-  SetSettingIfFlagSet(absl::GetFlag(FLAGS_use_legacy_ns),
-                      &settings.use_legacy_ns);
-  SetSettingIfFlagSet(absl::GetFlag(FLAGS_experimental_agc),
-                      &settings.use_experimental_agc);
-  SetSettingIfFlagSet(
-      absl::GetFlag(FLAGS_experimental_agc_disable_digital_adaptive),
-      &settings.experimental_agc_disable_digital_adaptive);
-  SetSettingIfFlagSet(absl::GetFlag(FLAGS_experimental_agc_analyze_before_aec),
-                      &settings.experimental_agc_analyze_before_aec);
-  SetSettingIfFlagSet(
-      absl::GetFlag(FLAGS_experimental_agc_agc2_level_estimator),
-      &settings.use_experimental_agc_agc2_level_estimator);
+  SetSettingIfFlagSet(absl::GetFlag(FLAGS_analog_agc_disable_digital_adaptive),
+                      &settings.analog_agc_disable_digital_adaptive);
+  SetSettingIfFlagSet(absl::GetFlag(FLAGS_analog_agc_agc2_level_estimator),
+                      &settings.use_analog_agc_agc2_level_estimator);
   SetSettingIfSpecified(absl::GetFlag(FLAGS_agc_mode), &settings.agc_mode);
   SetSettingIfSpecified(absl::GetFlag(FLAGS_agc_target_level),
                         &settings.agc_target_level);
@@ -402,6 +405,8 @@ SimulationSettings CreateSettings() {
   SetSettingIfSpecified(absl::GetFlag(FLAGS_pre_amplifier_gain_factor),
                         &settings.pre_amplifier_gain_factor);
   SetSettingIfSpecified(absl::GetFlag(FLAGS_ns_level), &settings.ns_level);
+  SetSettingIfFlagSet(absl::GetFlag(FLAGS_ns_analysis_on_linear_aec_output),
+                      &settings.ns_analysis_on_linear_aec_output);
   SetSettingIfSpecified(absl::GetFlag(FLAGS_maximum_internal_processing_rate),
                         &settings.maximum_internal_processing_rate);
   SetSettingIfSpecified(absl::GetFlag(FLAGS_stream_delay),
@@ -438,6 +443,9 @@ SimulationSettings CreateSettings() {
   settings.dump_internal_data = absl::GetFlag(FLAGS_dump_data);
   SetSettingIfSpecified(absl::GetFlag(FLAGS_dump_data_output_dir),
                         &settings.dump_internal_data_output_dir);
+  settings.wav_output_format = absl::GetFlag(FLAGS_float_wav_output)
+                                   ? WavFile::SampleFormat::kFloat
+                                   : WavFile::SampleFormat::kInt16;
 
   return settings;
 }
@@ -630,6 +638,11 @@ int AudioprocFloatImpl(std::unique_ptr<AudioProcessingBuilder> ap_builder,
     printf("%s", kUsageDescription);
     return 1;
   }
+
+  // InitFieldTrialsFromString stores the char*, so the char array must
+  // outlive the application.
+  const std::string field_trials = absl::GetFlag(FLAGS_force_fieldtrials);
+  webrtc::field_trial::InitFieldTrialsFromString(field_trials.c_str());
 
   SimulationSettings settings = CreateSettings();
   if (!input_aecdump.empty()) {

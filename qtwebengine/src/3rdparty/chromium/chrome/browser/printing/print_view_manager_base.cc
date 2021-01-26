@@ -35,7 +35,7 @@
 #include "components/printing/browser/print_composite_client.h"
 #include "components/printing/browser/print_manager_utils.h"
 #include "components/printing/common/print_messages.h"
-#include "components/services/pdf_compositor/public/cpp/pdf_service_mojo_types.h"
+#include "components/services/print_compositor/public/cpp/print_service_mojo_types.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_details.h"
@@ -51,6 +51,10 @@
 #include "printing/print_settings.h"
 #include "printing/printed_document.h"
 #include "ui/base/l10n/l10n_util.h"
+
+#if defined(OS_WIN)
+#include "printing/printing_features.h"
+#endif
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/printing/print_error_dialog.h"
@@ -161,17 +165,23 @@ void PrintViewManagerBase::PrintDocument(
     const gfx::Rect& content_area,
     const gfx::Point& offsets) {
 #if defined(OS_WIN)
-  print_job_->StartConversionToNativeFormat(print_data, page_size, content_area,
-                                            offsets);
-#else
+  const bool source_is_pdf =
+      !print_job_->document()->settings().is_modifiable();
+  if (!printing::features::ShouldPrintUsingXps(source_is_pdf)) {
+    // Print using GDI, which first requires conversion to EMF.
+    print_job_->StartConversionToNativeFormat(print_data, page_size,
+                                              content_area, offsets);
+    return;
+  }
+#endif
+
   std::unique_ptr<MetafileSkia> metafile = std::make_unique<MetafileSkia>();
-  CHECK(metafile->InitFromData(print_data->front(), print_data->size()));
+  CHECK(metafile->InitFromData(*print_data));
 
   // Update the rendered document. It will send notifications to the listener.
   PrintedDocument* document = print_job_->document();
   document->SetDocument(std::move(metafile), page_size, content_area);
   ShouldQuitFromInnerMessageLoop();
-#endif
 }
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
@@ -284,10 +294,10 @@ void PrintViewManagerBase::OnComposePdfDone(
     const gfx::Rect& content_area,
     const gfx::Point& physical_offsets,
     std::unique_ptr<DelayedFrameDispatchHelper> helper,
-    mojom::PdfCompositor::Status status,
+    mojom::PrintCompositor::Status status,
     base::ReadOnlySharedMemoryRegion region) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (status != mojom::PdfCompositor::Status::kSuccess) {
+  if (status != mojom::PrintCompositor::Status::kSuccess) {
     DLOG(ERROR) << "Compositing pdf failed with error " << status;
     return;
   }

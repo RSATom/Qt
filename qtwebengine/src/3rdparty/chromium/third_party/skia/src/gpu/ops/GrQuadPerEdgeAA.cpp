@@ -17,6 +17,12 @@
 #include "src/gpu/glsl/GrGLSLVarying.h"
 #include "src/gpu/glsl/GrGLSLVertexGeoBuilder.h"
 
+static_assert((int)GrQuadAAFlags::kLeft   == SkCanvas::kLeft_QuadAAFlag, "");
+static_assert((int)GrQuadAAFlags::kTop    == SkCanvas::kTop_QuadAAFlag, "");
+static_assert((int)GrQuadAAFlags::kRight  == SkCanvas::kRight_QuadAAFlag, "");
+static_assert((int)GrQuadAAFlags::kBottom == SkCanvas::kBottom_QuadAAFlag, "");
+static_assert((int)GrQuadAAFlags::kNone   == SkCanvas::kNone_QuadAAFlags, "");
+static_assert((int)GrQuadAAFlags::kAll    == SkCanvas::kAll_QuadAAFlags, "");
 
 namespace {
 
@@ -392,27 +398,17 @@ int QuadLimit(IndexBufferOption option) {
     SkUNREACHABLE;
 }
 
-void ConfigureMesh(const GrCaps& caps, GrMesh* mesh, const VertexSpec& spec,
-                   int runningQuadCount, int quadsInDraw, int maxVerts,
-                   sk_sp<const GrBuffer> vertexBuffer,
-                   sk_sp<const GrBuffer> indexBuffer, int absVertBufferOffset) {
-    SkASSERT(vertexBuffer);
-
-    mesh->setPrimitiveType(spec.primitiveType());
-
+void IssueDraw(const GrCaps& caps, GrOpsRenderPass* renderPass, const VertexSpec& spec,
+               int runningQuadCount, int quadsInDraw, int maxVerts, int absVertBufferOffset) {
     if (spec.indexBufferOption() == IndexBufferOption::kTriStrips) {
-        SkASSERT(!indexBuffer);
-
-        mesh->setNonIndexedNonInstanced(4);
         int offset = absVertBufferOffset +
                                     runningQuadCount * GrResourceProvider::NumVertsPerNonAAQuad();
-        mesh->setVertexData(std::move(vertexBuffer), offset);
+        renderPass->draw(4, offset);
         return;
     }
 
     SkASSERT(spec.indexBufferOption() == IndexBufferOption::kPictureFramed ||
              spec.indexBufferOption() == IndexBufferOption::kIndexedRects);
-    SkASSERT(indexBuffer);
 
     int maxNumQuads, numIndicesPerQuad, numVertsPerQuad;
 
@@ -436,9 +432,8 @@ void ConfigureMesh(const GrCaps& caps, GrMesh* mesh, const VertexSpec& spec,
         // preferred.
         int offset = absVertBufferOffset + runningQuadCount * numVertsPerQuad;
 
-        mesh->setIndexedPatterned(std::move(indexBuffer), numIndicesPerQuad,
-                                  numVertsPerQuad, quadsInDraw, maxNumQuads);
-        mesh->setVertexData(std::move(vertexBuffer), offset);
+        renderPass->drawIndexPattern(numIndicesPerQuad, quadsInDraw, maxNumQuads, numVertsPerQuad,
+                                     offset);
     } else {
         int baseIndex = runningQuadCount * numIndicesPerQuad;
         int numIndicesToDraw = quadsInDraw * numIndicesPerQuad;
@@ -446,9 +441,8 @@ void ConfigureMesh(const GrCaps& caps, GrMesh* mesh, const VertexSpec& spec,
         int minVertex = runningQuadCount * numVertsPerQuad;
         int maxVertex = (runningQuadCount + quadsInDraw) * numVertsPerQuad;
 
-        mesh->setIndexed(std::move(indexBuffer), numIndicesToDraw,
-                         baseIndex, minVertex, maxVertex, GrPrimitiveRestart::kNo);
-        mesh->setVertexData(std::move(vertexBuffer), absVertBufferOffset);
+        renderPass->drawIndexed(numIndicesToDraw, baseIndex, minVertex, maxVertex,
+                                absVertBufferOffset);
     }
 }
 
@@ -529,10 +523,11 @@ public:
         return arena->make<QuadPerEdgeAAGeometryProcessor>(spec);
     }
 
-    static GrGeometryProcessor* Make(SkArenaAlloc* arena, const VertexSpec& vertexSpec,
+    static GrGeometryProcessor* Make(SkArenaAlloc* arena,
+                                     const VertexSpec& vertexSpec,
                                      const GrShaderCaps& caps,
                                      const GrBackendFormat& backendFormat,
-                                     const GrSamplerState& samplerState,
+                                     GrSamplerState samplerState,
                                      const GrSwizzle& swizzle,
                                      sk_sp<GrColorSpaceXform> textureColorSpaceXform,
                                      Saturate saturate) {
@@ -576,9 +571,7 @@ public:
             void setData(const GrGLSLProgramDataManager& pdman, const GrPrimitiveProcessor& proc,
                          const CoordTransformRange& transformRange) override {
                 const auto& gp = proc.cast<QuadPerEdgeAAGeometryProcessor>();
-                if (gp.fLocalCoord.isInitialized()) {
-                    this->setTransformDataHelper(SkMatrix::I(), pdman, transformRange);
-                }
+                this->setTransformDataHelper(SkMatrix::I(), pdman, transformRange);
                 fTextureColorSpaceXformHelper.setData(pdman, gp.fTextureColorSpaceXform.get());
             }
 
@@ -605,23 +598,24 @@ public:
                     gpArgs->fPositionVar = {"position",
                                             gp.fNeedsPerspective ? kFloat3_GrSLType
                                                                  : kFloat2_GrSLType,
-                                            GrShaderVar::kNone_TypeModifier};
+                                            GrShaderVar::TypeModifier::None};
                 } else {
                     // No coverage to eliminate
                     gpArgs->fPositionVar = gp.fPosition.asShaderVar();
                 }
 
-                // Handle local coordinates if they exist
-                if (gp.fLocalCoord.isInitialized()) {
-                    // NOTE: If the only usage of local coordinates is for the inline texture fetch
-                    // before FPs, then there are no registered FPCoordTransforms and this ends up
-                    // emitting nothing, so there isn't a duplication of local coordinates
-                    this->emitTransforms(args.fVertBuilder,
-                                         args.fVaryingHandler,
-                                         args.fUniformHandler,
-                                         gp.fLocalCoord.asShaderVar(),
-                                         args.fFPCoordTransformHandler);
-                }
+                // Handle local coordinates if they exist. This is required even when the op
+                // isn't providing local coords but there are FPs called with explicit coords.
+                // It installs the uniforms that transform their coordinates in the fragment
+                // shader.
+                // NOTE: If the only usage of local coordinates is for the inline texture fetch
+                // before FPs, then there are no registered FPCoordTransforms and this ends up
+                // emitting nothing, so there isn't a duplication of local coordinates
+                this->emitTransforms(args.fVertBuilder,
+                                     args.fVaryingHandler,
+                                     args.fUniformHandler,
+                                     gp.fLocalCoord.asShaderVar(),
+                                     args.fFPCoordTransformHandler);
 
                 // Solid color before any texturing gets modulated in
                 if (gp.fColor.isInitialized()) {
@@ -664,9 +658,9 @@ public:
 
                     // Now modulate the starting output color by the texture lookup
                     args.fFragBuilder->codeAppendf("%s = ", args.fOutputColor);
-                    args.fFragBuilder->appendTextureLookupAndModulate(
-                        args.fOutputColor, args.fTexSamplers[0], "texCoord", kFloat2_GrSLType,
-                        &fTextureColorSpaceXformHelper);
+                    args.fFragBuilder->appendTextureLookupAndBlend(
+                            args.fOutputColor, SkBlendMode::kModulate, args.fTexSamplers[0],
+                            "texCoord", &fTextureColorSpaceXformHelper);
                     args.fFragBuilder->codeAppend(";");
                     if (gp.fSaturate == Saturate::kYes) {
                         args.fFragBuilder->codeAppendf("%s = saturate(%s);",
@@ -741,7 +735,7 @@ private:
     QuadPerEdgeAAGeometryProcessor(const VertexSpec& spec,
                                    const GrShaderCaps& caps,
                                    const GrBackendFormat& backendFormat,
-                                   const GrSamplerState& samplerState,
+                                   GrSamplerState samplerState,
                                    const GrSwizzle& swizzle,
                                    sk_sp<GrColorSpaceXform> textureColorSpaceXform,
                                    Saturate saturate)
@@ -826,13 +820,14 @@ GrGeometryProcessor* MakeProcessor(SkArenaAlloc* arena, const VertexSpec& spec) 
     return QuadPerEdgeAAGeometryProcessor::Make(arena, spec);
 }
 
-GrGeometryProcessor* MakeTexturedProcessor(SkArenaAlloc* arena, const VertexSpec& spec,
+GrGeometryProcessor* MakeTexturedProcessor(SkArenaAlloc* arena,
+                                           const VertexSpec& spec,
                                            const GrShaderCaps& caps,
                                            const GrBackendFormat& backendFormat,
-                                           const GrSamplerState& samplerState,
+                                           GrSamplerState samplerState,
                                            const GrSwizzle& swizzle,
                                            sk_sp<GrColorSpaceXform> textureColorSpaceXform,
-                                          Saturate saturate) {
+                                           Saturate saturate) {
     return QuadPerEdgeAAGeometryProcessor::Make(arena, spec, caps, backendFormat, samplerState,
                                                 swizzle, std::move(textureColorSpaceXform),
                                                 saturate);

@@ -13,8 +13,8 @@
 #include "base/containers/queue.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
-#include "base/mac/sdk_forward_declarations.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
@@ -99,7 +99,7 @@ using testing::_;
 
 @interface MockRenderWidgetHostViewMacDelegate
     : NSObject<RenderWidgetHostViewMacDelegate> {
-  BOOL unhandledWheelEventReceived_;
+  BOOL _unhandledWheelEventReceived;
 }
 
 @property(nonatomic) BOOL unhandledWheelEventReceived;
@@ -108,19 +108,19 @@ using testing::_;
 
 @implementation MockRenderWidgetHostViewMacDelegate
 
-@synthesize unhandledWheelEventReceived = unhandledWheelEventReceived_;
+@synthesize unhandledWheelEventReceived = _unhandledWheelEventReceived;
 
 - (void)rendererHandledWheelEvent:(const blink::WebMouseWheelEvent&)event
                          consumed:(BOOL)consumed {
   if (!consumed)
-    unhandledWheelEventReceived_ = true;
+    _unhandledWheelEventReceived = true;
 }
 
 - (void)rendererHandledGestureScrollEvent:(const blink::WebGestureEvent&)event
                                  consumed:(BOOL)consumed {
   if (!consumed &&
       event.GetType() == blink::WebInputEvent::kGestureScrollUpdate)
-    unhandledWheelEventReceived_ = true;
+    _unhandledWheelEventReceived = true;
 }
 
 - (void)touchesBeganWithEvent:(NSEvent*)event {}
@@ -140,16 +140,16 @@ using testing::_;
 @end
 
 @implementation FakeTextCheckingResult {
-  base::scoped_nsobject<NSString> replacementString_;
+  base::scoped_nsobject<NSString> _replacementString;
 }
-@synthesize range = range_;
+@synthesize range = _range;
 
 + (FakeTextCheckingResult*)resultWithRange:(NSRange)range
                          replacementString:(NSString*)replacementString {
   FakeTextCheckingResult* result =
       [[[FakeTextCheckingResult alloc] init] autorelease];
-  result->range_ = range;
-  result->replacementString_.reset([replacementString retain]);
+  result->_range = range;
+  result->_replacementString.reset([replacementString retain]);
   return result;
 }
 
@@ -160,7 +160,7 @@ using testing::_;
 }
 
 - (NSString*)replacementString {
-  return replacementString_;
+  return _replacementString;
 }
 @end
 
@@ -171,9 +171,9 @@ using testing::_;
 @implementation FakeSpellChecker {
   base::mac::ScopedBlock<void (^)(NSInteger sequenceNumber,
                                   NSArray<NSTextCheckingResult*>* candidates)>
-      lastCompletionHandler_;
+      _lastCompletionHandler;
 }
-@synthesize sequenceNumber = sequenceNumber_;
+@synthesize sequenceNumber = _sequenceNumber;
 
 - (NSInteger)
 requestCandidatesForSelectedRange:(NSRange)selectedRange
@@ -188,15 +188,15 @@ requestCandidatesForSelectedRange:(NSRange)selectedRange
                                         NSArray<NSTextCheckingResult*>*
                                             candidates))completionHandler
     NS_AVAILABLE_MAC(10_12_2) {
-  sequenceNumber_ += 1;
-  lastCompletionHandler_.reset([completionHandler copy]);
-  return sequenceNumber_;
+  _sequenceNumber += 1;
+  _lastCompletionHandler.reset([completionHandler copy]);
+  return _sequenceNumber;
 }
 
 - (base::mac::ScopedBlock<void (^)(NSInteger sequenceNumber,
                                    NSArray<NSTextCheckingResult*>* candidates)>)
     takeCompletionHandler {
-  return std::move(lastCompletionHandler_);
+  return std::move(_lastCompletionHandler);
 }
 
 @end
@@ -655,7 +655,7 @@ TEST_F(RenderWidgetHostViewMacTest, GetFirstRectForCharacterRangeCaretCase) {
   gfx::Range actual_range;
   rwhv_mac_->SelectionChanged(kDummyString, kDummyOffset, caret_range);
   params.anchor_rect = params.focus_rect = caret_rect;
-  params.anchor_dir = params.focus_dir = blink::kWebTextDirectionLeftToRight;
+  params.anchor_dir = params.focus_dir = base::i18n::LEFT_TO_RIGHT;
   rwhv_mac_->SelectionBoundsChanged(params);
   EXPECT_TRUE(rwhv_mac_->GetCachedFirstRectForCharacterRange(caret_range, &rect,
                                                              &actual_range));
@@ -2178,7 +2178,8 @@ TEST_F(RenderWidgetHostViewMacTest, ChildAllocationAcceptedInParent) {
   metadata.viewport_size_in_pixels = gfx::Size(75, 75);
   metadata.local_surface_id_allocation =
       child_allocator.GetCurrentLocalSurfaceIdAllocation();
-  host_->DidUpdateVisualProperties(metadata);
+  static_cast<RenderFrameMetadataProvider::Observer&>(*host_)
+      .OnLocalSurfaceIdChanged(metadata);
 
   viz::LocalSurfaceId local_surface_id3(
       rwhv_mac_->GetLocalSurfaceIdAllocation().local_surface_id());
@@ -2203,7 +2204,8 @@ TEST_F(RenderWidgetHostViewMacTest, ConflictingAllocationsResolve) {
   metadata.viewport_size_in_pixels = gfx::Size(75, 75);
   metadata.local_surface_id_allocation =
       child_allocator.GetCurrentLocalSurfaceIdAllocation();
-  host_->DidUpdateVisualProperties(metadata);
+  static_cast<RenderFrameMetadataProvider::Observer&>(*host_)
+      .OnLocalSurfaceIdChanged(metadata);
 
   // Cause a conflicting viz::LocalSurfaceId allocation
   BrowserCompositorMac* browser_compositor = rwhv_mac_->BrowserCompositor();
@@ -2239,8 +2241,7 @@ TEST_F(RenderWidgetHostViewMacTest, TransformToRootNoParentLayer) {
 TEST_F(RenderWidgetHostViewMacTest, TransformToRootWithParentLayer) {
   std::unique_ptr<ui::RecyclableCompositorMac> compositor =
       ui::RecyclableCompositorMacFactory::Get()->CreateCompositor(
-          ImageTransportFactory::GetInstance()->GetContextFactory(),
-          ImageTransportFactory::GetInstance()->GetContextFactoryPrivate());
+          ImageTransportFactory::GetInstance()->GetContextFactory());
   std::unique_ptr<ui::Layer> root_surface_layer =
       std::make_unique<ui::Layer>(ui::LAYER_SOLID_COLOR);
   std::unique_ptr<ui::Layer> parent_layer =

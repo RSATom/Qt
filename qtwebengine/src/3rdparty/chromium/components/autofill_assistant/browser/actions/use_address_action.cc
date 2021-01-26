@@ -10,15 +10,11 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/optional.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
-#include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill_assistant/browser/actions/action_delegate.h"
 #include "components/autofill_assistant/browser/actions/required_fields_fallback_handler.h"
-#include "components/autofill_assistant/browser/client_memory.h"
 #include "components/autofill_assistant/browser/client_status.h"
 
 namespace autofill_assistant {
@@ -34,18 +30,17 @@ UseAddressAction::UseAddressAction(ActionDelegate* delegate,
   std::vector<RequiredField> required_fields;
   for (const auto& required_field_proto :
        proto_.use_address().required_fields()) {
-    if (required_field_proto.address_field() ==
-        UseAddressProto::RequiredField::UNDEFINED) {
-      DVLOG(1) << "address_field enum not set, skipping required field";
+    if (required_field_proto.value_expression().empty()) {
+      VLOG(1) << "no fallback filling information provided, skipping field";
       continue;
     }
 
     required_fields.emplace_back();
     RequiredField& required_field = required_fields.back();
-    required_field.fallback_key = (int)required_field_proto.address_field();
+    required_field.value_expression = required_field_proto.value_expression();
     required_field.selector = Selector(required_field_proto.element());
-    required_field.simulate_key_presses =
-        required_field_proto.simulate_key_presses();
+    required_field.fill_strategy = required_field_proto.fill_strategy();
+    required_field.select_strategy = required_field_proto.select_strategy();
     required_field.delay_in_millisecond =
         required_field_proto.delay_in_millisecond();
     required_field.forced = required_field_proto.forced();
@@ -66,16 +61,16 @@ void UseAddressAction::InternalProcessAction(
   process_action_callback_ = std::move(action_callback);
 
   // Ensure data already selected in a previous action.
-  auto* client_memory = delegate_->GetClientMemory();
-  if (!client_memory->has_selected_address(name_)) {
+  auto* user_data = delegate_->GetUserData();
+  if (!user_data->has_selected_address(name_)) {
     auto* error_info = processed_action_proto_->mutable_status_details()
                            ->mutable_autofill_error_info();
     error_info->set_address_key_requested(name_);
     error_info->set_client_memory_address_key_names(
-        client_memory->GetAllAddressKeyNames());
+        user_data->GetAllAddressKeyNames());
     error_info->set_address_pointee_was_null(
-        !client_memory->has_selected_address(name_) ||
-        !client_memory->selected_address(name_));
+        !user_data->has_selected_address(name_) ||
+        !user_data->selected_address(name_));
     EndAction(ClientStatus(PRECONDITION_FAILED));
     return;
   }
@@ -107,9 +102,9 @@ void UseAddressAction::OnWaitForElement(const ClientStatus& element_status) {
   }
 
   DCHECK(!selector_.empty());
-  DVLOG(3) << "Retrieving address from client memory under '" << name_ << "'.";
+  VLOG(3) << "Retrieving address from client memory under '" << name_ << "'.";
   const autofill::AutofillProfile* profile =
-      delegate_->GetClientMemory()->selected_address(name_);
+      delegate_->GetUserData()->selected_address(name_);
   DCHECK(profile);
   auto fallback_data = CreateFallbackData(*profile);
   delegate_->FillAddressForm(
@@ -126,56 +121,12 @@ void UseAddressAction::OnFormFilled(std::unique_ptr<FallbackData> fallback_data,
                      weak_ptr_factory_.GetWeakPtr()));
 }
 
-// This logic is from NameInfo::FullName.
-base::string16 FullName(const autofill::AutofillProfile& profile) {
-  return autofill::data_util::JoinNameParts(
-      profile.GetRawInfo(autofill::NAME_FIRST),
-      profile.GetRawInfo(autofill::NAME_MIDDLE),
-      profile.GetRawInfo(autofill::NAME_LAST));
-}
-
 std::unique_ptr<FallbackData> UseAddressAction::CreateFallbackData(
     const autofill::AutofillProfile& profile) {
   auto fallback_data = std::make_unique<FallbackData>();
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::FIRST_NAME,
-      base::UTF16ToUTF8(profile.GetRawInfo(autofill::NAME_FIRST)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::LAST_NAME,
-      base::UTF16ToUTF8(profile.GetRawInfo(autofill::NAME_LAST)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::FULL_NAME,
-      base::UTF16ToUTF8(FullName(profile)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::PHONE_NUMBER,
-      base::UTF16ToUTF8(profile.GetRawInfo(autofill::PHONE_HOME_WHOLE_NUMBER)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::EMAIL,
-      base::UTF16ToUTF8(profile.GetRawInfo(autofill::EMAIL_ADDRESS)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::ORGANIZATION,
-      base::UTF16ToUTF8(profile.GetRawInfo(autofill::COMPANY_NAME)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::COUNTRY_CODE,
-      base::UTF16ToUTF8(profile.GetRawInfo(autofill::ADDRESS_HOME_COUNTRY)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::REGION,
-      base::UTF16ToUTF8(profile.GetRawInfo(autofill::ADDRESS_HOME_STATE)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::STREET_ADDRESS,
-      base::UTF16ToUTF8(
-          profile.GetRawInfo(autofill::ADDRESS_HOME_STREET_ADDRESS)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::LOCALITY,
-      base::UTF16ToUTF8(profile.GetRawInfo(autofill::ADDRESS_HOME_CITY)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::DEPENDANT_LOCALITY,
-      base::UTF16ToUTF8(
-          profile.GetRawInfo(autofill::ADDRESS_HOME_DEPENDENT_LOCALITY)));
-  fallback_data->field_values.emplace(
-      (int)UseAddressProto::RequiredField::POSTAL_CODE,
-      base::UTF16ToUTF8(profile.GetRawInfo(autofill::ADDRESS_HOME_ZIP)));
 
+  fallback_data->AddFormGroup(profile);
   return fallback_data;
 }
+
 }  // namespace autofill_assistant

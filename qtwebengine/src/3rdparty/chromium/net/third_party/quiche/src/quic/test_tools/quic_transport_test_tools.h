@@ -14,13 +14,18 @@ namespace test {
 
 class MockClientVisitor : public QuicTransportClientSession::ClientVisitor {
  public:
+  MOCK_METHOD0(OnSessionReady, void());
   MOCK_METHOD0(OnIncomingBidirectionalStreamAvailable, void());
   MOCK_METHOD0(OnIncomingUnidirectionalStreamAvailable, void());
+  MOCK_METHOD1(OnDatagramReceived, void(quiche::QuicheStringPiece));
+  MOCK_METHOD0(OnCanCreateNewOutgoingBidirectionalStream, void());
+  MOCK_METHOD0(OnCanCreateNewOutgoingUnidirectionalStream, void());
 };
 
 class MockServerVisitor : public QuicTransportServerSession::ServerVisitor {
  public:
   MOCK_METHOD1(CheckOrigin, bool(url::Origin));
+  MOCK_METHOD1(ProcessPath, bool(const GURL&));
 };
 
 class MockStreamVisitor : public QuicTransportStream::Visitor {

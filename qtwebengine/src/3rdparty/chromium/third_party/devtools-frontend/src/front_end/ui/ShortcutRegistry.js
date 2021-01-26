@@ -1,37 +1,55 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Host from '../host/host.js';
+
+import {Action} from './Action.js';                  // eslint-disable-line no-unused-vars
+import {ActionRegistry} from './ActionRegistry.js';  // eslint-disable-line no-unused-vars
+import {Context} from './Context.js';
+import {Dialog} from './Dialog.js';
+import {Descriptor, KeyboardShortcut, Modifiers, Type} from './KeyboardShortcut.js';  // eslint-disable-line no-unused-vars
+import {isEditing} from './UIUtils.js';
+
 /**
  * @unrestricted
  */
-export default class ShortcutRegistry {
+export class ShortcutRegistry {
   /**
-   * @param {!UI.ActionRegistry} actionRegistry
-   * @param {!Document} document
+   * @param {!ActionRegistry} actionRegistry
    */
-  constructor(actionRegistry, document) {
+  constructor(actionRegistry) {
     this._actionRegistry = actionRegistry;
-    /** @type {!Platform.Multimap.<string, string>} */
-    this._defaultKeyToActions = new Platform.Multimap();
-    /** @type {!Platform.Multimap.<string, !UI.KeyboardShortcut.Descriptor>} */
-    this._defaultActionToShortcut = new Platform.Multimap();
-    this._registerBindings(document);
+    /** @type {!Platform.Multimap.<number, !KeyboardShortcut>} */
+    this._keyToShortcut = new Platform.Multimap();
+    /** @type {!Platform.Multimap.<string, !KeyboardShortcut>} */
+    this._actionToShortcut = new Platform.Multimap();
+    this._registerBindings();
   }
 
   /**
    * @param {number} key
-   * @return {!Array.<!UI.Action>}
+   * @return {!Array.<!Action>}
    */
   _applicableActions(key) {
-    return this._actionRegistry.applicableActions(this._defaultActionsForKey(key).valuesArray(), UI.context);
+    return this._actionRegistry.applicableActions(this.actionsForKey(key), self.UI.context);
   }
 
   /**
    * @param {number} key
-   * @return {!Set.<string>}
+   * @return {!Array.<string>}
    */
-  _defaultActionsForKey(key) {
-    return this._defaultKeyToActions.get(String(key));
+  actionsForKey(key) {
+    const shortcuts = [...this._keyToShortcut.get(key)];
+    return shortcuts.map(shortcut => shortcut.action);
+  }
+
+  /**
+   * @param {string} action
+   * @return {!Array.<!KeyboardShortcut>}
+   */
+  shortcutsForAction(action) {
+    return [...this._actionToShortcut.get(action)];
   }
 
   /**
@@ -39,11 +57,11 @@ export default class ShortcutRegistry {
    */
   globalShortcutKeys() {
     const keys = [];
-    for (const key of this._defaultKeyToActions.keysArray()) {
-      const actions = this._defaultKeyToActions.get(key).valuesArray();
-      const applicableActions = this._actionRegistry.applicableActions(actions, new UI.Context());
+    for (const key of this._keyToShortcut.keysArray()) {
+      const actions = [...this._keyToShortcut.get(key)];
+      const applicableActions = this._actionRegistry.applicableActions(actions, new Context());
       if (applicableActions.length) {
-        keys.push(Number(key));
+        keys.push(key);
       }
     }
     return keys;
@@ -51,10 +69,10 @@ export default class ShortcutRegistry {
 
   /**
    * @param {string} actionId
-   * @return {!Array.<!UI.KeyboardShortcut.Descriptor>}
+   * @return {!Array.<!Descriptor>}
    */
   shortcutDescriptorsForAction(actionId) {
-    return this._defaultActionToShortcut.get(actionId).valuesArray();
+    return [...this._actionToShortcut.get(actionId)].map(shortcut => shortcut.descriptor);
   }
 
   /**
@@ -87,7 +105,7 @@ export default class ShortcutRegistry {
    * @param {!KeyboardEvent} event
    */
   handleShortcut(event) {
-    this.handleKey(UI.KeyboardShortcut.makeKeyFromEvent(event), event.key, event);
+    this.handleKey(KeyboardShortcut.makeKeyFromEvent(event), event.key, event);
   }
 
   /**
@@ -96,9 +114,9 @@ export default class ShortcutRegistry {
    * @return {boolean}
    */
   eventMatchesAction(event, actionId) {
-    console.assert(this._defaultActionToShortcut.has(actionId), 'Unknown action ' + actionId);
-    const key = UI.KeyboardShortcut.makeKeyFromEvent(event);
-    return this._defaultActionToShortcut.get(actionId).valuesArray().some(descriptor => descriptor.key === key);
+    console.assert(this._actionToShortcut.has(actionId), 'Unknown action ' + actionId);
+    const key = KeyboardShortcut.makeKeyFromEvent(event);
+    return [...this._actionToShortcut.get(actionId)].some(shortcut => shortcut.descriptor.key === key);
   }
 
   /**
@@ -108,7 +126,7 @@ export default class ShortcutRegistry {
    * @param {boolean=} capture
    */
   addShortcutListener(element, actionId, listener, capture) {
-    console.assert(this._defaultActionToShortcut.has(actionId), 'Unknown action ' + actionId);
+    console.assert(this._actionToShortcut.has(actionId), 'Unknown action ' + actionId);
     element.addEventListener('keydown', event => {
       if (!this.eventMatchesAction(/** @type {!KeyboardEvent} */ (event), actionId) || !listener.call(null)) {
         return;
@@ -131,12 +149,19 @@ export default class ShortcutRegistry {
     if (event) {
       event.consume(true);
     }
-    if (UI.Dialog.hasInstance()) {
+    if (Dialog.hasInstance()) {
       return;
     }
     for (const action of actions) {
-      if (await action.execute()) {
-        return;
+      try {
+        const result = await action.execute();
+        if (result) {
+          Host.userMetrics.keyboardShortcutFired(action.id());
+          return;
+        }
+      } catch (e) {
+        console.error(e);
+        throw e;
       }
     }
 
@@ -144,7 +169,7 @@ export default class ShortcutRegistry {
      * @return {boolean}
      */
     function isPossiblyInputKey() {
-      if (!event || !UI.isEditing() || /^F\d+|Control|Shift|Alt|Meta|Escape|Win|U\+001B$/.test(domKey)) {
+      if (!event || !isEditing() || /^F\d+|Control|Shift|Alt|Meta|Escape|Win|U\+001B$/.test(domKey)) {
         return false;
       }
 
@@ -152,29 +177,29 @@ export default class ShortcutRegistry {
         return true;
       }
 
-      const modifiers = UI.KeyboardShortcut.Modifiers;
+      const modifiers = Modifiers;
       // Undo/Redo will also cause input, so textual undo should take precedence over DevTools undo when editing.
-      if (Host.isMac()) {
-        if (UI.KeyboardShortcut.makeKey('z', modifiers.Meta) === key) {
+      if (Host.Platform.isMac()) {
+        if (KeyboardShortcut.makeKey('z', modifiers.Meta) === key) {
           return true;
         }
-        if (UI.KeyboardShortcut.makeKey('z', modifiers.Meta | modifiers.Shift) === key) {
+        if (KeyboardShortcut.makeKey('z', modifiers.Meta | modifiers.Shift) === key) {
           return true;
         }
       } else {
-        if (UI.KeyboardShortcut.makeKey('z', modifiers.Ctrl) === key) {
+        if (KeyboardShortcut.makeKey('z', modifiers.Ctrl) === key) {
           return true;
         }
-        if (UI.KeyboardShortcut.makeKey('y', modifiers.Ctrl) === key) {
+        if (KeyboardShortcut.makeKey('y', modifiers.Ctrl) === key) {
           return true;
         }
-        if (!Host.isWin() && UI.KeyboardShortcut.makeKey('z', modifiers.Ctrl | modifiers.Shift) === key) {
+        if (!Host.Platform.isWin() && KeyboardShortcut.makeKey('z', modifiers.Ctrl | modifiers.Shift) === key) {
           return true;
         }
       }
 
       if ((keyModifiers & (modifiers.Ctrl | modifiers.Alt)) === (modifiers.Ctrl | modifiers.Alt)) {
-        return Host.isWin();
+        return Host.Platform.isWin();
       }
 
       return !hasModifier(modifiers.Ctrl) && !hasModifier(modifiers.Alt) && !hasModifier(modifiers.Meta);
@@ -190,22 +215,14 @@ export default class ShortcutRegistry {
   }
 
   /**
-   * @param {string} actionId
-   * @param {string} shortcut
+   * @param {!KeyboardShortcut} shortcut
    */
-  registerShortcut(actionId, shortcut) {
-    const descriptor = UI.KeyboardShortcut.makeDescriptorFromBindingShortcut(shortcut);
-    if (!descriptor) {
-      return;
-    }
-    this._defaultActionToShortcut.set(actionId, descriptor);
-    this._defaultKeyToActions.set(String(descriptor.key), actionId);
+  _registerShortcut(shortcut) {
+    this._actionToShortcut.set(shortcut.action, shortcut);
+    this._keyToShortcut.set(shortcut.descriptor.key, shortcut);
   }
 
-  /**
-   * @param {!Document} document
-   */
-  _registerBindings(document) {
+  _registerBindings() {
     const extensions = self.runtime.extensions('action');
     extensions.forEach(registerExtension, this);
 
@@ -215,13 +232,19 @@ export default class ShortcutRegistry {
      */
     function registerExtension(extension) {
       const descriptor = extension.descriptor();
-      const bindings = descriptor['bindings'];
+      const bindings = descriptor.bindings;
       for (let i = 0; bindings && i < bindings.length; ++i) {
         if (!platformMatches(bindings[i].platform)) {
           continue;
         }
-        const shortcuts = bindings[i]['shortcut'].split(/\s+/);
-        shortcuts.forEach(this.registerShortcut.bind(this, descriptor['actionId']));
+        const shortcuts = bindings[i].shortcut.split(/\s+/);
+        shortcuts.forEach(shortcut => {
+          const shortcutDescriptor = KeyboardShortcut.makeDescriptorFromBindingShortcut(shortcut);
+          if (shortcutDescriptor) {
+            this._registerShortcut(new KeyboardShortcut(
+                shortcutDescriptor, /** @type {string} */ (descriptor.actionId), Type.DefaultShortcut));
+          }
+        });
       }
     }
 
@@ -235,7 +258,7 @@ export default class ShortcutRegistry {
       }
       const platforms = platformsString.split(',');
       let isMatch = false;
-      const currentPlatform = Host.platform();
+      const currentPlatform = Host.Platform.platform();
       for (let i = 0; !isMatch && i < platforms.length; ++i) {
         isMatch = platforms[i] === currentPlatform;
       }
@@ -250,20 +273,3 @@ export default class ShortcutRegistry {
 export class ForwardedShortcut {}
 
 ForwardedShortcut.instance = new ForwardedShortcut();
-
-/** @type {!ShortcutRegistry} */
-UI.shortcutRegistry;
-
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.ShortcutRegistry = ShortcutRegistry;
-
-/**
- * @unrestricted
- */
-UI.ShortcutRegistry.ForwardedShortcut = ForwardedShortcut;

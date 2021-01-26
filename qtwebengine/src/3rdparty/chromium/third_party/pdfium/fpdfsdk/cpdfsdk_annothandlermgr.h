@@ -36,7 +36,8 @@ class CPDFSDK_AnnotHandlerMgr {
 
   void SetFormFillEnv(CPDFSDK_FormFillEnvironment* pFormFillEnv);
 
-  CPDFSDK_Annot* NewAnnot(CPDF_Annot* pAnnot, CPDFSDK_PageView* pPageView);
+  std::unique_ptr<CPDFSDK_Annot> NewAnnot(CPDF_Annot* pAnnot,
+                                          CPDFSDK_PageView* pPageView);
 #ifdef PDF_ENABLE_XFA
   std::unique_ptr<CPDFSDK_Annot> NewXFAAnnot(CXFA_FFWidget* pAnnot,
                                              CPDFSDK_PageView* pPageView);
@@ -116,6 +117,8 @@ class CPDFSDK_AnnotHandlerMgr {
                        const CFX_PointF& point);
 
  private:
+  friend class CPDFSDK_BAAnnotHandlerTest;
+
   IPDFSDK_AnnotHandler* GetAnnotHandler(CPDFSDK_Annot* pAnnot) const;
   IPDFSDK_AnnotHandler* GetAnnotHandlerOfType(
       CPDF_Annot::Subtype nAnnotSubtype) const;

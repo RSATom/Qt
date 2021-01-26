@@ -17,6 +17,7 @@
 #include "tools/gn/ninja_build_writer.h"
 #include "tools/gn/output_conversion.h"
 #include "tools/gn/parser.h"
+#include "tools/gn/pattern.h"
 #include "tools/gn/runtime_deps.h"
 #include "tools/gn/setup.h"
 #include "tools/gn/standard_out.h"
@@ -81,6 +82,7 @@ void PrintToplevelHelp() {
   PrintShortHelp(
       "input_conversion: Processing input from exec_script and read_file.",
       "io_conversion");
+  PrintShortHelp("file_pattern: Matching more than one file.", "file_pattern");
   PrintShortHelp("label_pattern: Matching more than one label.",
                  "label_pattern");
   PrintShortHelp("labels: About labels.", "labels");
@@ -198,6 +200,7 @@ void PrintAllHelp() {
   PrintLongHelp(kExecution_Help, "execution");
   PrintLongHelp(kGrammar_Help, "grammar");
   PrintLongHelp(kInputOutputConversion_Help, "io_conversion");
+  PrintLongHelp(kFilePattern_Help, "file_pattern");
   PrintLongHelp(kLabelPattern_Help, "label_pattern");
   PrintLongHelp(kLabels_Help, "labels");
   PrintLongHelp(kMetadata_Help, "metadata_collection");
@@ -339,6 +342,7 @@ int RunHelp(const std::vector<std::string>& args) {
   random_topics["io_conversion"] = []() {
     PrintLongHelp(kInputOutputConversion_Help);
   };
+  random_topics["file_pattern"] = []() { PrintLongHelp(kFilePattern_Help); };
   random_topics["label_pattern"] = []() { PrintLongHelp(kLabelPattern_Help); };
   random_topics["labels"] = []() { PrintLongHelp(kLabels_Help); };
   random_topics["metadata_collection"] = []() {

@@ -17,6 +17,7 @@
 #include "src/gpu/GrMemoryPool.h"
 #include "src/gpu/GrOpFlushState.h"
 #include "src/gpu/GrProcessor.h"
+#include "src/gpu/GrProgramInfo.h"
 #include "src/gpu/GrRecordingContextPriv.h"
 #include "src/gpu/GrStyle.h"
 #include "src/gpu/GrVertexWriter.h"
@@ -30,6 +31,7 @@
 #include "src/gpu/glsl/GrGLSLVertexGeoBuilder.h"
 #include "src/gpu/ops/GrDashOp.h"
 #include "src/gpu/ops/GrMeshDrawOp.h"
+#include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
 
 using AAMode = GrDashOp::AAMode;
 
@@ -225,7 +227,11 @@ public:
     const char* name() const override { return "DashOp"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fProcessorSet.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fProcessorSet.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -261,12 +267,7 @@ public:
     GrProcessorSet::Analysis finalize(
             const GrCaps& caps, const GrAppliedClip* clip, bool hasMixedSampledCoverage,
             GrClampType clampType) override {
-        GrProcessorAnalysisCoverage coverage;
-        if (AAMode::kNone == fAAMode && !clip->numClipCoverageFragmentProcessors()) {
-            coverage = GrProcessorAnalysisCoverage::kNone;
-        } else {
-            coverage = GrProcessorAnalysisCoverage::kSingleChannel;
-        }
+        GrProcessorAnalysisCoverage coverage = GrProcessorAnalysisCoverage::kSingleChannel;
         auto analysis = fProcessorSet.finalize(
                 fColor, coverage, clip, fStencilSettings, hasMixedSampledCoverage, caps, clampType,
                 &fColor);
@@ -325,15 +326,19 @@ private:
         bool fHasEndRect;
     };
 
-    void onPrepareDraws(Target* target) override {
-        int instanceCount = fLines.count();
-        SkPaint::Cap cap = this->cap();
-        bool isRoundCap = SkPaint::kRound_Cap == cap;
-        DashCap capType = isRoundCap ? kRound_DashCap : kNonRound_DashCap;
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& appliedClip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
+
+        DashCap capType = (this->cap() == SkPaint::kRound_Cap) ? kRound_DashCap : kNonRound_DashCap;
 
         GrGeometryProcessor* gp;
         if (this->fullDash()) {
-            gp = make_dash_gp(target->allocator(), this->color(), this->aaMode(), capType,
+            gp = make_dash_gp(arena, this->color(), this->aaMode(), capType,
                               this->viewMatrix(), fUsesLocalCoords);
         } else {
             // Set up the vertex data for the line and start/end dashes
@@ -341,8 +346,7 @@ private:
             Color color(this->color());
             LocalCoords::Type localCoordsType =
                     fUsesLocalCoords ? LocalCoords::kUsePosition_Type : LocalCoords::kUnused_Type;
-            gp = MakeForDeviceSpace(target->allocator(),
-                                    target->caps().shaderCaps(),
+            gp = MakeForDeviceSpace(arena,
                                     color,
                                     Coverage::kSolid_Type,
                                     localCoordsType,
@@ -352,6 +356,35 @@ private:
         if (!gp) {
             SkDebugf("Could not create GrGeometryProcessor\n");
             return;
+        }
+
+        auto pipelineFlags = GrPipeline::InputFlags::kNone;
+        if (AAMode::kCoverageWithMSAA == fAAMode) {
+            pipelineFlags |= GrPipeline::InputFlags::kHWAntialias;
+        }
+
+        fProgramInfo = GrSimpleMeshDrawOpHelper::CreateProgramInfo(caps,
+                                                                   arena,
+                                                                   outputView,
+                                                                   std::move(appliedClip),
+                                                                   dstProxyView,
+                                                                   gp,
+                                                                   std::move(fProcessorSet),
+                                                                   GrPrimitiveType::kTriangles,
+                                                                   pipelineFlags,
+                                                                   fStencilSettings);
+    }
+
+    void onPrepareDraws(Target* target) override {
+        int instanceCount = fLines.count();
+        SkPaint::Cap cap = this->cap();
+        DashCap capType = (SkPaint::kRound_Cap == cap) ? kRound_DashCap : kNonRound_DashCap;
+
+        if (!fProgramInfo) {
+            this->createProgramInfo(target);
+            if (!fProgramInfo) {
+                return;
+            }
         }
 
         // useAA here means Edge AA or MSAA
@@ -378,7 +411,7 @@ private:
             // We always want to at least stroke out half a pixel on each side in device space
             // so 0.5f / perpScale gives us this min in src space
             SkScalar halfSrcStroke =
-                    SkMaxScalar(args.fSrcStrokeWidth * 0.5f, 0.5f / args.fPerpendicularScale);
+                    std::max(args.fSrcStrokeWidth * 0.5f, 0.5f / args.fPerpendicularScale);
 
             SkScalar strokeAdj;
             if (!hasCap) {
@@ -405,8 +438,8 @@ private:
                     SkPoint startPts[2];
                     startPts[0] = draw.fPtsRot[0];
                     startPts[1].fY = startPts[0].fY;
-                    startPts[1].fX = SkMinScalar(startPts[0].fX + draw.fIntervals[0] - draw.fPhase,
-                                                 draw.fPtsRot[1].fX);
+                    startPts[1].fX = std::min(startPts[0].fX + draw.fIntervals[0] - draw.fPhase,
+                                              draw.fPtsRot[1].fX);
                     startRect.setBounds(startPts, 2);
                     startRect.outset(strokeAdj, halfSrcStroke);
 
@@ -575,7 +608,7 @@ private:
             return;
         }
 
-        QuadHelper helper(target, gp->vertexStride(), totalRectCount);
+        QuadHelper helper(target, fProgramInfo->primProc().vertexStride(), totalRectCount);
         GrVertexWriter vertices{ helper.vertices() };
         if (!vertices.fPtr) {
             return;
@@ -624,19 +657,22 @@ private:
             }
             rectIndex++;
         }
-        helper.recordDraw(target, gp);
+
+        fMesh = helper.mesh();
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        auto pipelineFlags = GrPipeline::InputFlags::kNone;
-        if (AAMode::kCoverageWithMSAA == fAAMode) {
-            pipelineFlags |= GrPipeline::InputFlags::kHWAntialias;
+        if (!fProgramInfo || !fMesh) {
+            return;
         }
-        flushState->executeDrawsAndUploadsForMeshDrawOp(
-                this, chainBounds, std::move(fProcessorSet), pipelineFlags, fStencilSettings);
+
+        flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+        flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+        flushState->drawMesh(*fMesh);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         DashOp* that = t->cast<DashOp>();
         if (fProcessorSet != that->fProcessorSet) {
             return CombineResult::kCannotCombine;
@@ -659,7 +695,7 @@ private:
             return CombineResult::kCannotCombine;
         }
 
-        if (fUsesLocalCoords && !this->viewMatrix().cheapEqualTo(that->viewMatrix())) {
+        if (fUsesLocalCoords && !SkMatrixPriv::CheapEqual(this->viewMatrix(), that->viewMatrix())) {
             return CombineResult::kCannotCombine;
         }
 
@@ -685,6 +721,9 @@ private:
     AAMode fAAMode;
     GrProcessorSet fProcessorSet;
     const GrUserStencilSettings* fStencilSettings;
+
+    GrSimpleMesh*  fMesh = nullptr;
+    GrProgramInfo* fProgramInfo = nullptr;
 
     typedef GrMeshDrawOp INHERITED;
 };

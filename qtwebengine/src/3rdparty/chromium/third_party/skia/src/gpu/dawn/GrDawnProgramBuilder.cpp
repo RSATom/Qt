@@ -40,40 +40,38 @@ static SkSL::String sksl_to_spirv(const GrDawnGpu* gpu, const char* shaderString
 
 static wgpu::BlendFactor to_dawn_blend_factor(GrBlendCoeff coeff) {
     switch (coeff) {
-    case kZero_GrBlendCoeff:
-        return wgpu::BlendFactor::Zero;
-    case kOne_GrBlendCoeff:
-        return wgpu::BlendFactor::One;
-    case kSC_GrBlendCoeff:
-        return wgpu::BlendFactor::SrcColor;
-    case kISC_GrBlendCoeff:
-        return wgpu::BlendFactor::OneMinusSrcColor;
-    case kDC_GrBlendCoeff:
-        return wgpu::BlendFactor::DstColor;
-    case kIDC_GrBlendCoeff:
-        return wgpu::BlendFactor::OneMinusDstColor;
-    case kSA_GrBlendCoeff:
-        return wgpu::BlendFactor::SrcAlpha;
-    case kISA_GrBlendCoeff:
-        return wgpu::BlendFactor::OneMinusSrcAlpha;
-    case kDA_GrBlendCoeff:
-        return wgpu::BlendFactor::DstAlpha;
-    case kIDA_GrBlendCoeff:
-        return wgpu::BlendFactor::OneMinusDstAlpha;
-    case kConstC_GrBlendCoeff:
-        return wgpu::BlendFactor::BlendColor;
-    case kIConstC_GrBlendCoeff:
-        return wgpu::BlendFactor::OneMinusBlendColor;
-    case kConstA_GrBlendCoeff:
-    case kIConstA_GrBlendCoeff:
-    case kS2C_GrBlendCoeff:
-    case kIS2C_GrBlendCoeff:
-    case kS2A_GrBlendCoeff:
-    case kIS2A_GrBlendCoeff:
-    default:
-        SkASSERT(!"unsupported blend coefficient");
-        return wgpu::BlendFactor::One;
-    }
+        case kZero_GrBlendCoeff:
+            return wgpu::BlendFactor::Zero;
+        case kOne_GrBlendCoeff:
+            return wgpu::BlendFactor::One;
+        case kSC_GrBlendCoeff:
+            return wgpu::BlendFactor::SrcColor;
+        case kISC_GrBlendCoeff:
+            return wgpu::BlendFactor::OneMinusSrcColor;
+        case kDC_GrBlendCoeff:
+            return wgpu::BlendFactor::DstColor;
+        case kIDC_GrBlendCoeff:
+            return wgpu::BlendFactor::OneMinusDstColor;
+        case kSA_GrBlendCoeff:
+            return wgpu::BlendFactor::SrcAlpha;
+        case kISA_GrBlendCoeff:
+            return wgpu::BlendFactor::OneMinusSrcAlpha;
+        case kDA_GrBlendCoeff:
+            return wgpu::BlendFactor::DstAlpha;
+        case kIDA_GrBlendCoeff:
+            return wgpu::BlendFactor::OneMinusDstAlpha;
+        case kConstC_GrBlendCoeff:
+            return wgpu::BlendFactor::BlendColor;
+        case kIConstC_GrBlendCoeff:
+            return wgpu::BlendFactor::OneMinusBlendColor;
+        case kS2C_GrBlendCoeff:
+        case kIS2C_GrBlendCoeff:
+        case kS2A_GrBlendCoeff:
+        case kIS2A_GrBlendCoeff:
+        default:
+            SkASSERT(!"unsupported blend coefficient");
+            return wgpu::BlendFactor::One;
+        }
 }
 
 static wgpu::BlendFactor to_dawn_blend_factor_for_alpha(GrBlendCoeff coeff) {
@@ -182,7 +180,6 @@ static wgpu::VertexFormat to_dawn_vertex_format(GrVertexAttribType type) {
     case kHalf2_GrVertexAttribType:
         return wgpu::VertexFormat::Float2;
     case kFloat3_GrVertexAttribType:
-    case kHalf3_GrVertexAttribType:
         return wgpu::VertexFormat::Float3;
     case kFloat4_GrVertexAttribType:
     case kHalf4_GrVertexAttribType:
@@ -437,7 +434,7 @@ GrDawnProgramBuilder::GrDawnProgramBuilder(GrDawnGpu* gpu,
                                            GrRenderTarget* renderTarget,
                                            const GrProgramInfo& programInfo,
                                            GrProgramDesc* desc)
-    : INHERITED(renderTarget, programInfo, desc)
+    : INHERITED(renderTarget, *desc, programInfo)
     , fGpu(gpu)
     , fVaryingHandler(this)
     , fUniformHandler(this) {
@@ -493,8 +490,8 @@ void GrDawnProgram::setRenderTargetState(const GrRenderTarget* rt, GrSurfaceOrig
     }
 }
 
-static void set_texture(GrDawnGpu* gpu, const GrSamplerState& state, GrTexture* texture,
-                        std::vector<wgpu::BindGroupBinding> *bindings, int* binding) {
+static void set_texture(GrDawnGpu* gpu, GrSamplerState state, GrTexture* texture,
+                        std::vector<wgpu::BindGroupBinding>* bindings, int* binding) {
     // FIXME: could probably cache samplers in GrDawnProgram
     wgpu::Sampler sampler = gpu->getOrCreateSampler(state);
     bindings->push_back(make_bind_group_binding((*binding)++, sampler));
@@ -527,7 +524,9 @@ wgpu::BindGroup GrDawnProgram::setUniformData(GrDawnGpu* gpu, const GrRenderTarg
     SkIPoint offset;
     GrTexture* dstTexture = pipeline.peekDstTexture(&offset);
     fXferProcessor->setData(fDataManager, pipeline.getXferProcessor(), dstTexture, offset);
-    fDataManager.uploadUniformBuffers(gpu, slice);
+    if (0 != uniformBufferSize) {
+        fDataManager.uploadUniformBuffers(slice.fData);
+    }
     wgpu::BindGroupDescriptor descriptor;
     descriptor.layout = fBindGroupLayouts[0];
     descriptor.bindingCount = bindings.size();
@@ -536,12 +535,11 @@ wgpu::BindGroup GrDawnProgram::setUniformData(GrDawnGpu* gpu, const GrRenderTarg
 }
 
 wgpu::BindGroup GrDawnProgram::setTextures(GrDawnGpu* gpu,
-                                           const GrProgramInfo& programInfo,
+                                           const GrPrimitiveProcessor& primProc,
+                                           const GrPipeline& pipeline,
                                            const GrSurfaceProxy* const primProcTextures[]) {
     std::vector<wgpu::BindGroupBinding> bindings;
     int binding = 0;
-    const GrPipeline& pipeline = programInfo.pipeline();
-    const GrPrimitiveProcessor& primProc = programInfo.primProc();
     if (primProcTextures) {
         for (int i = 0; i < primProc.numTextureSamplers(); ++i) {
             SkASSERT(primProcTextures[i]->asTextureProxy());
@@ -560,7 +558,7 @@ wgpu::BindGroup GrDawnProgram::setTextures(GrDawnGpu* gpu,
     }
     SkIPoint offset;
     if (GrTexture* dstTexture = pipeline.peekDstTexture(&offset)) {
-        set_texture(gpu, GrSamplerState::ClampNearest(), dstTexture, &bindings, &binding);
+        set_texture(gpu, GrSamplerState::Filter::kNearest, dstTexture, &bindings, &binding);
     }
     wgpu::BindGroupDescriptor descriptor;
     descriptor.layout = fBindGroupLayouts[1];

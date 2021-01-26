@@ -9,6 +9,8 @@
 #include <lib/fdio/directory.h>
 #include <lib/fdio/fd.h>
 #include <lib/fdio/io.h>
+#include <lib/sys/cpp/component_context.h>
+#include <lib/vfs/cpp/pseudo_file.h>
 #include <lib/zx/job.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -27,9 +29,11 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
+#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/default_job.h"
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/json/json_reader.h"
+#include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
@@ -42,12 +46,16 @@
 #include "build/build_config.h"
 #include "components/viz/common/features.h"
 #include "content/public/common/content_switches.h"
+#include "fuchsia/base/config_reader.h"
+#include "fuchsia/base/string_util.h"
 #include "fuchsia/engine/common/web_engine_content_client.h"
 #include "fuchsia/engine/switches.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "media/base/key_system_names.h"
 #include "media/base/media_switches.h"
 #include "net/http/http_util.h"
+#include "services/network/public/cpp/features.h"
 #include "services/service_manager/sandbox/fuchsia/sandbox_policy_fuchsia.h"
 #include "third_party/widevine/cdm/widevine_cdm_common.h"
 #include "ui/gfx/switches.h"
@@ -113,32 +121,21 @@ bool SetContentDirectoriesInCommandLine(
   return true;
 }
 
-constexpr char kConfigFileName[] = "/config/data/config.json";
-
-base::Value LoadConfigFrom(const base::FilePath& file_path) {
-  if (!base::PathExists(file_path)) {
-    DLOG(WARNING) << file_path.value()
-                  << " doesn't exist. Using default WebEngine configuration.";
-    return base::Value(base::Value::Type::DICTIONARY);
+void AppendFeature(base::StringPiece features_flag,
+                   base::StringPiece feature_string,
+                   base::CommandLine* command_line) {
+  if (!command_line->HasSwitch(features_flag)) {
+    command_line->AppendSwitchNative(features_flag.as_string(),
+                                     feature_string.as_string());
+    return;
   }
 
-  std::string file_content;
-  bool loaded = base::ReadFileToString(file_path, &file_content);
-  CHECK(loaded) << "Failed to read " << file_path.value();
-
-  base::JSONReader reader;
-  base::Optional<base::Value> parsed = reader.Read(file_content);
-  CHECK(parsed) << "Failed to parse " << file_path.value() << ": "
-                << reader.GetErrorMessage();
-  CHECK(parsed->is_dict()) << "Config is not a JSON dictinary: "
-                           << file_path.value();
-
-  return std::move(parsed.value());
-}
-
-const base::Value& GetWebEngineConfig() {
-  static base::Value config = LoadConfigFrom(base::FilePath(kConfigFileName));
-  return config;
+  std::string new_feature_string =
+      command_line->GetSwitchValueASCII(features_flag);
+  new_feature_string.append(",").append(feature_string.as_string());
+  command_line->RemoveSwitch(features_flag);
+  command_line->AppendSwitchNative(features_flag.as_string(),
+                                   new_feature_string);
 }
 
 // Returns false if the config is present but has invalid contents.
@@ -149,10 +146,18 @@ bool MaybeAddCommandLineArgsFromConfig(const base::Value& config,
     return true;
 
   static const base::StringPiece kAllowedArgs[] = {
+      switches::kAcceleratedCanvas2dMSAASampleCount,
+      // TODO(crbug.com/1054589): Remove the "blink-settings" argument.
+      switches::kBlinkSettings,
+      switches::kDisableFeatures,
+      switches::kDisableGpuWatchdog,
       switches::kEnableFeatures,
       switches::kEnableFuchsiaAudioConsumer,
       switches::kEnableLowEndDeviceMode,
       switches::kForceGpuMemAvailableMb,
+      switches::kForceGpuMemDiscardableLimitMb,
+      switches::kForceMaxTextureSize,
+      switches::kGpuRasterizationMSAASampleCount,
       switches::kMinHeightForGpuRasterTile,
       switches::kRendererProcessLimit,
   };
@@ -160,13 +165,24 @@ bool MaybeAddCommandLineArgsFromConfig(const base::Value& config,
   for (const auto& arg : args->DictItems()) {
     if (!base::Contains(kAllowedArgs, arg.first)) {
       LOG(ERROR) << "Unknown command-line arg: " << arg.first;
-      return false;
+      // TODO(https://crbug.com/1032439): Return false here once we are done
+      // experimenting with memory-related command-line options.
+      continue;
     }
     if (!arg.second.is_string()) {
       LOG(ERROR) << "Config command-line arg must be a string: " << arg.first;
       return false;
     }
+
+    DCHECK(!command_line->HasSwitch(arg.first));
     command_line->AppendSwitchNative(arg.first, arg.second.GetString());
+
+    // TODO(https://crbug.com/1023012): enable-low-end-device-mode currently
+    // fakes 512MB total physical memory, which triggers RGB4444 textures,
+    // which
+    // we don't yet support.
+    if (arg.first == switches::kEnableLowEndDeviceMode)
+      command_line->AppendSwitch(switches::kDisableRGBA4444Textures);
   }
 
   return true;
@@ -186,12 +202,82 @@ bool IsFuchsiaCdmSupported() {
 #endif
 }
 
+// Callback for vfs::PseudoFile read.
+zx_status_t OnReadConfig(const base::Value& config,
+                         std::vector<uint8_t>* output,
+                         size_t max_bytes) {
+  base::Value empty_config(base::Value::Type::DICTIONARY);
+  std::string json;
+
+  // This CHECK can be triggered if |config| has a depth higher than 200.
+  // However, for this use case, it should not happen.
+  CHECK(
+      base::JSONWriter::Write(config.is_none() ? empty_config : config, &json));
+
+  output->assign(json.begin(), json.end());
+  return ZX_OK;
+}
+
+// Callback for vfs::PseudoFile write.
+zx_status_t OnWriteConfig(base::Value* config, std::vector<uint8_t> input) {
+  base::Optional<base::Value> parsed =
+      base::JSONReader::Read(cr_fuchsia::BytesAsString(input));
+  if (!parsed || !parsed->is_dict())
+    return ZX_ERR_IO_REFUSED;
+
+  *config = std::move(parsed.value());
+  return ZX_OK;
+}
+
+cr_fuchsia::ScopedPseudoFilePublisher CreateAndPublishDebugFile(
+    base::StringPiece filename,
+    vfs::PseudoFile::ReadHandler read_fn,
+    vfs::PseudoFile::WriteHandler write_fn) {
+  // 32k configuration size ought to be enough for anyone.
+  constexpr size_t kMaxConfigSize = 32768;
+
+  vfs::PseudoDir* debug_dir = base::fuchsia::ComponentContextForCurrentProcess()
+                                  ->outgoing()
+                                  ->debug_dir();
+  std::unique_ptr<vfs::PseudoFile> pseudo_file =
+      std::make_unique<vfs::PseudoFile>(kMaxConfigSize, std::move(read_fn),
+                                        std::move(write_fn));
+  return cr_fuchsia::ScopedPseudoFilePublisher(debug_dir, filename,
+                                               std::move(pseudo_file));
+}
+
+constexpr char kConfigDefaultFileName[] = "config-default.json";
+constexpr char kConfigOverrideFileName[] = "config-override.json";
+
 }  // namespace
 
 const uint32_t ContextProviderImpl::kContextRequestHandleId =
     PA_HND(PA_USER0, 0);
 
-ContextProviderImpl::ContextProviderImpl() = default;
+ContextProviderImpl::ContextProviderImpl() {
+  base::Optional<base::Value> default_config = cr_fuchsia::LoadPackageConfig();
+  if (default_config) {
+    config_default_ = std::move(default_config.value());
+  } else {
+    config_default_ = base::Value(base::Value::Type::DICTIONARY);
+  }
+
+  config_default_file_ = CreateAndPublishDebugFile(
+      kConfigDefaultFileName,
+      [this](std::vector<uint8_t>* output, size_t max_bytes) {
+        return OnReadConfig(config_default_, output, max_bytes);
+      },
+      nullptr /* write_handler */);
+
+  config_override_file_ = CreateAndPublishDebugFile(
+      kConfigOverrideFileName,
+      [this](std::vector<uint8_t>* output, size_t max_bytes) {
+        return OnReadConfig(config_override_, output, max_bytes);
+      },
+      [this](std::vector<uint8_t> input) {
+        return OnWriteConfig(&config_override_, input);
+      });
+}
 
 ContextProviderImpl::~ContextProviderImpl() = default;
 
@@ -221,7 +307,7 @@ void ContextProviderImpl::Create(
   launch_options.process_name_suffix = ":context";
 
   service_manager::SandboxPolicyFuchsia sandbox_policy;
-  sandbox_policy.Initialize(service_manager::SANDBOX_TYPE_WEB_CONTEXT);
+  sandbox_policy.Initialize(service_manager::SandboxType::kWebContext);
   sandbox_policy.SetServiceDirectory(std::move(service_directory));
   sandbox_policy.UpdateLaunchOptionsForSandbox(&launch_options);
 
@@ -263,6 +349,12 @@ void ContextProviderImpl::Create(
   base::CommandLine launch_command = *base::CommandLine::ForCurrentProcess();
   std::vector<zx::channel> devtools_listener_channels;
 
+  base::Value web_engine_config = LoadConfig();
+  if (!MaybeAddCommandLineArgsFromConfig(web_engine_config, &launch_command)) {
+    context_request.Close(ZX_ERR_INTERNAL);
+    return;
+  }
+
   if (params.has_remote_debugging_port()) {
     launch_command.AppendSwitchNative(
         switches::kRemoteDebuggingPort,
@@ -291,6 +383,15 @@ void ContextProviderImpl::Create(
   if (params.has_features())
     features = params.features();
 
+  const bool is_headless =
+      (features & fuchsia::web::ContextFeatureFlags::HEADLESS) ==
+      fuchsia::web::ContextFeatureFlags::HEADLESS;
+  if (is_headless) {
+    launch_command.AppendSwitchNative(switches::kOzonePlatform,
+                                      switches::kHeadless);
+    launch_command.AppendSwitch(switches::kHeadless);
+  }
+
   bool enable_vulkan = (features & fuchsia::web::ContextFeatureFlags::VULKAN) ==
                        fuchsia::web::ContextFeatureFlags::VULKAN;
   bool enable_widevine =
@@ -308,19 +409,10 @@ void ContextProviderImpl::Create(
   }
 
   bool enable_drm = enable_widevine || enable_playready;
-  if (enable_drm && !enable_vulkan) {
+  if (enable_drm && !enable_vulkan && !is_headless) {
     DLOG(ERROR) << "WIDEVINE_CDM and PLAYREADY_CDM features require VULKAN.";
     context_request.Close(ZX_ERR_INVALID_ARGS);
     return;
-  }
-
-  const bool is_headless =
-      (features & fuchsia::web::ContextFeatureFlags::HEADLESS) ==
-      fuchsia::web::ContextFeatureFlags::HEADLESS;
-  if (is_headless) {
-    launch_command.AppendSwitchNative(switches::kOzonePlatform,
-                                      switches::kHeadless);
-    launch_command.AppendSwitch(switches::kHeadless);
   }
 
   if (enable_vulkan) {
@@ -333,10 +425,10 @@ void ContextProviderImpl::Create(
     DLOG(ERROR) << "Enabling Vulkan GPU acceleration.";
     // Vulkan requires use of SkiaRenderer, configured to a use Vulkan context.
     launch_command.AppendSwitch(switches::kUseVulkan);
-    launch_command.AppendSwitchASCII(switches::kEnableFeatures,
-                                     features::kUseSkiaRenderer.name);
-    launch_command.AppendSwitchASCII(switches::kGrContextType,
-                                     switches::kGrContextTypeVulkan);
+    const std::vector<base::StringPiece> enabled_features = {
+        features::kUseSkiaRenderer.name, features::kVulkan.name};
+    AppendFeature(switches::kEnableFeatures,
+                  base::JoinString(enabled_features, ","), &launch_command);
 
     // SkiaRenderer requires out-of-process rasterization be enabled.
     launch_command.AppendSwitch(switches::kEnableOopRasterization);
@@ -353,8 +445,6 @@ void ContextProviderImpl::Create(
     launch_command.AppendSwitch(switches::kDisableSoftwareRasterizer);
   }
 
-  const base::Value& web_engine_config =
-      config_for_test_.is_none() ? GetWebEngineConfig() : config_for_test_;
   bool allow_protected_graphics =
       web_engine_config.FindBoolPath("allow-protected-graphics")
           .value_or(false);
@@ -372,9 +462,6 @@ void ContextProviderImpl::Create(
             .value_or(false);
     if (force_protected_video_buffers) {
       launch_command.AppendSwitch(switches::kForceProtectedVideoOutputBuffers);
-      // TODO(crbug.com/1019212): We observed flicker and buffer issues when
-      // using accelerated canvas with protected memory.
-      launch_command.AppendSwitch(switches::kDisableAccelerated2dCanvas);
     }
   }
 
@@ -411,11 +498,6 @@ void ContextProviderImpl::Create(
     }
 
     launch_command.AppendSwitch(switches::kDisableSoftwareVideoDecoders);
-  }
-
-  if (!MaybeAddCommandLineArgsFromConfig(web_engine_config, &launch_command)) {
-    context_request.Close(ZX_ERR_INTERNAL);
-    return;
   }
 
   // Validate embedder-supplied product, and optional version, and pass it to
@@ -463,6 +545,11 @@ void ContextProviderImpl::Create(
     // process.
   }
 
+  // TODO(crbug.com/1039788): Re-enable OutOfBlinkCors when custom HTTP header
+  // preflight validation errors are fixed.
+  AppendFeature(switches::kDisableFeatures,
+                network::features::kOutOfBlinkCors.name, &launch_command);
+
   if (launch_for_test_)
     launch_for_test_.Run(launch_command, launch_options);
   else
@@ -478,6 +565,20 @@ void ContextProviderImpl::Create(
 void ContextProviderImpl::SetLaunchCallbackForTest(
     LaunchCallbackForTest launch) {
   launch_for_test_ = std::move(launch);
+}
+
+base::Value ContextProviderImpl::LoadConfig() {
+  if (!config_override_.is_none())
+    return config_override_.Clone();
+
+  base::Optional<base::Value> config = cr_fuchsia::LoadPackageConfig();
+  if (!config) {
+    DLOG(WARNING) << "Configuration data not found. Using default "
+                     "WebEngine configuration.";
+    return base::Value(base::Value::Type::DICTIONARY);
+  }
+
+  return std::move(*config);
 }
 
 void ContextProviderImpl::EnableDevTools(

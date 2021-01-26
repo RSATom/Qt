@@ -50,6 +50,7 @@ public:
     InternalLineMetrics sizes() const { return fSizes; }
     bool empty() const { return fTextRange.empty(); }
 
+    SkScalar spacesWidth() { return fWidthWithSpaces - width(); }
     SkScalar height() const { return fAdvance.fY; }
     SkScalar width() const {
         return fAdvance.fX + (fEllipsis != nullptr ? fEllipsis->fAdvance.fX : 0);
@@ -93,6 +94,10 @@ public:
 
     LineMetrics getMetrics() const;
 
+    SkRect calculateBoundaries();
+
+    SkRect extendHeight(const ClipContext& context) const;
+
 private:
 
     Run* shapeEllipsis(const SkString& ellipsis, Run* run);
@@ -109,6 +114,8 @@ private:
     bool contains(const Cluster* cluster) const {
         return fTextRange.contains(cluster->textRange());
     }
+
+    void shiftCluster(const Cluster* cluster, SkScalar shift, SkScalar prevShift);
 
     ParagraphImpl* fMaster;
     BlockRange fBlockRange;

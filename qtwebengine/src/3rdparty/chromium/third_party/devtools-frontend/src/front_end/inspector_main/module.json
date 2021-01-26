@@ -66,7 +66,7 @@
         },
         {
             "type": "setting",
-            "category": "DevTools",
+            "category": "Global",
             "title": "Auto-open DevTools for popups",
             "settingName": "autoAttachToCreatedPages",
             "settingType": "boolean",
@@ -85,7 +85,7 @@
         },
         {
             "type": "setting",
-            "category": "DevTools",
+            "category": "Global",
             "title": "Emulate a focused page",
             "settingName": "emulatePageFocus",
             "settingType": "boolean",
@@ -126,7 +126,8 @@
             "title": "Rendering",
             "persistence": "closeable",
             "order": 50,
-            "className": "InspectorMain.RenderingOptionsView"
+            "className": "InspectorMain.RenderingOptionsView",
+            "tags": "paint, layout, fps, CSS media type, CSS media feature, vision deficiency, color vision deficiency"
         }
     ],
     "dependencies": [
@@ -136,6 +137,7 @@
     "scripts": [],
     "modules": [
         "inspector_main.js",
+        "inspector_main-legacy.js",
         "RenderingOptions.js",
         "InspectorMain.js"
     ],

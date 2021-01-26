@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "components/viz/common/resources/resource_format.h"
 #include "gpu/command_buffer/common/mailbox.h"
@@ -19,6 +20,7 @@
 #include "gpu/command_buffer/service/shared_image_backing.h"
 #include "gpu/command_buffer/service/shared_image_manager.h"
 #include "gpu/command_buffer/service/shared_image_representation.h"
+#include "gpu/ipc/common/surface_handle.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_fence.h"
@@ -29,22 +31,21 @@ namespace gpu {
 // Implementation of SharedImageBacking that uses a NativePixmap created via
 // an Ozone surface factory. The memory associated with the pixmap can be
 // aliased by both GL and Vulkan for use in rendering or compositing.
-class SharedImageBackingOzone final : public SharedImageBacking {
+class SharedImageBackingOzone final : public ClearTrackingSharedImageBacking {
  public:
   static std::unique_ptr<SharedImageBackingOzone> Create(
+      scoped_refptr<base::RefCountedData<DawnProcTable>> dawn_procs,
       SharedContextState* context_state,
       const Mailbox& mailbox,
       viz::ResourceFormat format,
       const gfx::Size& size,
       const gfx::ColorSpace& color_space,
-      uint32_t usage);
+      uint32_t usage,
+      SurfaceHandle surface_handle);
   ~SharedImageBackingOzone() override;
 
   // gpu::SharedImageBacking:
-  bool IsCleared() const override;
-  void SetCleared() override;
   void Update(std::unique_ptr<gfx::GpuFence> in_fence) override;
-  void Destroy() override;
   bool ProduceLegacyMailbox(MailboxManager* mailbox_manager) override;
 
  protected:
@@ -67,15 +68,18 @@ class SharedImageBackingOzone final : public SharedImageBacking {
       MemoryTypeTracker* tracker) override;
 
  private:
-  SharedImageBackingOzone(const Mailbox& mailbox,
-                          viz::ResourceFormat format,
-                          const gfx::Size& size,
-                          const gfx::ColorSpace& color_space,
-                          uint32_t usage,
-                          SharedContextState* context_state,
-                          scoped_refptr<gfx::NativePixmap> pixmap);
+  SharedImageBackingOzone(
+      const Mailbox& mailbox,
+      viz::ResourceFormat format,
+      const gfx::Size& size,
+      const gfx::ColorSpace& color_space,
+      uint32_t usage,
+      SharedContextState* context_state,
+      scoped_refptr<gfx::NativePixmap> pixmap,
+      scoped_refptr<base::RefCountedData<DawnProcTable>> dawn_procs);
 
   scoped_refptr<gfx::NativePixmap> pixmap_;
+  scoped_refptr<base::RefCountedData<DawnProcTable>> dawn_procs_;
 
   DISALLOW_COPY_AND_ASSIGN(SharedImageBackingOzone);
 };

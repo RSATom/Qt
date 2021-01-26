@@ -15,9 +15,8 @@
 #ifndef DAWNNATIVE_BINDGROUPANDSTORAGEBARRIERTRACKER_H_
 #define DAWNNATIVE_BINDGROUPANDSTORAGEBARRIERTRACKER_H_
 
-#include "dawn_native/BindGroupTracker.h"
-
 #include "dawn_native/BindGroup.h"
+#include "dawn_native/BindGroupTracker.h"
 
 namespace dawn_native {
 
@@ -39,15 +38,17 @@ namespace dawn_native {
                 mBuffersNeedingBarrier[index] = {};
 
                 const BindGroupLayoutBase* layout = bindGroup->GetLayout();
-                const auto& info = layout->GetBindingInfo();
 
-                for (uint32_t binding : IterateBitSet(info.mask)) {
-                    if ((info.visibilities[binding] & wgpu::ShaderStage::Compute) == 0) {
+                for (BindingIndex bindingIndex = 0; bindingIndex < layout->GetBindingCount();
+                     ++bindingIndex) {
+                    const BindingInfo& bindingInfo = layout->GetBindingInfo(bindingIndex);
+
+                    if ((bindingInfo.visibility & wgpu::ShaderStage::Compute) == 0) {
                         continue;
                     }
 
-                    mBindingTypes[index][binding] = info.types[binding];
-                    switch (info.types[binding]) {
+                    mBindingTypes[index][bindingIndex] = bindingInfo.type;
+                    switch (bindingInfo.type) {
                         case wgpu::BindingType::UniformBuffer:
                         case wgpu::BindingType::ReadonlyStorageBuffer:
                         case wgpu::BindingType::Sampler:
@@ -56,12 +57,14 @@ namespace dawn_native {
                             break;
 
                         case wgpu::BindingType::StorageBuffer:
-                            mBuffersNeedingBarrier[index].set(binding);
-                            mBuffers[index][binding] =
-                                bindGroup->GetBindingAsBufferBinding(binding).buffer;
+                            mBuffersNeedingBarrier[index].set(bindingIndex);
+                            mBuffers[index][bindingIndex] =
+                                bindGroup->GetBindingAsBufferBinding(bindingIndex).buffer;
                             break;
 
                         case wgpu::BindingType::StorageTexture:
+                        case wgpu::BindingType::ReadonlyStorageTexture:
+                        case wgpu::BindingType::WriteonlyStorageTexture:
                             // Not implemented.
 
                         default:

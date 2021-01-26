@@ -71,14 +71,6 @@ enum {
     defaultWindowHeight = 160
 };
 
-static void qt_closePopups()
-{
-    while (QCocoaWindow *popup = QCocoaIntegration::instance()->popPopupWindow()) {
-        QWindowSystemInterface::handleCloseEvent(popup->window());
-        QWindowSystemInterface::flushWindowSystemEvents();
-    }
-}
-
 Q_LOGGING_CATEGORY(lcCocoaNotifications, "qt.qpa.cocoa.notifications");
 
 static void qRegisterNotificationCallbacks()
@@ -306,6 +298,9 @@ bool QCocoaWindow::startSystemMove()
     case NSEventTypeRightMouseDown:
     case NSEventTypeOtherMouseDown:
     case NSEventTypeMouseMoved:
+    case NSEventTypeLeftMouseDragged:
+    case NSEventTypeRightMouseDragged:
+    case NSEventTypeOtherMouseDragged:
         // The documentation only describes starting a system move
         // based on mouse down events, but move events also work.
         [m_view.window performWindowDragWithEvent:NSApp.currentEvent];
@@ -829,6 +824,11 @@ void QCocoaWindow::windowDidExitFullScreen()
     }
 }
 
+void QCocoaWindow::windowWillMiniaturize()
+{
+    QCocoaIntegration::instance()->closePopups(window());
+}
+
 void QCocoaWindow::windowDidMiniaturize()
 {
     if (!isContentView())
@@ -1166,7 +1166,7 @@ void QCocoaWindow::viewDidChangeGlobalFrame()
 void QCocoaWindow::windowWillMove()
 {
     // Close any open popups on window move
-    qt_closePopups();
+    QCocoaIntegration::instance()->closePopups();
 }
 
 void QCocoaWindow::windowDidMove()
@@ -1226,15 +1226,17 @@ void QCocoaWindow::windowDidResignKey()
     if (isForeignWindow())
         return;
 
-    // Key window will be non-nil if another window became key, so do not
-    // set the active window to zero here -- the new key window's
-    // NSWindowDidBecomeKeyNotification hander will change the active window.
-    NSWindow *keyWindow = [NSApp keyWindow];
-    if (!keyWindow || keyWindow == m_view.window) {
-        // No new key window, go ahead and set the active window to zero
-        if (!windowIsPopupType())
-            QWindowSystemInterface::handleWindowActivated<QWindowSystemInterface::SynchronousDelivery>(0);
-    }
+    // The current key window will be non-nil if another window became key. If that
+    // window is a Qt window, we delay the window activation event until the didBecomeKey
+    // notification is delivered to the active window, to ensure an atomic update.
+    NSWindow *newKeyWindow = [NSApp keyWindow];
+    if (newKeyWindow && newKeyWindow != m_view.window
+        && [newKeyWindow conformsToProtocol:@protocol(QNSWindowProtocol)])
+        return;
+
+    // Lost key window, go ahead and set the active window to zero
+    if (!windowIsPopupType())
+        QWindowSystemInterface::handleWindowActivated<QWindowSystemInterface::SynchronousDelivery>(nullptr);
 }
 
 void QCocoaWindow::windowDidOrderOnScreen()
@@ -1297,7 +1299,7 @@ void QCocoaWindow::windowWillClose()
 {
     // Close any open popups on window closing.
     if (window() && !windowIsPopupType(window()->type()))
-        qt_closePopups();
+        QCocoaIntegration::instance()->closePopups();
 }
 
 // ----------------------- NSWindowDelegate callbacks -----------------------

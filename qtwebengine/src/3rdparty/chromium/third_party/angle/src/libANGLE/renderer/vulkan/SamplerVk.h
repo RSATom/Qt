@@ -34,10 +34,7 @@ class SamplerVk : public SamplerImpl
 
     Serial getSerial() const { return mSerial; }
 
-    void onSamplerGraphAccess(vk::CommandGraph *commandGraph)
-    {
-        mSampler.onGraphAccess(commandGraph);
-    }
+    void retain(vk::ResourceUseList *resourceUseList) { mSampler.retain(resourceUseList); }
 
   private:
     vk::SamplerHelper mSampler;

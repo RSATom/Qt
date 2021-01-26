@@ -28,11 +28,11 @@
 // Expected Use:
 //  QuicStreamSequencerBuffer buffer(2.5 * 8 * 1024);
 //  std::string source(1024, 'a');
-//  QuicStringPiece string_piece(source.data(), source.size());
+//  quiche::QuicheStringPiece string_piece(source.data(), source.size());
 //  size_t written = 0;
 //  buffer.OnStreamData(800, string_piece, GetEpollClockNow(), &written);
 //  source = std::string{800, 'b'};
-//  QuicStringPiece string_piece1(source.data(), 800);
+//  quiche::QuicheStringPiece string_piece1(source.data(), 800);
 //  // Try to write to [1, 801), but should fail due to overlapping,
 //  // res should be QUIC_INVALID_STREAM_DATA
 //  auto res = buffer.OnStreamData(1, string_piece1, &written));
@@ -69,7 +69,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_iovec.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -106,7 +106,7 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencerBuffer {
   // successfully buffered, returns QUIC_NO_ERROR and stores the number of
   // bytes buffered in |bytes_buffered|. Returns an error otherwise.
   QuicErrorCode OnStreamData(QuicStreamOffset offset,
-                             QuicStringPiece data,
+                             quiche::QuicheStringPiece data,
                              size_t* bytes_buffered,
                              std::string* error_details);
 
@@ -137,10 +137,10 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencerBuffer {
   // Does not consume data.
   bool PeekRegion(QuicStreamOffset offset, iovec* iov) const;
 
-  // Called after GetReadableRegions() to free up |bytes_used| space if these
-  // bytes are processed.
-  // Pre-requisite: bytes_used <= available bytes to read.
-  bool MarkConsumed(size_t bytes_buffered);
+  // Called after GetReadableRegions() to free up |bytes_consumed| space if
+  // these bytes are processed.
+  // Pre-requisite: bytes_consumed <= available bytes to read.
+  bool MarkConsumed(size_t bytes_consumed);
 
   // Deletes and records as consumed any buffered data and clear the buffer.
   // (To be called only after sequencer's StopReading has been called.)
@@ -167,7 +167,7 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencerBuffer {
   // Copies |data| to blocks_, sets |bytes_copy|. Returns true if the copy is
   // successful. Otherwise, sets |error_details| and returns false.
   bool CopyStreamData(QuicStreamOffset offset,
-                      QuicStringPiece data,
+                      quiche::QuicheStringPiece data,
                       size_t* bytes_copy,
                       std::string* error_details);
 
@@ -208,10 +208,7 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencerBuffer {
   // Returns offset of highest received byte + 1.
   QuicStreamOffset NextExpectedByte() const;
 
-  // Return |gaps_| as a string: [1024, 1500) [1800, 2048)... for debugging.
-  std::string GapsDebugString() const;
-
-  // Return all received frames as a string in same format as GapsDebugString();
+  // Return all received frames as a string.
   std::string ReceivedFramesDebugString() const;
 
   // The maximum total capacity of this buffer in byte, as constructed.

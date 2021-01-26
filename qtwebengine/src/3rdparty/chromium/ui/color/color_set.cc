@@ -11,7 +11,7 @@ ColorSet::ColorSet(ColorSetId id, ColorMap&& colors)
 
 ColorSet::ColorSet(ColorSet&&) noexcept = default;
 
-ColorSet& ColorSet::operator=(ColorSet&&) noexcept = default;
+ColorSet& ColorSet::operator=(ColorSet&&) = default;
 
 ColorSet::~ColorSet() = default;
 

@@ -37,7 +37,7 @@ qhp.QtAndroidExtras.subprojects.examples.title = Examples
 qhp.QtAndroidExtras.subprojects.examples.indexTitle = Qt Android Extras Examples
 qhp.QtAndroidExtras.subprojects.examples.selectors = fake:example
 
-depends += qtcore qtdoc qtqml qtquick
+depends += qtcore qtdoc qtqml qtquick qtremoteobjects
 headerdirs += ..
 sourcedirs += ..
 exampledirs += ../../../examples/androidextras \

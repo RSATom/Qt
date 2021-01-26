@@ -21,6 +21,7 @@
 
 #import "helpers/AVCaptureSession+DevicePosition.h"
 #import "helpers/RTCDispatcher+Private.h"
+#include "rtc_base/system/gcd_helpers.h"
 
 const int64_t kNanosecondsPerSecond = 1000000000;
 
@@ -41,6 +42,7 @@ const int64_t kNanosecondsPerSecond = 1000000000;
   RTCVideoRotation _rotation;
 #if TARGET_OS_IPHONE
   UIDeviceOrientation _orientation;
+  BOOL _generatingOrientationNotifications;
 #endif
 }
 
@@ -158,7 +160,12 @@ const int64_t kNanosecondsPerSecond = 1000000000;
                       RTCLogInfo("startCaptureWithDevice %@ @ %ld fps", format, (long)fps);
 
 #if TARGET_OS_IPHONE
-                      [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
+                      dispatch_async(dispatch_get_main_queue(), ^{
+                        if (!self->_generatingOrientationNotifications) {
+                          [[UIDevice currentDevice] beginGeneratingDeviceOrientationNotifications];
+                          self->_generatingOrientationNotifications = YES;
+                        }
+                      });
 #endif
 
                       self.currentDevice = device;
@@ -200,7 +207,12 @@ const int64_t kNanosecondsPerSecond = 1000000000;
                       [self.captureSession stopRunning];
 
 #if TARGET_OS_IPHONE
-                      [[UIDevice currentDevice] endGeneratingDeviceOrientationNotifications];
+                      dispatch_async(dispatch_get_main_queue(), ^{
+                        if (self->_generatingOrientationNotifications) {
+                          [[UIDevice currentDevice] endGeneratingDeviceOrientationNotifications];
+                          self->_generatingOrientationNotifications = NO;
+                        }
+                      });
 #endif
                       self.isRunning = NO;
                       if (completionHandler) {
@@ -404,10 +416,10 @@ const int64_t kNanosecondsPerSecond = 1000000000;
 
 - (dispatch_queue_t)frameQueue {
   if (!_frameQueue) {
-    _frameQueue =
-        dispatch_queue_create("org.webrtc.cameravideocapturer.video", DISPATCH_QUEUE_SERIAL);
-    dispatch_set_target_queue(_frameQueue,
-                              dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
+    _frameQueue = RTCDispatchQueueCreateWithTarget(
+        "org.webrtc.cameravideocapturer.video",
+        DISPATCH_QUEUE_SERIAL,
+        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
   }
   return _frameQueue;
 }

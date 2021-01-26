@@ -14,31 +14,46 @@
 
 #include "dawn_native/vulkan/BackendVk.h"
 
+#include "common/Log.h"
 #include "common/SystemUtils.h"
 #include "dawn_native/Instance.h"
 #include "dawn_native/VulkanBackend.h"
 #include "dawn_native/vulkan/AdapterVk.h"
 #include "dawn_native/vulkan/VulkanError.h"
 
-#include <iostream>
+// TODO(crbug.com/dawn/283): Link against the Vulkan Loader and remove this.
+#if defined(DAWN_ENABLE_SWIFTSHADER)
+#    if defined(DAWN_PLATFORM_LINUX) || defined(DAWN_PLATFORM_FUSCHIA)
+constexpr char kSwiftshaderLibName[] = "libvk_swiftshader.so";
+#    elif defined(DAWN_PLATFORM_WINDOWS)
+constexpr char kSwiftshaderLibName[] = "vk_swiftshader.dll";
+#    elif defined(DAWN_PLATFORM_MACOS)
+constexpr char kSwiftshaderLibName[] = "libvk_swiftshader.dylib";
+#    else
+#        error "Unimplemented Swiftshader Vulkan backend platform"
+#    endif
+#endif
 
 #if defined(DAWN_PLATFORM_LINUX)
 #    if defined(DAWN_PLATFORM_ANDROID)
-const char kVulkanLibName[] = "libvulkan.so";
+constexpr char kVulkanLibName[] = "libvulkan.so";
 #    else
-const char kVulkanLibName[] = "libvulkan.so.1";
+constexpr char kVulkanLibName[] = "libvulkan.so.1";
 #    endif
 #elif defined(DAWN_PLATFORM_WINDOWS)
-const char kVulkanLibName[] = "vulkan-1.dll";
+constexpr char kVulkanLibName[] = "vulkan-1.dll";
 #elif defined(DAWN_PLATFORM_FUCHSIA)
-const char kVulkanLibName[] = "libvulkan.so";
+constexpr char kVulkanLibName[] = "libvulkan.so";
+#elif defined(DAWN_ENABLE_SWIFTSHADER)
+const char* kVulkanLibName = kSwiftshaderLibName;
 #else
 #    error "Unimplemented Vulkan backend platform"
 #endif
 
 namespace dawn_native { namespace vulkan {
 
-    Backend::Backend(InstanceBase* instance) : BackendConnection(instance, BackendType::Vulkan) {
+    Backend::Backend(InstanceBase* instance)
+        : BackendConnection(instance, wgpu::BackendType::Vulkan) {
     }
 
     Backend::~Backend() {
@@ -66,12 +81,12 @@ namespace dawn_native { namespace vulkan {
         return mGlobalInfo;
     }
 
-    MaybeError Backend::Initialize() {
+    MaybeError Backend::LoadVulkan() {
 #if defined(DAWN_ENABLE_VULKAN_VALIDATION_LAYERS)
         if (GetInstance()->IsBackendValidationEnabled()) {
             std::string vkDataDir = GetExecutableDirectory() + DAWN_VK_DATA_DIR;
             if (!SetEnvironmentVar("VK_LAYER_PATH", vkDataDir.c_str())) {
-                return DAWN_DEVICE_LOST_ERROR("Couldn't set VK_LAYER_PATH");
+                return DAWN_INTERNAL_ERROR("Couldn't set VK_LAYER_PATH");
             }
         }
 #endif
@@ -79,13 +94,29 @@ namespace dawn_native { namespace vulkan {
         std::string fullSwiftshaderICDPath =
             GetExecutableDirectory() + DAWN_SWIFTSHADER_VK_ICD_JSON;
         if (!SetEnvironmentVar("VK_ICD_FILENAMES", fullSwiftshaderICDPath.c_str())) {
-            return DAWN_DEVICE_LOST_ERROR("Couldn't set VK_ICD_FILENAMES");
+            return DAWN_INTERNAL_ERROR("Couldn't set VK_ICD_FILENAMES");
         }
 #endif
 
-        if (!mVulkanLib.Open(kVulkanLibName)) {
-            return DAWN_DEVICE_LOST_ERROR(std::string("Couldn't open ") + kVulkanLibName);
+        if (mVulkanLib.Open(kVulkanLibName)) {
+            return {};
         }
+        dawn::WarningLog() << std::string("Couldn't open ") + kVulkanLibName;
+
+#if defined(DAWN_ENABLE_SWIFTSHADER)
+        if (strcmp(kVulkanLibName, kSwiftshaderLibName) != 0) {
+            if (mVulkanLib.Open(kSwiftshaderLibName)) {
+                return {};
+            }
+            dawn::WarningLog() << std::string("Couldn't open ") + kSwiftshaderLibName;
+        }
+#endif
+
+        return DAWN_INTERNAL_ERROR("Couldn't load Vulkan");
+    }
+
+    MaybeError Backend::Initialize() {
+        DAWN_TRY(LoadVulkan());
 
         DAWN_TRY(mFunctions.LoadGlobalProcs(mVulkanLib));
 
@@ -159,28 +190,15 @@ namespace dawn_native { namespace vulkan {
             }
         }
 
+        // Always request all extensions used to create VkSurfaceKHR objects so that they are
+        // always available for embedders looking to create VkSurfaceKHR on our VkInstance.
         if (mGlobalInfo.fuchsiaImagePipeSwapchain) {
             layersToRequest.push_back(kLayerNameFuchsiaImagePipeSwapchain);
             usedKnobs.fuchsiaImagePipeSwapchain = true;
         }
-
-        // Always request all extensions used to create VkSurfaceKHR objects so that they are
-        // always available for embedders looking to create VkSurfaceKHR on our VkInstance.
-        if (mGlobalInfo.macosSurface) {
-            extensionsToRequest.push_back(kExtensionNameMvkMacosSurface);
-            usedKnobs.macosSurface = true;
-        }
-        if (mGlobalInfo.externalMemoryCapabilities) {
-            extensionsToRequest.push_back(kExtensionNameKhrExternalMemoryCapabilities);
-            usedKnobs.externalMemoryCapabilities = true;
-        }
-        if (mGlobalInfo.externalSemaphoreCapabilities) {
-            extensionsToRequest.push_back(kExtensionNameKhrExternalSemaphoreCapabilities);
-            usedKnobs.externalSemaphoreCapabilities = true;
-        }
-        if (mGlobalInfo.getPhysicalDeviceProperties2) {
-            extensionsToRequest.push_back(kExtensionNameKhrGetPhysicalDeviceProperties2);
-            usedKnobs.getPhysicalDeviceProperties2 = true;
+        if (mGlobalInfo.metalSurface) {
+            extensionsToRequest.push_back(kExtensionNameExtMetalSurface);
+            usedKnobs.metalSurface = true;
         }
         if (mGlobalInfo.surface) {
             extensionsToRequest.push_back(kExtensionNameKhrSurface);
@@ -205,6 +223,28 @@ namespace dawn_native { namespace vulkan {
         if (mGlobalInfo.fuchsiaImagePipeSurface) {
             extensionsToRequest.push_back(kExtensionNameFuchsiaImagePipeSurface);
             usedKnobs.fuchsiaImagePipeSurface = true;
+        }
+
+        // Mark the promoted extensions as present if the core version in which they were promoted
+        // is used. This allows having a single boolean that checks if the functionality from that
+        // extension is available (instead of checking extension || coreVersion).
+        if (mGlobalInfo.apiVersion >= VK_MAKE_VERSION(1, 1, 0)) {
+            usedKnobs.getPhysicalDeviceProperties2 = true;
+            usedKnobs.externalMemoryCapabilities = true;
+            usedKnobs.externalSemaphoreCapabilities = true;
+        } else {
+            if (mGlobalInfo.externalMemoryCapabilities) {
+                extensionsToRequest.push_back(kExtensionNameKhrExternalMemoryCapabilities);
+                usedKnobs.externalMemoryCapabilities = true;
+            }
+            if (mGlobalInfo.externalSemaphoreCapabilities) {
+                extensionsToRequest.push_back(kExtensionNameKhrExternalSemaphoreCapabilities);
+                usedKnobs.externalSemaphoreCapabilities = true;
+            }
+            if (mGlobalInfo.getPhysicalDeviceProperties2) {
+                extensionsToRequest.push_back(kExtensionNameKhrGetPhysicalDeviceProperties2);
+                usedKnobs.getPhysicalDeviceProperties2 = true;
+            }
         }
 
         VkApplicationInfo appInfo;
@@ -241,7 +281,7 @@ namespace dawn_native { namespace vulkan {
         createInfo.pUserData = this;
 
         return CheckVkSuccess(mFunctions.CreateDebugReportCallbackEXT(
-                                  mInstance, &createInfo, nullptr, &mDebugReportCallback),
+                                  mInstance, &createInfo, nullptr, &*mDebugReportCallback),
                               "vkCreateDebugReportcallback");
     }
 
@@ -254,7 +294,7 @@ namespace dawn_native { namespace vulkan {
                                    const char* /*pLayerPrefix*/,
                                    const char* pMessage,
                                    void* /*pUserdata*/) {
-        std::cout << pMessage << std::endl;
+        dawn::WarningLog() << pMessage;
         ASSERT((flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) == 0);
 
         return VK_FALSE;

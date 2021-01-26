@@ -29,7 +29,6 @@ skia_utils_public = [
 ]
 
 skia_utils_sources = [
-  "$_src/utils/Sk3D.cpp",
   "$_src/utils/SkAnimCodecPlayer.cpp",
   "$_src/utils/SkBase64.cpp",
   "$_src/utils/SkBitSet.h",
@@ -40,6 +39,8 @@ skia_utils_sources = [
   "$_src/utils/SkCanvasStateUtils.cpp",
   "$_src/utils/SkCharToGlyphCache.cpp",
   "$_src/utils/SkCharToGlyphCache.h",
+  "$_src/utils/SkClipStackUtils.cpp",
+  "$_src/utils/SkClipStackUtils.h",
   "$_src/utils/SkDashPath.cpp",
   "$_src/utils/SkDashPathPriv.h",
   "$_src/utils/SkEventTracer.cpp",

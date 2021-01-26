@@ -27,13 +27,17 @@ class RequiredFieldsFallbackHandler {
  public:
   enum FieldValueStatus { UNKNOWN, EMPTY, NOT_EMPTY };
   struct RequiredField {
+    RequiredField();
+    ~RequiredField();
+    RequiredField(const RequiredField& copy);
+
     Selector selector;
-    bool simulate_key_presses = false;
+    KeyboardValueFillStrategy fill_strategy;
+    DropdownSelectStrategy select_strategy;
     int delay_in_millisecond = 0;
     bool forced = false;
     FieldValueStatus status = UNKNOWN;
-
-    int fallback_key;
+    std::string value_expression;
 
     // Returns true if fallback is required for this field.
     bool ShouldFallback(bool has_fallback_data) const {
@@ -49,11 +53,16 @@ class RequiredFieldsFallbackHandler {
     FallbackData();
     ~FallbackData();
 
-    // the key of the map should be the same as the |fallback_key| of the
-    // required field.
+    // The key of the map. Should be either an entry of  field_types.h or an
+    // enum of Use*Action::AutofillAssistantCustomField.
     std::map<int, std::string> field_values;
 
+    void AddFormGroup(const autofill::FormGroup& form_group);
+
     base::Optional<std::string> GetValue(int key);
+
+    base::Optional<std::string> EvaluateExpression(
+        const std::string& value_expression);
 
    private:
     DISALLOW_COPY_AND_ASSIGN(FallbackData);
@@ -100,13 +109,19 @@ class RequiredFieldsFallbackHandler {
       size_t required_fields_index,
       std::unique_ptr<FallbackData> fallback_data);
 
+  // Called after retrieving tag name from a field.
+  void OnGetFallbackFieldTag(size_t required_fields_index,
+                             std::unique_ptr<FallbackData> fallback_data,
+                             const ClientStatus& element_tag_status,
+                             const std::string& element_tag);
+
   // Called after trying to set form values without Autofill in case of fallback
   // after failed validation.
   void OnSetFallbackFieldValue(size_t required_fields_index,
                                std::unique_ptr<FallbackData> fallback_data,
                                const ClientStatus& status);
 
-  ClientStatus initial_autofill_status_;
+  ClientStatus client_status_;
 
   std::vector<RequiredField> required_fields_;
   base::OnceCallback<void(const ClientStatus&,

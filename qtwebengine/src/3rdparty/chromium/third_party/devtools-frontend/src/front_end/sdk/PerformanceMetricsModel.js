@@ -2,9 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-export default class PerformanceMetricsModel extends SDK.SDKModel {
+import * as Platform from '../platform/platform.js';
+
+import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+
+export class PerformanceMetricsModel extends SDKModel {
   /**
-   * @param {!SDK.Target} target
+   * @param {!Target} target
    */
   constructor(target) {
     super(target);
@@ -53,7 +57,8 @@ export default class PerformanceMetricsModel extends SDK.SDKModel {
       switch (this._metricModes.get(metric.name)) {
         case MetricMode.CumulativeTime:
           value = data.lastTimestamp ?
-              Number.constrain((metric.value - data.lastValue) * 1000 / (timestamp - data.lastTimestamp), 0, 1) :
+              Platform.NumberUtilities.clamp(
+                  (metric.value - data.lastValue) * 1000 / (timestamp - data.lastTimestamp), 0, 1) :
               0;
           data.lastValue = metric.value;
           data.lastTimestamp = timestamp;
@@ -81,13 +86,4 @@ const MetricMode = {
   CumulativeCount: Symbol('CumulativeCount'),
 };
 
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.PerformanceMetricsModel = PerformanceMetricsModel;
-
-SDK.SDKModel.register(SDK.PerformanceMetricsModel, SDK.Target.Capability.DOM, false);
+SDKModel.register(PerformanceMetricsModel, Capability.DOM, false);

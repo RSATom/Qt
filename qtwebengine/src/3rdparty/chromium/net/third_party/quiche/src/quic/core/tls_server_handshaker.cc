@@ -11,7 +11,9 @@
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_server_config.h"
 #include "net/third_party/quiche/src/quic/core/crypto/transport_parameters.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_hostname_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -19,13 +21,16 @@ TlsServerHandshaker::SignatureCallback::SignatureCallback(
     TlsServerHandshaker* handshaker)
     : handshaker_(handshaker) {}
 
-void TlsServerHandshaker::SignatureCallback::Run(bool ok,
-                                                 std::string signature) {
+void TlsServerHandshaker::SignatureCallback::Run(
+    bool ok,
+    std::string signature,
+    std::unique_ptr<ProofSource::Details> details) {
   if (handshaker_ == nullptr) {
     return;
   }
   if (ok) {
     handshaker_->cert_verify_sig_ = std::move(signature);
+    handshaker_->proof_source_details_ = std::move(details);
   }
   State last_state = handshaker_->state_;
   handshaker_->state_ = STATE_SIGNATURE_COMPLETE;
@@ -39,11 +44,11 @@ void TlsServerHandshaker::SignatureCallback::Cancel() {
   handshaker_ = nullptr;
 }
 
-TlsServerHandshaker::TlsServerHandshaker(QuicCryptoStream* stream,
-                                         QuicSession* session,
+TlsServerHandshaker::TlsServerHandshaker(QuicSession* session,
                                          SSL_CTX* ssl_ctx,
                                          ProofSource* proof_source)
-    : TlsHandshaker(stream, session, ssl_ctx),
+    : TlsHandshaker(this, session),
+      QuicCryptoServerStreamBase(session),
       proof_source_(proof_source),
       crypto_negotiated_params_(new QuicCryptoNegotiatedParameters),
       tls_connection_(ssl_ctx, this) {
@@ -52,11 +57,6 @@ TlsServerHandshaker::TlsServerHandshaker(QuicCryptoStream* stream,
 
   // Configure the SSL to be a server.
   SSL_set_accept_state(ssl());
-
-  if (!SetTransportParameters()) {
-    CloseConnection(QUIC_HANDSHAKE_FAILED,
-                    "Server failed to set Transport Parameters");
-  }
 }
 
 TlsServerHandshaker::~TlsServerHandshaker() {
@@ -81,14 +81,9 @@ void TlsServerHandshaker::SendServerConfigUpdate(
   // SCUP messages aren't supported when using the TLS handshake.
 }
 
-uint8_t TlsServerHandshaker::NumHandshakeMessages() const {
-  // TODO(nharper): Return a sensible value here.
-  return 0;
-}
-
-uint8_t TlsServerHandshaker::NumHandshakeMessagesWithServerNonces() const {
-  // TODO(nharper): Return a sensible value here.
-  return 0;
+bool TlsServerHandshaker::IsZeroRtt() const {
+  // TODO(nharper): Support 0-RTT with TLS 1.3 in QUIC.
+  return false;
 }
 
 int TlsServerHandshaker::NumServerConfigUpdateMessagesSent() const {
@@ -113,9 +108,13 @@ void TlsServerHandshaker::OnPacketDecrypted(EncryptionLevel level) {
   if (level == ENCRYPTION_HANDSHAKE &&
       state_ < STATE_ENCRYPTION_HANDSHAKE_DATA_PROCESSED) {
     state_ = STATE_ENCRYPTION_HANDSHAKE_DATA_PROCESSED;
-    delegate()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
-    delegate()->DiscardOldDecryptionKey(ENCRYPTION_INITIAL);
+    handshaker_delegate()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
+    handshaker_delegate()->DiscardOldDecryptionKey(ENCRYPTION_INITIAL);
   }
+}
+
+void TlsServerHandshaker::OnHandshakeDoneReceived() {
+  DCHECK(false);
 }
 
 bool TlsServerHandshaker::ShouldSendExpectCTHeader() const {
@@ -126,8 +125,8 @@ bool TlsServerHandshaker::encryption_established() const {
   return encryption_established_;
 }
 
-bool TlsServerHandshaker::handshake_confirmed() const {
-  return handshake_confirmed_;
+bool TlsServerHandshaker::one_rtt_keys_available() const {
+  return one_rtt_keys_available_;
 }
 
 const QuicCryptoNegotiatedParameters&
@@ -139,9 +138,34 @@ CryptoMessageParser* TlsServerHandshaker::crypto_message_parser() {
   return TlsHandshaker::crypto_message_parser();
 }
 
+HandshakeState TlsServerHandshaker::GetHandshakeState() const {
+  if (one_rtt_keys_available_) {
+    return HANDSHAKE_CONFIRMED;
+  }
+  if (state_ >= STATE_ENCRYPTION_HANDSHAKE_DATA_PROCESSED) {
+    return HANDSHAKE_PROCESSED;
+  }
+  return HANDSHAKE_START;
+}
+
 size_t TlsServerHandshaker::BufferSizeLimitForLevel(
     EncryptionLevel level) const {
   return TlsHandshaker::BufferSizeLimitForLevel(level);
+}
+
+void TlsServerHandshaker::OverrideQuicConfigDefaults(QuicConfig* /*config*/) {}
+
+bool TlsServerHandshaker::SetReadSecret(
+    EncryptionLevel level,
+    const SSL_CIPHER* cipher,
+    const std::vector<uint8_t>& read_secret) {
+  if (level != ENCRYPTION_FORWARD_SECURE || one_rtt_keys_available_) {
+    return TlsHandshaker::SetReadSecret(level, cipher, read_secret);
+  }
+  // Delay setting read secret for ENCRYPTION_FORWARD_SECURE until handshake
+  // completes.
+  app_data_read_secret_ = read_secret;
+  return true;
 }
 
 void TlsServerHandshaker::AdvanceHandshake() {
@@ -186,7 +210,7 @@ void TlsServerHandshaker::AdvanceHandshake() {
 void TlsServerHandshaker::CloseConnection(QuicErrorCode error,
                                           const std::string& reason_phrase) {
   state_ = STATE_CONNECTION_CLOSED;
-  stream()->CloseConnectionWithDetails(error, reason_phrase);
+  stream()->OnUnrecoverableError(error, reason_phrase);
 }
 
 bool TlsServerHandshaker::ProcessTransportParameters(
@@ -196,11 +220,18 @@ bool TlsServerHandshaker::ProcessTransportParameters(
   size_t params_bytes_len;
   SSL_get_peer_quic_transport_params(ssl(), &client_params_bytes,
                                      &params_bytes_len);
-  if (params_bytes_len == 0 ||
-      !ParseTransportParameters(session()->connection()->version(),
+  if (params_bytes_len == 0) {
+    *error_details = "Client's transport parameters are missing";
+    return false;
+  }
+  std::string parse_error_details;
+  if (!ParseTransportParameters(session()->connection()->version(),
                                 Perspective::IS_CLIENT, client_params_bytes,
-                                params_bytes_len, &client_params)) {
-    *error_details = "Unable to parse Transport Parameters";
+                                params_bytes_len, &client_params,
+                                &parse_error_details)) {
+    DCHECK(!parse_error_details.empty());
+    *error_details =
+        "Unable to parse client's transport parameters: " + parse_error_details;
     return false;
   }
 
@@ -218,6 +249,7 @@ bool TlsServerHandshaker::ProcessTransportParameters(
           client_params, CLIENT, error_details) != QUIC_NO_ERROR) {
     return false;
   }
+  ProcessAdditionalTransportParameters(client_params);
 
   session()->OnConfigNegotiated();
   return true;
@@ -247,6 +279,23 @@ bool TlsServerHandshaker::SetTransportParameters() {
   return true;
 }
 
+void TlsServerHandshaker::SetWriteSecret(
+    EncryptionLevel level,
+    const SSL_CIPHER* cipher,
+    const std::vector<uint8_t>& write_secret) {
+  if (GetQuicRestartFlag(quic_send_settings_on_write_key_available) &&
+      level == ENCRYPTION_FORWARD_SECURE) {
+    encryption_established_ = true;
+    // Fill crypto_negotiated_params_:
+    const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl());
+    if (cipher) {
+      crypto_negotiated_params_->cipher_suite = SSL_CIPHER_get_value(cipher);
+    }
+    crypto_negotiated_params_->key_exchange_group = SSL_get_curve_id(ssl());
+  }
+  TlsHandshaker::SetWriteSecret(level, cipher, write_secret);
+}
+
 void TlsServerHandshaker::FinishHandshake() {
   if (!valid_alpn_received_) {
     QUIC_DLOG(ERROR)
@@ -261,19 +310,33 @@ void TlsServerHandshaker::FinishHandshake() {
   QUIC_LOG(INFO) << "Server: handshake finished";
   state_ = STATE_HANDSHAKE_COMPLETE;
 
-  encryption_established_ = true;
-  handshake_confirmed_ = true;
-  delegate()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
-
-  // Fill crypto_negotiated_params_:
-  const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl());
-  if (cipher) {
-    crypto_negotiated_params_->cipher_suite = SSL_CIPHER_get_value(cipher);
+  if (!GetQuicRestartFlag(quic_send_settings_on_write_key_available)) {
+    encryption_established_ = true;
   }
-  crypto_negotiated_params_->key_exchange_group = SSL_get_curve_id(ssl());
-  // TODO(fayang): Replace this with DiscardOldKeys(ENCRYPTION_HANDSHAKE) when
-  // handshake key discarding settles down.
-  delegate()->NeuterHandshakeData();
+  one_rtt_keys_available_ = true;
+
+  const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl());
+  if (!GetQuicRestartFlag(quic_send_settings_on_write_key_available)) {
+    // Fill crypto_negotiated_params_:
+    if (cipher) {
+      crypto_negotiated_params_->cipher_suite = SSL_CIPHER_get_value(cipher);
+    }
+    crypto_negotiated_params_->key_exchange_group = SSL_get_curve_id(ssl());
+  }
+
+  if (!app_data_read_secret_.empty()) {
+    if (!SetReadSecret(ENCRYPTION_FORWARD_SECURE, cipher,
+                       app_data_read_secret_)) {
+      QUIC_BUG << "Failed to set forward secure read key.";
+      CloseConnection(QUIC_HANDSHAKE_FAILED, "Failed to set app data read key");
+      return;
+    }
+    app_data_read_secret_.clear();
+  }
+
+  handshaker_delegate()->OnOneRttKeysAvailable();
+  handshaker_delegate()->DiscardOldEncryptionKey(ENCRYPTION_HANDSHAKE);
+  handshaker_delegate()->DiscardOldDecryptionKey(ENCRYPTION_HANDSHAKE);
 }
 
 ssl_private_key_result_t TlsServerHandshaker::PrivateKeySign(
@@ -281,7 +344,7 @@ ssl_private_key_result_t TlsServerHandshaker::PrivateKeySign(
     size_t* out_len,
     size_t max_out,
     uint16_t sig_alg,
-    QuicStringPiece in) {
+    quiche::QuicheStringPiece in) {
   signature_callback_ = new SignatureCallback(this);
   proof_source_->ComputeTlsSignature(
       session()->connection()->self_address(), hostname_, sig_alg, in,
@@ -314,6 +377,8 @@ int TlsServerHandshaker::SelectCertificate(int* out_alert) {
   const char* hostname = SSL_get_servername(ssl(), TLSEXT_NAMETYPE_host_name);
   if (hostname) {
     hostname_ = hostname;
+    crypto_negotiated_params_->sni =
+        QuicHostnameUtils::NormalizeHostname(hostname_);
   } else {
     QUIC_LOG(INFO) << "No hostname indicated in SNI";
   }
@@ -346,8 +411,14 @@ int TlsServerHandshaker::SelectCertificate(int* out_alert) {
     *out_alert = SSL_AD_INTERNAL_ERROR;
     return SSL_TLSEXT_ERR_ALERT_FATAL;
   }
+  OverrideQuicConfigDefaults(session()->config());
+  if (!SetTransportParameters()) {
+    QUIC_LOG(ERROR) << "Failed to set transport parameters";
+    return SSL_TLSEXT_ERR_ALERT_FATAL;
+  }
 
-  QUIC_LOG(INFO) << "Set " << chain->certs.size() << " certs for server";
+  QUIC_LOG(INFO) << "Set " << chain->certs.size() << " certs for server "
+                 << "with hostname " << hostname_;
   return SSL_TLSEXT_ERR_OK;
 }
 
@@ -366,7 +437,7 @@ int TlsServerHandshaker::SelectAlpn(const uint8_t** out,
   CBS all_alpns;
   CBS_init(&all_alpns, in, in_len);
 
-  std::vector<QuicStringPiece> alpns;
+  std::vector<quiche::QuicheStringPiece> alpns;
   while (CBS_len(&all_alpns) > 0) {
     CBS alpn;
     if (!CBS_get_u8_length_prefixed(&all_alpns, &alpn)) {

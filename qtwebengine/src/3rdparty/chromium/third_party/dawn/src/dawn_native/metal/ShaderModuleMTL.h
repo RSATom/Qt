@@ -36,20 +36,23 @@ namespace dawn_native { namespace metal {
                                                    const ShaderModuleDescriptor* descriptor);
 
         struct MetalFunctionData {
-            id<MTLFunction> function;
+            id<MTLFunction> function = nil;
             MTLSize localWorkgroupSize;
             bool needsStorageBufferLength;
             ~MetalFunctionData() {
                 [function release];
             }
         };
-        MetalFunctionData GetFunction(const char* functionName,
-                                      SingleShaderStage functionStage,
-                                      const PipelineLayout* layout) const;
+        MaybeError GetFunction(const char* functionName,
+                               SingleShaderStage functionStage,
+                               const PipelineLayout* layout,
+                               MetalFunctionData* out);
 
       private:
         ShaderModule(Device* device, const ShaderModuleDescriptor* descriptor);
         MaybeError Initialize(const ShaderModuleDescriptor* descriptor);
+
+        shaderc_spvc::CompileOptions GetMSLCompileOptions();
 
         // Calling compile on CompilerMSL somehow changes internal state that makes subsequent
         // compiles return invalid MSL. We keep the spirv around and recreate the compiler everytime

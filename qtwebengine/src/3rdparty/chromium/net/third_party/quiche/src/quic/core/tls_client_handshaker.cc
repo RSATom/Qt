@@ -11,7 +11,8 @@
 #include "net/third_party/quiche/src/quic/core/crypto/quic_encrypter.h"
 #include "net/third_party/quiche/src/quic/core/crypto/transport_parameters.h"
 #include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 
@@ -49,7 +50,8 @@ TlsClientHandshaker::TlsClientHandshaker(
     std::unique_ptr<ProofVerifyContext> verify_context,
     QuicCryptoClientConfig* crypto_config,
     QuicCryptoClientStream::ProofHandler* proof_handler)
-    : TlsHandshaker(stream, session, crypto_config->ssl_ctx()),
+    : TlsHandshaker(stream, session),
+      session_(session),
       server_id_(server_id),
       proof_verifier_(crypto_config->proof_verifier()),
       verify_context_(std::move(verify_context)),
@@ -68,9 +70,10 @@ TlsClientHandshaker::~TlsClientHandshaker() {
 bool TlsClientHandshaker::CryptoConnect() {
   state_ = STATE_HANDSHAKE_RUNNING;
 
-  // Configure the SSL to be a client.
+  // Set the SNI to send, if any.
   SSL_set_connect_state(ssl());
-  if (SSL_set_tlsext_host_name(ssl(), server_id_.host().c_str()) != 1) {
+  if (!server_id_.host().empty() &&
+      SSL_set_tlsext_host_name(ssl(), server_id_.host().c_str()) != 1) {
     return false;
   }
 
@@ -132,8 +135,8 @@ bool TlsClientHandshaker::SetAlpn() {
       success && (SSL_set_alpn_protos(ssl(), alpn, alpn_writer.length()) == 0);
   if (!success) {
     QUIC_BUG << "Failed to set ALPN: "
-             << QuicTextUtils::HexDump(
-                    QuicStringPiece(alpn_writer.data(), alpn_writer.length()));
+             << quiche::QuicheTextUtils::HexDump(quiche::QuicheStringPiece(
+                    alpn_writer.data(), alpn_writer.length()));
     return false;
   }
   QUIC_DLOG(INFO) << "Client using ALPN: '" << alpns[0] << "'";
@@ -164,11 +167,17 @@ bool TlsClientHandshaker::ProcessTransportParameters(
   const uint8_t* param_bytes;
   size_t param_bytes_len;
   SSL_get_peer_quic_transport_params(ssl(), &param_bytes, &param_bytes_len);
-  if (param_bytes_len == 0 ||
-      !ParseTransportParameters(session()->connection()->version(),
-                                Perspective::IS_SERVER, param_bytes,
-                                param_bytes_len, &params)) {
-    *error_details = "Unable to parse Transport Parameters";
+  if (param_bytes_len == 0) {
+    *error_details = "Server's transport parameters are missing";
+    return false;
+  }
+  std::string parse_error_details;
+  if (!ParseTransportParameters(
+          session()->connection()->version(), Perspective::IS_SERVER,
+          param_bytes, param_bytes_len, &params, &parse_error_details)) {
+    DCHECK(!parse_error_details.empty());
+    *error_details =
+        "Unable to parse server's transport parameters: " + parse_error_details;
     return false;
   }
 
@@ -201,13 +210,23 @@ bool TlsClientHandshaker::ProcessTransportParameters(
 }
 
 int TlsClientHandshaker::num_sent_client_hellos() const {
-  // TODO(nharper): Return a sensible value here.
   return 0;
 }
 
 bool TlsClientHandshaker::IsResumption() const {
-  QUIC_BUG_IF(!handshake_confirmed_);
+  QUIC_BUG_IF(!one_rtt_keys_available_);
   return SSL_session_reused(ssl()) == 1;
+}
+
+bool TlsClientHandshaker::EarlyDataAccepted() const {
+  QUIC_BUG_IF(!one_rtt_keys_available_);
+  return SSL_early_data_accepted(ssl()) == 1;
+}
+
+bool TlsClientHandshaker::ReceivedInchoateReject() const {
+  QUIC_BUG_IF(!one_rtt_keys_available_);
+  // REJ messages are a QUIC crypto feature, so TLS always returns false.
+  return false;
 }
 
 int TlsClientHandshaker::num_scup_messages_received() const {
@@ -223,8 +242,8 @@ bool TlsClientHandshaker::encryption_established() const {
   return encryption_established_;
 }
 
-bool TlsClientHandshaker::handshake_confirmed() const {
-  return handshake_confirmed_;
+bool TlsClientHandshaker::one_rtt_keys_available() const {
+  return one_rtt_keys_available_;
 }
 
 const QuicCryptoNegotiatedParameters&
@@ -236,9 +255,56 @@ CryptoMessageParser* TlsClientHandshaker::crypto_message_parser() {
   return TlsHandshaker::crypto_message_parser();
 }
 
+HandshakeState TlsClientHandshaker::GetHandshakeState() const {
+  if (handshake_confirmed_) {
+    return HANDSHAKE_CONFIRMED;
+  }
+  if (one_rtt_keys_available_) {
+    return HANDSHAKE_COMPLETE;
+  }
+  if (state_ >= STATE_ENCRYPTION_HANDSHAKE_DATA_SENT) {
+    return HANDSHAKE_PROCESSED;
+  }
+  return HANDSHAKE_START;
+}
+
 size_t TlsClientHandshaker::BufferSizeLimitForLevel(
     EncryptionLevel level) const {
   return TlsHandshaker::BufferSizeLimitForLevel(level);
+}
+
+void TlsClientHandshaker::OnOneRttPacketAcknowledged() {
+  OnHandshakeConfirmed();
+}
+
+void TlsClientHandshaker::OnHandshakeDoneReceived() {
+  if (!one_rtt_keys_available_) {
+    CloseConnection(QUIC_HANDSHAKE_FAILED,
+                    "Unexpected handshake done received");
+    return;
+  }
+  OnHandshakeConfirmed();
+}
+
+void TlsClientHandshaker::SetWriteSecret(
+    EncryptionLevel level,
+    const SSL_CIPHER* cipher,
+    const std::vector<uint8_t>& write_secret) {
+  if (GetQuicRestartFlag(quic_send_settings_on_write_key_available) &&
+      level == ENCRYPTION_FORWARD_SECURE) {
+    encryption_established_ = true;
+  }
+  TlsHandshaker::SetWriteSecret(level, cipher, write_secret);
+}
+
+void TlsClientHandshaker::OnHandshakeConfirmed() {
+  DCHECK(one_rtt_keys_available_);
+  if (handshake_confirmed_) {
+    return;
+  }
+  handshake_confirmed_ = true;
+  handshaker_delegate()->DiscardOldEncryptionKey(ENCRYPTION_HANDSHAKE);
+  handshaker_delegate()->DiscardOldDecryptionKey(ENCRYPTION_HANDSHAKE);
 }
 
 void TlsClientHandshaker::AdvanceHandshake() {
@@ -291,12 +357,22 @@ void TlsClientHandshaker::CloseConnection(QuicErrorCode error,
                                           const std::string& reason_phrase) {
   DCHECK(!reason_phrase.empty());
   state_ = STATE_CONNECTION_CLOSED;
-  stream()->CloseConnectionWithDetails(error, reason_phrase);
+  stream()->OnUnrecoverableError(error, reason_phrase);
 }
 
 void TlsClientHandshaker::FinishHandshake() {
   QUIC_LOG(INFO) << "Client: handshake finished";
   state_ = STATE_HANDSHAKE_COMPLETE;
+  if (GetQuicRestartFlag(quic_send_settings_on_write_key_available)) {
+    // Fill crypto_negotiated_params_:
+    const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl());
+    if (cipher) {
+      crypto_negotiated_params_->cipher_suite = SSL_CIPHER_get_value(cipher);
+    }
+    crypto_negotiated_params_->key_exchange_group = SSL_get_curve_id(ssl());
+    crypto_negotiated_params_->peer_signature_algorithm =
+        SSL_get_peer_signature_algorithm(ssl());
+  }
 
   std::string error_details;
   if (!ProcessTransportParameters(&error_details)) {
@@ -333,21 +409,23 @@ void TlsClientHandshaker::FinishHandshake() {
   QUIC_DLOG(INFO) << "Client: server selected ALPN: '" << received_alpn_string
                   << "'";
 
-  encryption_established_ = true;
-  handshake_confirmed_ = true;
-  delegate()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
-
-  // Fill crypto_negotiated_params_:
-  const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl());
-  if (cipher) {
-    crypto_negotiated_params_->cipher_suite = SSL_CIPHER_get_value(cipher);
+  if (!GetQuicRestartFlag(quic_send_settings_on_write_key_available)) {
+    encryption_established_ = true;
   }
-  crypto_negotiated_params_->key_exchange_group = SSL_get_curve_id(ssl());
-  crypto_negotiated_params_->peer_signature_algorithm =
-      SSL_get_peer_signature_algorithm(ssl());
-  // TODO(fayang): Replace this with DiscardOldKeys(ENCRYPTION_HANDSHAKE) when
-  // handshake key discarding settles down.
-  delegate()->NeuterHandshakeData();
+  one_rtt_keys_available_ = true;
+
+  if (!GetQuicRestartFlag(quic_send_settings_on_write_key_available)) {
+    // Fill crypto_negotiated_params_:
+    const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl());
+    if (cipher) {
+      crypto_negotiated_params_->cipher_suite = SSL_CIPHER_get_value(cipher);
+    }
+    crypto_negotiated_params_->key_exchange_group = SSL_get_curve_id(ssl());
+    crypto_negotiated_params_->peer_signature_algorithm =
+        SSL_get_peer_signature_algorithm(ssl());
+  }
+
+  handshaker_delegate()->OnOneRttKeysAvailable();
 }
 
 enum ssl_verify_result_t TlsClientHandshaker::VerifyCert(uint8_t* out_alert) {
@@ -414,12 +492,12 @@ void TlsClientHandshaker::InsertSession(bssl::UniquePtr<SSL_SESSION> session) {
 }
 
 void TlsClientHandshaker::WriteMessage(EncryptionLevel level,
-                                       QuicStringPiece data) {
+                                       quiche::QuicheStringPiece data) {
   if (level == ENCRYPTION_HANDSHAKE &&
       state_ < STATE_ENCRYPTION_HANDSHAKE_DATA_SENT) {
     state_ = STATE_ENCRYPTION_HANDSHAKE_DATA_SENT;
-    delegate()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
-    delegate()->DiscardOldDecryptionKey(ENCRYPTION_INITIAL);
+    handshaker_delegate()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
+    handshaker_delegate()->DiscardOldDecryptionKey(ENCRYPTION_INITIAL);
   }
   TlsHandshaker::WriteMessage(level, data);
 }

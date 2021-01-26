@@ -14,6 +14,7 @@ ALL_VARIANT_FLAGS = {
   "interpreted_regexp": [["--regexp-interpret-all"]],
   "jitless": [["--jitless"]],
   "minor_mc": [["--minor-mc"]],
+  "no_lfa": [["--no-lazy-feedback-allocation"]],
   # No optimization means disable all optimizations. OptimizeFunctionOnNextCall
   # would not force optimization too. It turns into a Nop. Please see
   # https://chromium-review.googlesource.com/c/452620/ for more discussion.
@@ -23,7 +24,7 @@ ALL_VARIANT_FLAGS = {
   "nooptimization": [["--no-opt", "--liftoff", "--no-wasm-tier-up"]],
   "slow_path": [["--force-slow-path"]],
   "stress": [["--stress-opt", "--always-opt", "--no-liftoff",
-              "--no-wasm-tier-up", '--stress-lazy-source-positions']],
+              "--stress-lazy-source-positions"]],
   "stress_js_bg_compile_wasm_code_gc": [["--stress-background-compile",
                                          "--stress-wasm-code-gc"]],
   "stress_incremental_marking": [["--stress-incremental-marking"]],

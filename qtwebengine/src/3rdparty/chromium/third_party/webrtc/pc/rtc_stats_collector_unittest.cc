@@ -42,6 +42,7 @@
 #include "rtc_base/fake_ssl_identity.h"
 #include "rtc_base/gunit.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/strings/json.h"
 #include "rtc_base/time_utils.h"
 
 using ::testing::AtLeast;
@@ -747,7 +748,7 @@ TEST_F(RTCStatsCollectorTest, CachedStatsReports) {
   rtc::scoped_refptr<const RTCStatsReport> c = stats_->GetStatsReport();
   EXPECT_NE(b.get(), c.get());
   // Invalidate cache by advancing time.
-  fake_clock_.AdvanceTime(TimeDelta::ms(51));
+  fake_clock_.AdvanceTime(TimeDelta::Millis(51));
   rtc::scoped_refptr<const RTCStatsReport> d = stats_->GetStatsReport();
   EXPECT_TRUE(d);
   EXPECT_NE(c.get(), d.get());
@@ -758,7 +759,7 @@ TEST_F(RTCStatsCollectorTest, MultipleCallbacksWithInvalidatedCacheInBetween) {
   stats_->stats_collector()->GetStatsReport(RTCStatsObtainer::Create(&a));
   stats_->stats_collector()->GetStatsReport(RTCStatsObtainer::Create(&b));
   // Cache is invalidated after 50 ms.
-  fake_clock_.AdvanceTime(TimeDelta::ms(51));
+  fake_clock_.AdvanceTime(TimeDelta::Millis(51));
   stats_->stats_collector()->GetStatsReport(RTCStatsObtainer::Create(&c));
   EXPECT_TRUE_WAIT(a, kGetStatsReportTimeoutMs);
   EXPECT_TRUE_WAIT(b, kGetStatsReportTimeoutMs);
@@ -767,6 +768,17 @@ TEST_F(RTCStatsCollectorTest, MultipleCallbacksWithInvalidatedCacheInBetween) {
   // The act of doing |AdvanceTime| processes all messages. If this was not the
   // case we might not require |c| to be fresher than |b|.
   EXPECT_NE(c.get(), b.get());
+}
+
+TEST_F(RTCStatsCollectorTest, ToJsonProducesParseableJson) {
+  ExampleStatsGraph graph = SetupExampleStatsGraphForSelectorTests();
+  rtc::scoped_refptr<const RTCStatsReport> report = stats_->GetStatsReport();
+  std::string json_format = report->ToJson();
+  Json::Reader reader;
+  Json::Value json_value;
+  ASSERT_TRUE(reader.parse(json_format, json_value));
+  // A very brief sanity check on the result.
+  EXPECT_EQ(report->size(), json_value.size());
 }
 
 TEST_F(RTCStatsCollectorTest, CollectRTCCertificateStatsSingle) {
@@ -801,6 +813,8 @@ TEST_F(RTCStatsCollectorTest, CollectRTCCodecStats) {
   inbound_audio_codec.kind = cricket::MEDIA_TYPE_AUDIO;
   inbound_audio_codec.name = "opus";
   inbound_audio_codec.clock_rate = 1337;
+  inbound_audio_codec.num_channels = 1;
+  inbound_audio_codec.parameters = {{"minptime", "10"}, {"useinbandfec", "1"}};
   voice_media_info.receive_codecs.insert(
       std::make_pair(inbound_audio_codec.payload_type, inbound_audio_codec));
 
@@ -809,6 +823,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCCodecStats) {
   outbound_audio_codec.kind = cricket::MEDIA_TYPE_AUDIO;
   outbound_audio_codec.name = "isac";
   outbound_audio_codec.clock_rate = 1338;
+  outbound_audio_codec.num_channels = 2;
   voice_media_info.send_codecs.insert(
       std::make_pair(outbound_audio_codec.payload_type, outbound_audio_codec));
 
@@ -823,6 +838,9 @@ TEST_F(RTCStatsCollectorTest, CollectRTCCodecStats) {
   inbound_video_codec.kind = cricket::MEDIA_TYPE_VIDEO;
   inbound_video_codec.name = "H264";
   inbound_video_codec.clock_rate = 1339;
+  inbound_video_codec.parameters = {{"level-asymmetry-allowed", "1"},
+                                    {"packetization-mode", "1"},
+                                    {"profile-level-id", "42001f"}};
   video_media_info.receive_codecs.insert(
       std::make_pair(inbound_video_codec.payload_type, inbound_video_codec));
 
@@ -844,18 +862,23 @@ TEST_F(RTCStatsCollectorTest, CollectRTCCodecStats) {
   expected_inbound_audio_codec.payload_type = 1;
   expected_inbound_audio_codec.mime_type = "audio/opus";
   expected_inbound_audio_codec.clock_rate = 1337;
+  expected_inbound_audio_codec.channels = 1;
+  expected_inbound_audio_codec.sdp_fmtp_line = "minptime=10;useinbandfec=1";
 
   RTCCodecStats expected_outbound_audio_codec("RTCCodec_AudioMid_Outbound_2",
                                               report->timestamp_us());
   expected_outbound_audio_codec.payload_type = 2;
   expected_outbound_audio_codec.mime_type = "audio/isac";
   expected_outbound_audio_codec.clock_rate = 1338;
+  expected_outbound_audio_codec.channels = 2;
 
   RTCCodecStats expected_inbound_video_codec("RTCCodec_VideoMid_Inbound_3",
                                              report->timestamp_us());
   expected_inbound_video_codec.payload_type = 3;
   expected_inbound_video_codec.mime_type = "video/H264";
   expected_inbound_video_codec.clock_rate = 1339;
+  expected_inbound_video_codec.sdp_fmtp_line =
+      "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f";
 
   RTCCodecStats expected_outbound_video_codec("RTCCodec_VideoMid_Outbound_4",
                                               report->timestamp_us());
@@ -1524,6 +1547,7 @@ TEST_F(RTCStatsCollectorTest,
   voice_receiver_info.silent_concealed_samples = 765;
   voice_receiver_info.jitter_buffer_delay_seconds = 3456;
   voice_receiver_info.jitter_buffer_emitted_count = 13;
+  voice_receiver_info.jitter_buffer_target_delay_seconds = 7.894;
   voice_receiver_info.jitter_buffer_flushes = 7;
   voice_receiver_info.delayed_packet_outage_samples = 15;
   voice_receiver_info.relative_packet_arrival_delay_seconds = 16;
@@ -1568,6 +1592,7 @@ TEST_F(RTCStatsCollectorTest,
   expected_remote_audio_track.silent_concealed_samples = 765;
   expected_remote_audio_track.jitter_buffer_delay = 3456;
   expected_remote_audio_track.jitter_buffer_emitted_count = 13;
+  expected_remote_audio_track.jitter_buffer_target_delay = 7.894;
   expected_remote_audio_track.jitter_buffer_flushes = 7;
   expected_remote_audio_track.delayed_packet_outage_samples = 15;
   expected_remote_audio_track.relative_packet_arrival_delay = 16;
@@ -1935,6 +1960,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCOutboundRTPStreamStats_Audio) {
   RTCOutboundRTPStreamStats expected_audio("RTCOutboundRTPAudioStream_1",
                                            report->timestamp_us());
   expected_audio.media_source_id = "RTCAudioSource_50";
+  // |expected_audio.remote_id| should be undefined.
   expected_audio.ssrc = 1;
   expected_audio.is_remote = false;
   expected_audio.media_type = "audio";
@@ -2013,6 +2039,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCOutboundRTPStreamStats_Video) {
   RTCOutboundRTPStreamStats expected_video(stats_of_my_type[0]->id(),
                                            report->timestamp_us());
   expected_video.media_source_id = "RTCVideoSource_50";
+  // |expected_video.remote_id| should be undefined.
   expected_video.ssrc = 1;
   expected_video.is_remote = false;
   expected_video.media_type = "video";
@@ -2568,7 +2595,7 @@ TEST_P(RTCStatsCollectorTestWithParamKind,
 
   // The report block's timestamp cannot be from the future, set the fake clock
   // to match.
-  fake_clock_.SetTime(Timestamp::us(kReportBlockTimestampUtcUs));
+  fake_clock_.SetTime(Timestamp::Micros(kReportBlockTimestampUtcUs));
 
   RTCPReportBlock report_block;
   // The remote-inbound-rtp SSRC and the outbound-rtp SSRC is the same as the
@@ -2606,13 +2633,18 @@ TEST_P(RTCStatsCollectorTestWithParamKind,
                 ->cast_to<RTCRemoteInboundRtpStreamStats>(),
             expected_remote_inbound_rtp);
   EXPECT_TRUE(report->Get(*expected_remote_inbound_rtp.transport_id));
-  EXPECT_TRUE(report->Get(*expected_remote_inbound_rtp.local_id));
+  ASSERT_TRUE(report->Get(*expected_remote_inbound_rtp.local_id));
+  // Lookup works in both directions.
+  EXPECT_EQ(*report->Get(*expected_remote_inbound_rtp.local_id)
+                 ->cast_to<RTCOutboundRTPStreamStats>()
+                 .remote_id,
+            expected_remote_inbound_rtp.id());
 }
 
 TEST_P(RTCStatsCollectorTestWithParamKind,
        RTCRemoteInboundRtpStreamStatsWithTimestampFromReportBlock) {
   const int64_t kReportBlockTimestampUtcUs = 123456789;
-  fake_clock_.SetTime(Timestamp::us(kReportBlockTimestampUtcUs));
+  fake_clock_.SetTime(Timestamp::Micros(kReportBlockTimestampUtcUs));
 
   RTCPReportBlock report_block;
   // The remote-inbound-rtp SSRC and the outbound-rtp SSRC is the same as the
@@ -2625,7 +2657,7 @@ TEST_P(RTCStatsCollectorTestWithParamKind,
                                absl::nullopt);
 
   // Advance time, it should be OK to have fresher reports than report blocks.
-  fake_clock_.AdvanceTime(TimeDelta::us(1234));
+  fake_clock_.AdvanceTime(TimeDelta::Micros(1234));
 
   rtc::scoped_refptr<const RTCStatsReport> report = stats_->GetStatsReport();
 
@@ -2644,7 +2676,7 @@ TEST_P(RTCStatsCollectorTestWithParamKind,
 TEST_P(RTCStatsCollectorTestWithParamKind,
        RTCRemoteInboundRtpStreamStatsWithCodecBasedMembers) {
   const int64_t kReportBlockTimestampUtcUs = 123456789;
-  fake_clock_.SetTime(Timestamp::us(kReportBlockTimestampUtcUs));
+  fake_clock_.SetTime(Timestamp::Micros(kReportBlockTimestampUtcUs));
 
   RTCPReportBlock report_block;
   // The remote-inbound-rtp SSRC and the outbound-rtp SSRC is the same as the
@@ -2681,7 +2713,7 @@ TEST_P(RTCStatsCollectorTestWithParamKind,
 TEST_P(RTCStatsCollectorTestWithParamKind,
        RTCRemoteInboundRtpStreamStatsWithRtcpTransport) {
   const int64_t kReportBlockTimestampUtcUs = 123456789;
-  fake_clock_.SetTime(Timestamp::us(kReportBlockTimestampUtcUs));
+  fake_clock_.SetTime(Timestamp::Micros(kReportBlockTimestampUtcUs));
 
   RTCPReportBlock report_block;
   // The remote-inbound-rtp SSRC and the outbound-rtp SSRC is the same as the

@@ -7,15 +7,22 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/task/post_task.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
+#include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/paint_preview/browser/file_manager.h"
+#include "components/paint_preview/browser/compositor_utils.h"
 #include "components/paint_preview/browser/paint_preview_client.h"
+#include "components/paint_preview/browser/paint_preview_compositor_service_impl.h"
 #include "components/paint_preview/common/mojom/paint_preview_recorder.mojom.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace paint_preview {
 
@@ -27,12 +34,30 @@ const char kPaintPreviewDir[] = "paint_preview";
 
 PaintPreviewBaseService::PaintPreviewBaseService(
     const base::FilePath& path,
-    const std::string& ascii_feature_name,
+    base::StringPiece ascii_feature_name,
+    std::unique_ptr<PaintPreviewPolicy> policy,
     bool is_off_the_record)
-    : file_manager_(
-          path.AppendASCII(kPaintPreviewDir).AppendASCII(ascii_feature_name)),
+    : policy_(std::move(policy)),
+      task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+           base::TaskShutdownBehavior::BLOCK_SHUTDOWN,
+           base::ThreadPolicy::MUST_USE_FOREGROUND})),
+      file_manager_(base::MakeRefCounted<FileManager>(
+          path.AppendASCII(kPaintPreviewDir).AppendASCII(ascii_feature_name),
+          task_runner_)),
       is_off_the_record_(is_off_the_record) {}
+
 PaintPreviewBaseService::~PaintPreviewBaseService() = default;
+
+void PaintPreviewBaseService::GetCapturedPaintPreviewProto(
+    const DirectoryKey& key,
+    OnReadProtoCallback on_read_proto_callback) {
+  task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      base::BindOnce(&FileManager::DeserializePaintPreviewProto, file_manager_,
+                     key),
+      std::move(on_read_proto_callback));
+}
 
 void PaintPreviewBaseService::CapturePaintPreview(
     content::WebContents* web_contents,
@@ -49,6 +74,12 @@ void PaintPreviewBaseService::CapturePaintPreview(
     const base::FilePath& root_dir,
     gfx::Rect clip_rect,
     OnCapturedCallback callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  if (policy_ && !policy_->SupportedForContents(web_contents)) {
+    std::move(callback).Run(kContentUnsupported, nullptr);
+    return;
+  }
+
   PaintPreviewClient::CreateForWebContents(web_contents);  // Is a singleton.
   auto* client = PaintPreviewClient::FromWebContents(web_contents);
   if (!client) {
@@ -62,23 +93,47 @@ void PaintPreviewBaseService::CapturePaintPreview(
   params.is_main_frame = (render_frame_host == web_contents->GetMainFrame());
   params.root_dir = root_dir;
 
+  // TODO(crbug/1064253): Consider moving to client so that this always happens.
+  // Although, it is harder to get this right in the client due to its
+  // lifecycle.
+  web_contents->IncrementCapturerCount(gfx::Size(), true);
+
+  auto start_time = base::TimeTicks::Now();
   client->CapturePaintPreview(
       params, render_frame_host,
       base::BindOnce(&PaintPreviewBaseService::OnCaptured,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+                     weak_ptr_factory_.GetWeakPtr(),
+                     web_contents->GetMainFrame()->GetFrameTreeNodeId(),
+                     start_time, std::move(callback)));
+}
+
+std::unique_ptr<PaintPreviewCompositorService>
+PaintPreviewBaseService::StartCompositorService(
+    base::OnceClosure disconnect_handler) {
+  return std::make_unique<PaintPreviewCompositorServiceImpl>(
+      CreateCompositorCollection(), std::move(disconnect_handler));
 }
 
 void PaintPreviewBaseService::OnCaptured(
+    int frame_tree_node_id,
+    base::TimeTicks start_time,
     OnCapturedCallback callback,
     base::UnguessableToken guid,
     mojom::PaintPreviewStatus status,
     std::unique_ptr<PaintPreviewProto> proto) {
-  if (status != mojom::PaintPreviewStatus::kOk) {
+  auto* web_contents =
+      content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
+  if (web_contents)
+    web_contents->DecrementCapturerCount(true);
+
+  if (status != mojom::PaintPreviewStatus::kOk || !proto) {
     DVLOG(1) << "ERROR: Paint Preview failed to capture for document "
              << guid.ToString() << " with error " << status;
     std::move(callback).Run(kCaptureFailed, nullptr);
     return;
   }
+  base::UmaHistogramTimes("Browser.PaintPreview.Capture.TotalCaptureDuration",
+                          base::TimeTicks::Now() - start_time);
   std::move(callback).Run(kOk, std::move(proto));
 }
 

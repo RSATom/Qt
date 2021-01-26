@@ -173,10 +173,6 @@ std::string NetworkInformation::ToString() const {
   if (type == NETWORK_VPN) {
     ss << "; underlying_type_for_vpn " << underlying_type_for_vpn;
   }
-  ss << "; address";
-  for (const rtc::IPAddress address : ip_addresses) {
-    ss << " " << address.ToString();
-  }
   ss << "]";
   return ss.Release();
 }
@@ -248,7 +244,8 @@ rtc::NetworkBindingResult AndroidNetworkMonitor::BindSocketToNetwork(
   if (!network_binding_supported) {
     RTC_LOG(LS_WARNING)
         << "BindSocketToNetwork is not supported on this platform "
-        << "(Android SDK: " << android_sdk_int_ << ")";
+           "(Android SDK: "
+        << android_sdk_int_ << ")";
     return rtc::NetworkBindingResult::NOT_IMPLEMENTED;
   }
 
@@ -360,8 +357,7 @@ void AndroidNetworkMonitor::OnNetworkConnected_w(
 absl::optional<NetworkHandle>
 AndroidNetworkMonitor::FindNetworkHandleFromAddress(
     const rtc::IPAddress& ip_address) const {
-  RTC_LOG(LS_INFO) << "Find network handle for address: "
-                   << ip_address.ToString();
+  RTC_LOG(LS_INFO) << "Find network handle.";
   if (find_network_handle_without_ipv6_temporary_part_) {
     for (auto const& iter : network_info_by_handle_) {
       const std::vector<rtc::IPAddress>& addresses = iter.second.ip_addresses;

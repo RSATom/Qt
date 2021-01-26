@@ -33,16 +33,11 @@ if (optimize_webui) {
     pak_file = downloads_pak_file
     out_folder = unpak_folder
 
-    deps = [
-      ":flattened_resources",
-    ]
+    deps = [ ":flattened_resources" ]
   }
 
   grit("flattened_resources") {
     source = "downloads_resources.grd"
-
-    # The .grd contains references to generated files.
-    source_is_generated = true
 
     defines = chrome_grit_defines
     outputs = [
@@ -149,7 +144,7 @@ js_library("toolbar") {
 }
 
 group("polymer3_elements") {
-  deps = [
+  public_deps = [
     ":icons_module",
     ":item_module",
     ":manager_module",

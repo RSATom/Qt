@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/test/bind_test_util.h"
 #include "base/test/task_environment.h"
@@ -513,10 +514,14 @@ TEST_F(ThrottlingURLLoaderTest, ModifyURLAndDeferRedirect) {
   throttle_->set_will_start_request_callback(
       base::BindRepeating([](blink::URLLoaderThrottle::Delegate* /* delegate */,
                              bool* defer) { *defer = true; }));
+  base::RunLoop run_loop;
   throttle_->set_will_redirect_request_callback(base::BindLambdaForTesting(
-      [](blink::URLLoaderThrottle::Delegate* /* delegate */, bool* defer,
-         std::vector<std::string>* /* removed_headers */,
-         net::HttpRequestHeaders* /* modified_headers */) { *defer = true; }));
+      [&](blink::URLLoaderThrottle::Delegate* /* delegate */, bool* defer,
+          std::vector<std::string>* /* removed_headers */,
+          net::HttpRequestHeaders* /* modified_headers */) {
+        *defer = true;
+        run_loop.Quit();
+      }));
 
   CreateLoaderAndStart();
 
@@ -524,6 +529,7 @@ TEST_F(ThrottlingURLLoaderTest, ModifyURLAndDeferRedirect) {
   EXPECT_EQ(0u, throttle_->will_redirect_request_called());
 
   throttle_->delegate()->Resume();
+  run_loop.Run();
 
   EXPECT_EQ(1u, throttle_->will_start_request_called());
   EXPECT_EQ(1u, throttle_->will_redirect_request_called());
@@ -539,6 +545,35 @@ TEST_F(ThrottlingURLLoaderTest, ModifyURLAndDeferRedirect) {
   EXPECT_EQ(0u, client_.on_received_response_called());
   EXPECT_EQ(1u, client_.on_received_redirect_called());
   EXPECT_EQ(0u, client_.on_complete_called());
+}
+
+// Regression test for crbug.com/1053700.
+TEST_F(ThrottlingURLLoaderTest,
+       RedirectCallbackShouldNotBeCalledAfterDestruction) {
+  throttle_->set_modify_url_in_will_start(GURL("http://example.org/foo"));
+  base::RunLoop run_loop;
+  bool called = false;
+  throttle_->set_will_redirect_request_callback(base::BindLambdaForTesting(
+      [&](blink::URLLoaderThrottle::Delegate* /* delegate */, bool* defer,
+          std::vector<std::string>* /* removed_headers */,
+          net::HttpRequestHeaders* /* modified_headers */) {
+        *defer = true;
+        called = true;
+      }));
+
+  // We don't use CreateLoaderAndStart because we don't want to call
+  // FlushForTesting().
+  network::ResourceRequest request;
+  request.url = request_url;
+  loader_ = ThrottlingURLLoader::CreateLoaderAndStart(
+      factory_.shared_factory(), std::move(throttles_), 0, 0, 0, &request,
+      &client_, TRAFFIC_ANNOTATION_FOR_TESTS,
+      base::ThreadTaskRunnerHandle::Get());
+
+  loader_ = nullptr;
+
+  run_loop.RunUntilIdle();
+  EXPECT_FALSE(called);
 }
 
 TEST_F(ThrottlingURLLoaderTest, CancelBeforeRedirect) {
@@ -2194,6 +2229,7 @@ TEST_F(ThrottlingURLLoaderTest,
   base::RunLoop run_loop2;
   base::RunLoop run_loop3;
   base::RunLoop run_loop4;
+  base::RunLoop run_loop_for_redirect;
 
   // URL for internal redirect.
   GURL modified_url = GURL("www.example.uk.com");
@@ -2214,6 +2250,7 @@ TEST_F(ThrottlingURLLoaderTest,
     net::HttpRequestHeaders modified_headers;
     loader_->FollowRedirect({} /* removed_headers */,
                             std::move(modified_headers));
+    run_loop_for_redirect.Quit();
   }));
 
   // Have two of the throttles defer, and one call restart
@@ -2275,11 +2312,18 @@ TEST_F(ThrottlingURLLoaderTest,
       run_loop3.QuitClosure()));
 
   int next_load_flag = 1;
-  for (auto* throttle : throttles) {
-    throttle->delegate()->RestartWithURLResetAndFlags(next_load_flag);
-    throttle->delegate()->Resume();
-    next_load_flag <<= 1;
-  }
+  throttles[0]->delegate()->RestartWithURLResetAndFlags(next_load_flag);
+  throttles[0]->delegate()->Resume();
+  next_load_flag <<= 1;
+
+  throttles[1]->delegate()->RestartWithURLResetAndFlags(next_load_flag);
+  throttles[1]->delegate()->Resume();
+  next_load_flag <<= 1;
+  run_loop_for_redirect.Run();
+
+  throttles[2]->delegate()->RestartWithURLResetAndFlags(next_load_flag);
+  throttles[2]->delegate()->Resume();
+  next_load_flag <<= 1;
 
   run_loop3.Run();
 
@@ -2584,6 +2628,7 @@ TEST_F(ThrottlingURLLoaderTest, MultipleRestartOfMultipleTypesDeferAndSync) {
   base::RunLoop run_loop2;
   base::RunLoop run_loop3;
   base::RunLoop run_loop4;
+  base::RunLoop run_loop_for_redirect;
 
   // URL for internal redirect.
   GURL modified_url = GURL("www.example.uk.com");
@@ -2604,6 +2649,7 @@ TEST_F(ThrottlingURLLoaderTest, MultipleRestartOfMultipleTypesDeferAndSync) {
     net::HttpRequestHeaders modified_headers;
     loader_->FollowRedirect({} /* removed_headers */,
                             std::move(modified_headers));
+    run_loop_for_redirect.Quit();
   }));
 
   // Have two of the throttles defer, and one call restart
@@ -2665,11 +2711,18 @@ TEST_F(ThrottlingURLLoaderTest, MultipleRestartOfMultipleTypesDeferAndSync) {
       run_loop3.QuitClosure()));
 
   int next_load_flag = 1;
-  for (auto* throttle : throttles) {
-    throttle->delegate()->RestartWithURLResetAndFlags(next_load_flag);
-    throttle->delegate()->Resume();
-    next_load_flag <<= 1;
-  }
+  throttles[0]->delegate()->RestartWithURLResetAndFlags(next_load_flag);
+  throttles[0]->delegate()->Resume();
+  next_load_flag <<= 1;
+
+  throttles[1]->delegate()->RestartWithURLResetAndFlags(next_load_flag);
+  throttles[1]->delegate()->Resume();
+  next_load_flag <<= 1;
+  run_loop_for_redirect.Run();
+
+  throttles[2]->delegate()->RestartWithURLResetAndFlags(next_load_flag);
+  throttles[2]->delegate()->Resume();
+  next_load_flag <<= 1;
 
   run_loop3.Run();
 

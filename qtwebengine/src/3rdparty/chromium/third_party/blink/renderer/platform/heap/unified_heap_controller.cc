@@ -46,7 +46,8 @@ void UnifiedHeapController::TracePrologue(
 
   // Be conservative here as a new garbage collection gets started right away.
   thread_state_->FinishIncrementalMarkingIfRunning(
-      BlinkGC::kHeapPointersOnStack, BlinkGC::kIncrementalAndConcurrentMarking,
+      BlinkGC::CollectionType::kMajor, BlinkGC::kHeapPointersOnStack,
+      BlinkGC::kIncrementalAndConcurrentMarking,
       BlinkGC::kConcurrentAndLazySweeping,
       thread_state_->current_gc_data_.reason);
 
@@ -65,7 +66,7 @@ void UnifiedHeapController::EnterFinalPause(EmbedderStackState stack_state) {
   ThreadHeapStatsCollector::BlinkGCInV8Scope nested_scope(
       thread_state_->Heap().stats_collector());
   thread_state_->AtomicPauseMarkPrologue(
-      ToBlinkGCStackState(stack_state),
+      BlinkGC::CollectionType::kMajor, ToBlinkGCStackState(stack_state),
       BlinkGC::kIncrementalAndConcurrentMarking,
       thread_state_->current_gc_data_.reason);
   thread_state_->AtomicPauseMarkRoots(ToBlinkGCStackState(stack_state),
@@ -82,6 +83,7 @@ void UnifiedHeapController::TraceEpilogue(
     thread_state_->AtomicPauseMarkEpilogue(
         BlinkGC::kIncrementalAndConcurrentMarking);
     thread_state_->AtomicPauseSweepAndCompact(
+        BlinkGC::CollectionType::kMajor,
         BlinkGC::kIncrementalAndConcurrentMarking,
         BlinkGC::kConcurrentAndLazySweeping);
 
@@ -104,9 +106,9 @@ void UnifiedHeapController::RegisterV8References(
   const bool was_in_atomic_pause = thread_state()->in_atomic_pause();
   if (!was_in_atomic_pause)
     ThreadState::Current()->EnterAtomicPause();
-  for (auto& internal_fields : internal_fields_of_potential_wrappers) {
-    WrapperTypeInfo* wrapper_type_info =
-        reinterpret_cast<WrapperTypeInfo*>(internal_fields.first);
+  for (const auto& internal_fields : internal_fields_of_potential_wrappers) {
+    const WrapperTypeInfo* wrapper_type_info =
+        reinterpret_cast<const WrapperTypeInfo*>(internal_fields.first);
     if (wrapper_type_info->gin_embedder != gin::GinEmbedder::kEmbedderBlink) {
       continue;
     }
@@ -123,7 +125,7 @@ bool UnifiedHeapController::AdvanceTracing(double deadline_in_ms) {
   ThreadHeapStatsCollector::BlinkGCInV8Scope nested_scope(
       thread_state_->Heap().stats_collector());
   if (!thread_state_->in_atomic_pause()) {
-    ThreadHeapStatsCollector::Scope advance_tracing_scope(
+    ThreadHeapStatsCollector::EnabledScope advance_tracing_scope(
         thread_state_->Heap().stats_collector(),
         ThreadHeapStatsCollector::kUnifiedMarkingStep);
     // V8 calls into embedder tracing from its own marking to ensure
@@ -133,6 +135,14 @@ bool UnifiedHeapController::AdvanceTracing(double deadline_in_ms) {
     base::TimeTicks deadline =
         base::TimeTicks() + base::TimeDelta::FromMillisecondsD(deadline_in_ms);
     is_tracing_done_ = thread_state_->MarkPhaseAdvanceMarking(deadline);
+    if (!is_tracing_done_) {
+      thread_state_->RestartIncrementalMarkingIfPaused();
+    }
+    if (base::FeatureList::IsEnabled(
+            blink::features::kBlinkHeapConcurrentMarking)) {
+      is_tracing_done_ =
+          thread_state_->ConcurrentMarkingStep() && is_tracing_done_;
+    }
     return is_tracing_done_;
   }
   thread_state_->AtomicPauseMarkTransitiveClosure();

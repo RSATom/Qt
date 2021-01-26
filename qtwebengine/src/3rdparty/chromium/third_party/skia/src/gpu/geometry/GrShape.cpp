@@ -7,6 +7,8 @@
 
 #include "src/gpu/geometry/GrShape.h"
 
+#include "include/private/SkIDChangeListener.h"
+
 #include <utility>
 
 GrShape& GrShape::operator=(const GrShape& that) {
@@ -185,8 +187,8 @@ static int path_key_from_data_size(const SkPath& path) {
     const int pointCnt = path.countPoints();
     const int conicWeightCnt = SkPathPriv::ConicWeightCnt(path);
 
-    GR_STATIC_ASSERT(sizeof(SkPoint) == 2 * sizeof(uint32_t));
-    GR_STATIC_ASSERT(sizeof(SkScalar) == sizeof(uint32_t));
+    static_assert(sizeof(SkPoint) == 2 * sizeof(uint32_t), "");
+    static_assert(sizeof(SkScalar) == sizeof(uint32_t), "");
     // 2 is for the verb cnt and a fill type. Each verb is a byte but we'll pad the verb data out to
     // a uint32_t length.
     return 2 + (SkAlign4(verbCnt) >> 2) + 2 * pointCnt + conicWeightCnt;
@@ -211,10 +213,10 @@ static void write_path_key_from_data(const SkPath& path, uint32_t* origKey) {
     key += verbKeySize >> 2;
 
     memcpy(key, SkPathPriv::PointData(path), sizeof(SkPoint) * pointCnt);
-    GR_STATIC_ASSERT(sizeof(SkPoint) == 2 * sizeof(uint32_t));
+    static_assert(sizeof(SkPoint) == 2 * sizeof(uint32_t), "");
     key += 2 * pointCnt;
     sk_careful_memcpy(key, SkPathPriv::ConicWeightData(path), sizeof(SkScalar) * conicWeightCnt);
-    GR_STATIC_ASSERT(sizeof(SkScalar) == sizeof(uint32_t));
+    static_assert(sizeof(SkScalar) == sizeof(uint32_t), "");
     SkDEBUGCODE(key += conicWeightCnt);
     SkASSERT(key - origKey == path_key_from_data_size(path));
 }
@@ -230,15 +232,15 @@ int GrShape::unstyledKeySize() const {
             return 1;
         case Type::kRRect:
             SkASSERT(!fInheritedKey.count());
-            GR_STATIC_ASSERT(0 == SkRRect::kSizeInMemory % sizeof(uint32_t));
+            static_assert(0 == SkRRect::kSizeInMemory % sizeof(uint32_t), "");
             // + 1 for the direction, start index, and inverseness.
             return SkRRect::kSizeInMemory / sizeof(uint32_t) + 1;
         case Type::kArc:
             SkASSERT(!fInheritedKey.count());
-            GR_STATIC_ASSERT(0 == sizeof(fArcData) % sizeof(uint32_t));
+            static_assert(0 == sizeof(fArcData) % sizeof(uint32_t), "");
             return sizeof(fArcData) / sizeof(uint32_t);
         case Type::kLine:
-            GR_STATIC_ASSERT(2 * sizeof(uint32_t) == sizeof(SkPoint));
+            static_assert(2 * sizeof(uint32_t) == sizeof(SkPoint), "");
             // 4 for the end points and 1 for the inverseness
             return 5;
         case Type::kPath: {
@@ -363,7 +365,7 @@ const SkPath* GrShape::originalPathForListeners() const {
     return nullptr;
 }
 
-void GrShape::addGenIDChangeListener(sk_sp<SkPathRef::GenIDChangeListener> listener) const {
+void GrShape::addGenIDChangeListener(sk_sp<SkIDChangeListener> listener) const {
     if (const auto* lp = this->originalPathForListeners()) {
         SkPathPriv::AddGenIDChangeListener(*lp, std::move(listener));
     }
@@ -727,14 +729,14 @@ bool GrShape::attemptToSimplifyStrokedLineToRRect() {
     SkVector outset;
     // If we allowed a rotation angle for rrects we could capture all cases here.
     if (fLineData.fPts[0].fY == fLineData.fPts[1].fY) {
-        rect.fLeft = SkTMin(fLineData.fPts[0].fX, fLineData.fPts[1].fX);
-        rect.fRight = SkTMax(fLineData.fPts[0].fX, fLineData.fPts[1].fX);
+        rect.fLeft = std::min(fLineData.fPts[0].fX, fLineData.fPts[1].fX);
+        rect.fRight = std::max(fLineData.fPts[0].fX, fLineData.fPts[1].fX);
         rect.fTop = rect.fBottom = fLineData.fPts[0].fY;
         outset.fY = fStyle.strokeRec().getWidth() / 2.f;
         outset.fX = SkPaint::kButt_Cap == fStyle.strokeRec().getCap() ? 0.f : outset.fY;
     } else if (fLineData.fPts[0].fX == fLineData.fPts[1].fX) {
-        rect.fTop = SkTMin(fLineData.fPts[0].fY, fLineData.fPts[1].fY);
-        rect.fBottom = SkTMax(fLineData.fPts[0].fY, fLineData.fPts[1].fY);
+        rect.fTop = std::min(fLineData.fPts[0].fY, fLineData.fPts[1].fY);
+        rect.fBottom = std::max(fLineData.fPts[0].fY, fLineData.fPts[1].fY);
         rect.fLeft = rect.fRight = fLineData.fPts[0].fX;
         outset.fX = fStyle.strokeRec().getWidth() / 2.f;
         outset.fY = SkPaint::kButt_Cap == fStyle.strokeRec().getCap() ? 0.f : outset.fX;

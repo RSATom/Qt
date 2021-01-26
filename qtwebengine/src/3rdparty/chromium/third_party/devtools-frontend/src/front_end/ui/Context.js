@@ -1,10 +1,14 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';
+import {ContextFlavorListener} from './ContextFlavorListener.js';
+
 /**
  * @unrestricted
  */
-export default class Context {
+export class Context {
   constructor() {
     this._flavors = new Map();
     this._eventDispatchers = new Map();
@@ -23,7 +27,7 @@ export default class Context {
     if (flavorValue) {
       this._flavors.set(flavorType, flavorValue);
     } else {
-      this._flavors.remove(flavorType);
+      this._flavors.delete(flavorType);
     }
 
     this._dispatchFlavorChange(flavorType, flavorValue);
@@ -35,10 +39,10 @@ export default class Context {
    * @template T
    */
   _dispatchFlavorChange(flavorType, flavorValue) {
-    for (const extension of self.runtime.extensions(UI.ContextFlavorListener)) {
+    for (const extension of self.runtime.extensions(ContextFlavorListener)) {
       if (extension.hasContextType(flavorType)) {
         extension.instance().then(
-            instance => /** @type {!UI.ContextFlavorListener} */ (instance).flavorChanged(flavorValue));
+            instance => /** @type {!ContextFlavorListener} */ (instance).flavorChanged(flavorValue));
       }
     }
     const dispatcher = this._eventDispatchers.get(flavorType);
@@ -50,13 +54,13 @@ export default class Context {
 
   /**
    * @param {function(new:Object, ...)} flavorType
-   * @param {function(!Common.Event)} listener
+   * @param {function(!Common.EventTarget.EventTargetEvent)} listener
    * @param {!Object=} thisObject
    */
   addFlavorChangeListener(flavorType, listener, thisObject) {
     let dispatcher = this._eventDispatchers.get(flavorType);
     if (!dispatcher) {
-      dispatcher = new Common.Object();
+      dispatcher = new Common.ObjectWrapper.ObjectWrapper();
       this._eventDispatchers.set(flavorType, dispatcher);
     }
     dispatcher.addEventListener(Events.FlavorChanged, listener, thisObject);
@@ -64,7 +68,7 @@ export default class Context {
 
   /**
    * @param {function(new:Object, ...)} flavorType
-   * @param {function(!Common.Event)} listener
+   * @param {function(!Common.EventTarget.EventTargetEvent)} listener
    * @param {!Object=} thisObject
    */
   removeFlavorChangeListener(flavorType, listener, thisObject) {
@@ -74,7 +78,7 @@ export default class Context {
     }
     dispatcher.removeEventListener(Events.FlavorChanged, listener, thisObject);
     if (!dispatcher.hasEventListeners(Events.FlavorChanged)) {
-      this._eventDispatchers.remove(flavorType);
+      this._eventDispatchers.delete(flavorType);
     }
   }
 
@@ -116,15 +120,3 @@ export default class Context {
 const Events = {
   FlavorChanged: Symbol('FlavorChanged')
 };
-
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.Context = Context;
-
-/** @type {!Context} */
-UI.context = new Context();

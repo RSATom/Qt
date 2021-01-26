@@ -25,11 +25,7 @@ class PrefRegistrySimple;
 class PrefService;
 FORWARD_DECLARE_TEST(ChromeMetricsServiceClientTest, TestRegisterUKMProviders);
 FORWARD_DECLARE_TEST(IOSChromeMetricsServiceClientTest,
-                     TestRegisterUKMProvidersWhenDisabled);
-FORWARD_DECLARE_TEST(IOSChromeMetricsServiceClientTest,
-                     TestRegisterUKMProvidersWhenForceMetricsReporting);
-FORWARD_DECLARE_TEST(IOSChromeMetricsServiceClientTest,
-                     TestRegisterUKMProvidersWhenUKMFeatureEnabled);
+                     TestRegisterUkmProvidersWhenUKMFeatureEnabled);
 
 namespace metrics {
 class MetricsServiceClient;
@@ -50,7 +46,8 @@ class UkmDebugDataExtractor;
 enum class ResetReason {
   kOnUkmAllowedStateChanged = 0,
   kUpdatePermissions = 1,
-  kMaxValue = kUpdatePermissions,
+  kClonedInstall = 2,
+  kMaxValue = kClonedInstall,
 };
 
 // The URL-Keyed Metrics (UKM) service is responsible for gathering and
@@ -119,11 +116,7 @@ class UkmService : public UkmRecorderImpl {
   FRIEND_TEST_ALL_PREFIXES(::ChromeMetricsServiceClientTest,
                            TestRegisterUKMProviders);
   FRIEND_TEST_ALL_PREFIXES(::IOSChromeMetricsServiceClientTest,
-                           TestRegisterUKMProvidersWhenDisabled);
-  FRIEND_TEST_ALL_PREFIXES(::IOSChromeMetricsServiceClientTest,
-                           TestRegisterUKMProvidersWhenForceMetricsReporting);
-  FRIEND_TEST_ALL_PREFIXES(::IOSChromeMetricsServiceClientTest,
-                           TestRegisterUKMProvidersWhenUKMFeatureEnabled);
+                           TestRegisterUkmProvidersWhenUKMFeatureEnabled);
   FRIEND_TEST_ALL_PREFIXES(UkmServiceTest,
                            PurgeExtensionDataFromUnsentLogStore);
 

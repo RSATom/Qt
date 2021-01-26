@@ -24,6 +24,7 @@
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/browser/service_worker_task_queue.h"
+#include "extensions/common/activation_sequence.h"
 #include "extensions/common/cors_util.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/extension_set.h"
@@ -60,8 +61,9 @@ bool IsExtensionVisibleToContext(const Extension& extension,
 
 // Returns the current ActivationSequence of |extension| if the extension is
 // Service Worker-based, otherwise returns base::nullopt.
-base::Optional<int> GetWorkerActivationSequence(BrowserContext* browser_context,
-                                                const Extension& extension) {
+base::Optional<ActivationSequence> GetWorkerActivationSequence(
+    BrowserContext* browser_context,
+    const Extension& extension) {
   if (BackgroundInfo::IsServiceWorkerBased(&extension)) {
     return ServiceWorkerTaskQueue::Get(browser_context)
         ->GetCurrentSequence(extension.id());
@@ -139,18 +141,20 @@ void RendererStartupHelper::InitializeProcess(
         WebViewGuest::GetPartitionID(process)));
   }
 
+  BrowserContext* renderer_context = process->GetBrowserContext();
+
   // Load default policy_blocked_hosts and policy_allowed_hosts settings, part
   // of the ExtensionSettings policy.
   ExtensionMsg_UpdateDefaultPolicyHostRestrictions_Params params;
+  int context_id = util::GetBrowserContextId(renderer_context);
   params.default_policy_blocked_hosts =
-      PermissionsData::default_policy_blocked_hosts();
+      PermissionsData::GetDefaultPolicyBlockedHosts(context_id);
   params.default_policy_allowed_hosts =
-      PermissionsData::default_policy_allowed_hosts();
+      PermissionsData::GetDefaultPolicyAllowedHosts(context_id);
   process->Send(new ExtensionMsg_UpdateDefaultPolicyHostRestrictions(params));
 
   // Loaded extensions.
   std::vector<ExtensionMsg_Loaded_Params> loaded_extensions;
-  BrowserContext* renderer_context = process->GetBrowserContext();
   const ExtensionSet& extensions =
       ExtensionRegistry::Get(browser_context_)->enabled_extensions();
   for (const auto& ext : extensions) {

@@ -16,19 +16,26 @@
       "components",
       "sdk",
       "ui",
-      "data_grid"
+      "data_grid",
+      "source_frame"
   ],
-  "scripts": [
+  "modules": [
+      "media.js",
+      "media-legacy.js",
       "EventDisplayTable.js",
       "MainView.js",
-      "MediaTable.js",
       "PlayerDetailView.js",
       "PlayerListView.js",
-      "MediaModel.js"
+      "PlayerPropertiesView.js",
+      "MediaModel.js",
+      "ChevronTabbedPanel.js"
   ],
+  "scripts": [],
   "resources": [
     "eventDisplayTable.css",
     "mediaView.css",
-    "playerListView.css"
+    "playerListView.css",
+    "playerPropertiesView.css",
+    "chevronTabbedPanel.css"
   ]
 }

@@ -135,7 +135,8 @@ QPagedPaintDevicePrivate *QPagedPaintDevice::dd()
     \enum QPagedPaintDevice::PageSize
 
     This enum type lists the available page sizes as defined in the Postscript
-    PPD standard.  These values are duplicated in QPageSize and QPrinter.
+    PPD standard.  These values are duplicated in QPageSize and QPrinter and
+    those types and enum will be merged in Qt 6.
 
     The defined sizes are:
 
@@ -314,6 +315,7 @@ QPagedPaintDevice::PageSize QPagedPaintDevice::pageSize() const
 }
 
 /*!
+    \obsolete Use setPageSize(QPageSize) instead.
     Sets the page size to \a size. \a size is specified in millimeters.
 
     If the size matches a standard QPagedPaintDevice::PageSize then that page
@@ -325,6 +327,8 @@ void QPagedPaintDevice::setPageSizeMM(const QSizeF &size)
 }
 
 /*!
+  \obsolete Use pageLayout().pageSize() instead.
+
   Returns the page size in millimeters.
   */
 QSizeF QPagedPaintDevice::pageSizeMM() const
@@ -333,6 +337,7 @@ QSizeF QPagedPaintDevice::pageSizeMM() const
 }
 
 /*!
+  \obsolete Use setPageMargins(QMarginsF, QPageLayout::Unit) instead.
   Sets the margins to be used to \a margins.
 
   Margins are specified in millimeters.
@@ -348,6 +353,7 @@ void QPagedPaintDevice::setMargins(const Margins &margins)
 }
 
 /*!
+  \obsolete Use pageLayout().margins() instead.
   Returns the current margins of the paint device. The default is 0.
 
   Margins are specified in millimeters.
@@ -420,7 +426,7 @@ bool QPagedPaintDevice::setPageSize(const QPageSize &pageSize)
     You should not call any painting methods between a call to setPageOrientation()
     and newPage() as the wrong paint metrics may be used.
 
-    To get the current QPageLayout::Orientation use pageLayout().pageOrientation().
+    To get the current QPageLayout::Orientation use pageLayout().orientation().
 
     Returns true if the page orientation was successfully set to \a orientation.
 
@@ -442,7 +448,7 @@ bool QPagedPaintDevice::setPageOrientation(QPageLayout::Orientation orientation)
     You should not call any painting methods between a call to setPageMargins()
     and newPage() as the wrong paint metrics may be used.
 
-    To get the current page margins use pageLayout().pageMargins().
+    To get the current page margins use pageLayout().margins().
 
     Returns true if the page margins were successfully set to \a margins.
 
@@ -464,7 +470,7 @@ bool QPagedPaintDevice::setPageMargins(const QMarginsF &margins)
     You should not call any painting methods between a call to setPageMargins()
     and newPage() as the wrong paint metrics may be used.
 
-    To get the current page margins use pageLayout().pageMargins().
+    To get the current page margins use pageLayout().margins().
 
     Returns true if the page margins were successfully set to \a margins.
 

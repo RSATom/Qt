@@ -10,7 +10,7 @@
  **************************************************************************************************/
 #include "GrRectBlurEffect.h"
 
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
@@ -132,8 +132,8 @@ private:
         (void)rectF;
         UniformHandle& rectH = rectHVar;
         (void)rectH;
-        GrSurfaceProxy& integralProxy = *_outer.textureSampler(0).proxy();
-        GrTexture& integral = *integralProxy.peekTexture();
+        const GrSurfaceProxyView& integralView = _outer.textureSampler(0).view();
+        GrTexture& integral = *integralView.proxy()->peekTexture();
         (void)integral;
         UniformHandle& invSixSigma = invSixSigmaVar;
         (void)invSixSigma;
@@ -188,7 +188,7 @@ std::unique_ptr<GrFragmentProcessor> GrRectBlurEffect::TestCreate(GrProcessorTes
     float sigma = data->fRandom->nextRangeF(3, 8);
     float width = data->fRandom->nextRangeF(200, 300);
     float height = data->fRandom->nextRangeF(200, 300);
-    return GrRectBlurEffect::Make(data->proxyProvider(), *data->caps()->shaderCaps(),
+    return GrRectBlurEffect::Make(data->context(), *data->caps()->shaderCaps(),
                                   SkRect::MakeWH(width, height), sigma);
 }
 #endif

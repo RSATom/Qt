@@ -39,7 +39,7 @@ class GPUCanvasContext : public CanvasRenderingContext {
                    const CanvasContextCreationAttributesCore&);
   ~GPUCanvasContext() override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
   const IntSize& CanvasSize() const;
 
   // CanvasRenderingContext implementation
@@ -71,14 +71,6 @@ class GPUCanvasContext : public CanvasRenderingContext {
   Member<GPUSwapChain> swapchain_;
   bool stopped_ = false;
 };
-
-DEFINE_TYPE_CASTS(GPUCanvasContext,
-                  CanvasRenderingContext,
-                  context,
-                  context->GetContextType() ==
-                      CanvasRenderingContext::kContextGPUPresent,
-                  context.GetContextType() ==
-                      CanvasRenderingContext::kContextGPUPresent);
 
 }  // namespace blink
 

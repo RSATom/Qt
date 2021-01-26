@@ -14,6 +14,9 @@
       <if expr="not is_ios">
         <include name="IDR_DEVTOOLS_DISCOVERY_PAGE_HTML" file="../../chrome/browser/devtools/frontend/devtools_discovery_page.html" type="BINDATA"/>
       </if>
+      <if expr="enable_plugins">
+        <include name="IDR_PDF_MANIFEST" file="../../chrome/browser/resources/pdf/manifest.json" type="BINDATA" />
+      </if>
       <if expr="is_android or is_linux">
         <include name="IDR_SANDBOX_INTERNALS_HTML" file="../../chrome/browser/resources/sandbox_internals/sandbox_internals.html" flattenhtml="true" allowexternalscript="true" type="BINDATA" compress="gzip" />
         <include name="IDR_SANDBOX_INTERNALS_JS" file="../../chrome/browser/resources/sandbox_internals/sandbox_internals.js" type="BINDATA" compress="gzip" />

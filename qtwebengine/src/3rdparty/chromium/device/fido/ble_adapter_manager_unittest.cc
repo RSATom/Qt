@@ -57,7 +57,9 @@ class MockObserver : public FidoRequestHandlerBase::Observer {
   MOCK_METHOD2(CollectPIN,
                void(base::Optional<int>,
                     base::OnceCallback<void(std::string)>));
-  MOCK_METHOD0(FinishCollectPIN, void());
+  MOCK_METHOD0(FinishCollectToken, void());
+  MOCK_METHOD1(OnRetryUserVerification, void(int));
+  MOCK_METHOD0(OnInternalUserVerificationLocked, void());
   MOCK_METHOD1(SetMightCreateResidentCredential, void(bool));
 
  private:
@@ -68,8 +70,7 @@ class FakeFidoRequestHandlerBase : public FidoRequestHandlerBase {
  public:
   FakeFidoRequestHandlerBase(MockObserver* observer,
                              FidoDiscoveryFactory* fido_discovery_factory)
-      : FidoRequestHandlerBase(nullptr,
-                               fido_discovery_factory,
+      : FidoRequestHandlerBase(fido_discovery_factory,
                                {FidoTransportProtocol::kBluetoothLowEnergy}) {
     set_observer(observer);
     Start();

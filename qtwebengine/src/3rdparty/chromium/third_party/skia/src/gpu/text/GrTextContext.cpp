@@ -14,7 +14,6 @@
 #include "src/core/SkDraw.h"
 #include "src/core/SkDrawProcs.h"
 #include "src/core/SkGlyphRun.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkMaskFilterBase.h"
 #include "src/core/SkPaintPriv.h"
 #include "src/gpu/GrCaps.h"
@@ -46,8 +45,7 @@ static const int kDefaultMaxDistanceFieldFontSize = kExtraLargeDFFontSize;
 static const int kDefaultMaxDistanceFieldFontSize = 2 * kLargeDFFontSize;
 #endif
 
-GrTextContext::GrTextContext(const Options& options)
-        : fDistanceAdjustTable(new GrDistanceFieldAdjustTable), fOptions(options) {
+GrTextContext::GrTextContext(const Options& options) : fOptions(options) {
     SanitizeOptions(&fOptions);
 }
 
@@ -254,8 +252,8 @@ GR_DRAW_OP_TEST_DEFINE(GrAtlasTextOp) {
     }
 
     // Setup dummy SkPaint / GrPaint / GrRenderTargetContext
-    auto rtc = context->priv().makeDeferredRenderTargetContext(SkBackingFit::kApprox, 1024, 1024,
-                                                               GrColorType::kRGBA_8888, nullptr);
+    auto rtc = GrRenderTargetContext::Make(
+            context, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kApprox, {1024, 1024});
 
     SkMatrix viewMatrix = GrTest::TestMatrixInvertible(random);
 

@@ -16,6 +16,8 @@
 #include "src/gpu/GrStyle.h"
 #include <new>
 
+class SkIDChangeListener;
+
 /**
  * Represents a geometric shape (rrect or path) and the GrStyle that it should be rendered with.
  * It is possible to apply the style to the GrShape to produce a new GrShape where the geometry
@@ -260,7 +262,7 @@ public:
             return false;
         }
 
-        if (SkPathFillType::kWinding == this->path().getNewFillType() && dirs[0] == dirs[1]) {
+        if (SkPathFillType::kWinding == this->path().getFillType() && dirs[0] == dirs[1]) {
             // The two rects need to be wound opposite to each other
             return false;
         }
@@ -474,7 +476,7 @@ public:
      * a path is no longer in-use. If the shape started out as something other than a path, this
      * does nothing.
      */
-    void addGenIDChangeListener(sk_sp<SkPathRef::GenIDChangeListener>) const;
+    void addGenIDChangeListener(sk_sp<SkIDChangeListener>) const;
 
     /**
      * Helpers that are only exposed for unit tests, to determine if the shape is a path, and get

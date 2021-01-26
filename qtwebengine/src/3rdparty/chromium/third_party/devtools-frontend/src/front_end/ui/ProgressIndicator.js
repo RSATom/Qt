@@ -27,14 +27,18 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
+import {createShadowRootWithCoreStyles} from './utils/create-shadow-root-with-core-styles.js';
+
 /**
- * @implements {Common.Progress}
+ * @implements {Common.Progress.Progress}
  * @unrestricted
  */
-export default class ProgressIndicator {
+export class ProgressIndicator {
   constructor() {
     this.element = createElementWithClass('div', 'progress-indicator');
-    this._shadowRoot = UI.createShadowRootWithCoreStyles(this.element, 'ui/progressIndicator.css');
+    this._shadowRoot = createShadowRootWithCoreStyles(this.element, 'ui/progressIndicator.css');
     this._contentElement = this._shadowRoot.createChild('div', 'progress-indicator-shadow-container');
 
     this._labelElement = this._contentElement.createChild('div', 'title');
@@ -114,12 +118,3 @@ export default class ProgressIndicator {
     this.setWorked(this._worked + (worked || 1));
   }
 }
-
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.ProgressIndicator = ProgressIndicator;

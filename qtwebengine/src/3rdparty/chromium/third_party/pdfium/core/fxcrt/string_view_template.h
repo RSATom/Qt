@@ -21,7 +21,7 @@ namespace fxcrt {
 
 // An immutable string with caller-provided storage which must outlive the
 // string itself. These are not necessarily nul-terminated, so that substring
-// extraction (via the Mid(), Left(), and Right() methods) is copy-free.
+// extraction (via the Substr(), First(), and Last() methods) is copy-free.
 //
 // String view arguments should be passed by value, since they are small,
 // rather than const-ref, even if they are not modified.
@@ -179,8 +179,8 @@ class StringViewTemplate {
     return m_Span[index];
   }
 
-  UnsignedType First() const { return !m_Span.empty() ? m_Span[0] : 0; }
-  UnsignedType Last() const {
+  UnsignedType Front() const { return !m_Span.empty() ? m_Span[0] : 0; }
+  UnsignedType Back() const {
     return !m_Span.empty() ? m_Span[m_Span.size() - 1] : 0;
   }
 
@@ -197,7 +197,7 @@ class StringViewTemplate {
 
   bool Contains(CharType ch) const { return Find(ch).has_value(); }
 
-  StringViewTemplate Mid(size_t first, size_t count) const {
+  StringViewTemplate Substr(size_t first, size_t count) const {
     if (!m_Span.data())
       return StringViewTemplate();
 
@@ -213,16 +213,16 @@ class StringViewTemplate {
     return StringViewTemplate(m_Span.data() + first, count);
   }
 
-  StringViewTemplate Left(size_t count) const {
+  StringViewTemplate First(size_t count) const {
     if (count == 0 || !IsValidLength(count))
       return StringViewTemplate();
-    return Mid(0, count);
+    return Substr(0, count);
   }
 
-  StringViewTemplate Right(size_t count) const {
+  StringViewTemplate Last(size_t count) const {
     if (count == 0 || !IsValidLength(count))
       return StringViewTemplate();
-    return Mid(GetLength() - count, count);
+    return Substr(GetLength() - count, count);
   }
 
   StringViewTemplate TrimmedRight(CharType ch) const {

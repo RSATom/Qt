@@ -131,6 +131,10 @@ Qt::DropAction QCocoaDrag::drag(QDrag *o)
     m_drag = o;
     m_executed_drop_action = Qt::IgnoreAction;
 
+    QMacPasteboard dragBoard(CFStringRef(NSPasteboardNameDrag), QMacInternalPasteboardMime::MIME_DND);
+    m_drag->mimeData()->setData(QLatin1String("application/x-qt-mime-type-name"), QByteArray("dummy"));
+    dragBoard.setMimeData(m_drag->mimeData(), QMacPasteboard::LazyRequest);
+
     if (maybeDragMultipleItems())
         return m_executed_drop_action;
 
@@ -138,10 +142,6 @@ Qt::DropAction QCocoaDrag::drag(QDrag *o)
     QPixmap pm = dragPixmap(m_drag, hotSpot);
     NSImage *dragImage = [NSImage imageFromQImage:pm.toImage()];
     Q_ASSERT(dragImage);
-
-    QMacPasteboard dragBoard(CFStringRef(NSPasteboardNameDrag), QMacInternalPasteboardMime::MIME_DND);
-    m_drag->mimeData()->setData(QLatin1String("application/x-qt-mime-type-name"), QByteArray("dummy"));
-    dragBoard.setMimeData(m_drag->mimeData(), QMacPasteboard::LazyRequest);
 
     NSPoint event_location = [m_lastEvent locationInWindow];
     NSWindow *theWindow = [m_lastEvent window];
@@ -187,7 +187,7 @@ bool QCocoaDrag::maybeDragMultipleItems()
     const auto &qtUrls = m_drag->mimeData()->urls();
     NSPasteboard *dragBoard = [NSPasteboard pasteboardWithName:NSPasteboardNameDrag];
 
-    if (int(dragBoard.pasteboardItems.count) == 1 && qtUrls.size() <= 1) {
+    if (qtUrls.size() <= 1) {
         // Good old -dragImage: works perfectly for this ...
         return false;
     }
@@ -217,13 +217,18 @@ bool QCocoaDrag::maybeDragMultipleItems()
     // 0. We start from URLs, which can be actually in a list (thus technically
     // only ONE item in the pasteboard. The fact it's only one does not help, we are
     // still getting an exception because of the number of items/images mismatch ...
+    // We only set the image for the first item and nil for the rest, the image already
+    // contains a combined picture for all urls we drag.
+    auto imageOrNil = dragImage;
     for (const auto &qtUrl : qtUrls) {
         NSURL *nsUrl = qtUrl.toNSURL();
         auto *newItem = [[[NSDraggingItem alloc] initWithPasteboardWriter:nsUrl] autorelease];
         const NSRect itemFrame = NSMakeRect(itemLocation.x, itemLocation.y,
                                             dragImage.size.width,
                                             dragImage.size.height);
-        [newItem setDraggingFrame:itemFrame contents:dragImage];
+
+        [newItem setDraggingFrame:itemFrame contents:imageOrNil];
+        imageOrNil = nil;
         [dragItems addObject:newItem];
     }
     // 1. Repeat for non-url items, if any:
@@ -232,7 +237,7 @@ bool QCocoaDrag::maybeDragMultipleItems()
         const NSRect itemFrame = NSMakeRect(itemLocation.x, itemLocation.y,
                                             dragImage.size.width,
                                             dragImage.size.height);
-        [newItem setDraggingFrame:itemFrame contents:dragImage];
+        [newItem setDraggingFrame:itemFrame contents:imageOrNil];
         [dragItems addObject:newItem];
     }
 

@@ -34,6 +34,7 @@
 #include "src/objects/oddball-inl.h"
 #include "src/objects/ordered-hash-table.h"
 #include "src/objects/promise.h"
+#include "src/objects/property-descriptor-object.h"
 #include "src/objects/script.h"
 #include "src/objects/shared-function-info.h"
 #include "src/objects/smi.h"
@@ -66,6 +67,10 @@ bool Heap::CreateHeapObjects() {
 
   set_native_contexts_list(ReadOnlyRoots(this).undefined_value());
   set_allocation_sites_list(ReadOnlyRoots(this).undefined_value());
+  set_dirty_js_finalization_registries_list(
+      ReadOnlyRoots(this).undefined_value());
+  set_dirty_js_finalization_registries_list_tail(
+      ReadOnlyRoots(this).undefined_value());
 
   return true;
 }
@@ -154,9 +159,10 @@ AllocationResult Heap::AllocatePartialMap(InstanceType instance_type,
   map.SetInObjectUnusedPropertyFields(0);
   map.set_bit_field(0);
   map.set_bit_field2(0);
-  int bit_field3 = Map::EnumLengthBits::encode(kInvalidEnumCacheSentinel) |
-                   Map::OwnsDescriptorsBit::encode(true) |
-                   Map::ConstructionCounterBits::encode(Map::kNoSlackTracking);
+  int bit_field3 =
+      Map::Bits3::EnumLengthBits::encode(kInvalidEnumCacheSentinel) |
+      Map::Bits3::OwnsDescriptorsBit::encode(true) |
+      Map::Bits3::ConstructionCounterBits::encode(Map::kNoSlackTracking);
   map.set_bit_field3(bit_field3);
   DCHECK(!map.is_in_retained_map_list());
   map.clear_padding();
@@ -397,6 +403,18 @@ bool Heap::CreateInitialMaps() {
     ALLOCATE_VARSIZE_MAP(SMALL_ORDERED_NAME_DICTIONARY_TYPE,
                          small_ordered_name_dictionary)
 
+#define TORQUE_INTERNAL_CLASS_LIST_MAP_ALLOCATOR(V, NAME, Name, name) \
+  ALLOCATE_MAP(NAME, Name::kSize, name)
+    TORQUE_INTERNAL_FIXED_CLASS_LIST_GENERATOR(
+        TORQUE_INTERNAL_CLASS_LIST_MAP_ALLOCATOR, _);
+#undef TORQUE_INTERNAL_CLASS_LIST_MAP_ALLOCATOR
+
+#define TORQUE_INTERNAL_CLASS_LIST_MAP_ALLOCATOR(V, NAME, Name, name) \
+  ALLOCATE_VARSIZE_MAP(NAME, name)
+    TORQUE_INTERNAL_VARSIZE_CLASS_LIST_GENERATOR(
+        TORQUE_INTERNAL_CLASS_LIST_MAP_ALLOCATOR, _);
+#undef TORQUE_INTERNAL_CLASS_LIST_MAP_ALLOCATOR
+
     ALLOCATE_VARSIZE_MAP(FIXED_ARRAY_TYPE, sloppy_arguments_elements)
 
     ALLOCATE_VARSIZE_MAP(CODE_TYPE, code)
@@ -449,6 +467,8 @@ bool Heap::CreateInitialMaps() {
 
     ALLOCATE_VARSIZE_MAP(OBJECT_BOILERPLATE_DESCRIPTION_TYPE,
                          object_boilerplate_description)
+
+    ALLOCATE_VARSIZE_MAP(COVERAGE_INFO_TYPE, coverage_info);
 
     ALLOCATE_MAP(CALL_HANDLER_INFO_TYPE, CallHandlerInfo::kSize,
                  side_effect_call_handler_info)
@@ -616,7 +636,6 @@ void Heap::CreateInitialObjects() {
   // There's no "current microtask" in the beginning.
   set_current_microtask(roots.undefined_value());
 
-  set_dirty_js_finalization_groups(roots.undefined_value());
   set_weak_refs_keep_during_job(roots.undefined_value());
 
   // Allocate cache for single character one byte strings.

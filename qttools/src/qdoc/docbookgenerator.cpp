@@ -2974,11 +2974,8 @@ void DocBookGenerator::generateDocBookSynopsis(const Node *node)
     if (enumNode) {
         for (const EnumItem &item : enumNode->items()) {
             writer->writeStartElement(dbNamespace, "enumitem");
-            newLine();
             writer->writeAttribute(dbNamespace, "enumidentifier", item.name());
-            newLine();
             writer->writeAttribute(dbNamespace, "enumvalue", item.value());
-            newLine();
             writer->writeEndElement(); // enumitem
             newLine();
         }
@@ -3062,29 +3059,8 @@ void DocBookGenerator::typified(const QString &string, const Node *relative, boo
             }
             pendingWord.clear();
 
-            switch (ch.unicode()) {
-            case '\0':
-                break;
-                // This only breaks out of the switch, not the loop. This means that the loop
-                // deliberately overshoots by one character.
-            case '&':
-                result += QLatin1String("&amp;");
-                break;
-            case '<':
-                result += QLatin1String("&lt;");
-                break;
-            case '>':
-                result += QLatin1String("&gt;");
-                break;
-            case '\'':
-                result += QLatin1String("&apos;");
-                break;
-            case '"':
-                result += QLatin1String("&quot;");
-                break;
-            default:
+            if (ch.unicode() != '\0')
                 result += ch;
-            }
         }
     }
 
@@ -3363,18 +3339,21 @@ void DocBookGenerator::generateEnumValue(const QString &enumValue, const Node *r
 
     QVector<const Node *> parents;
     const Node *node = relative->parent();
-    while (node->parent()) {
+    while (!node->isHeader() && node->parent()) {
         parents.prepend(node);
         if (node->parent() == relative || node->parent()->name().isEmpty())
             break;
         node = node->parent();
     }
+    if (static_cast<const EnumNode *>(relative)->isScoped())
+        parents << relative;
 
     writer->writeStartElement(dbNamespace, "code");
     for (auto parent : parents) {
         generateSynopsisName(parent, relative, true);
         writer->writeCharacters("::");
     }
+
     writer->writeCharacters(enumValue);
     writer->writeEndElement(); // code
 }

@@ -377,11 +377,20 @@ bool QHttpNetworkConnectionChannel::ensureConnection()
         if (socket->proxy().type() == QNetworkProxy::HttpProxy) {
             // Make user-agent field available to HTTP proxy socket engine (QTBUG-17223)
             QByteArray value;
-            // ensureConnection is called before any request has been assigned, but can also be called again if reconnecting
-            if (request.url().isEmpty())
-                value = connection->d_func()->predictNextRequest().headerField("user-agent");
-            else
+            // ensureConnection is called before any request has been assigned, but can also be
+            // called again if reconnecting
+            if (request.url().isEmpty()) {
+                if (connection->connectionType()
+                            == QHttpNetworkConnection::ConnectionTypeHTTP2Direct
+                    || (connection->connectionType() == QHttpNetworkConnection::ConnectionTypeHTTP2
+                        && spdyRequestsToSend.count() > 0)) {
+                    value = spdyRequestsToSend.first().first.headerField("user-agent");
+                } else {
+                    value = connection->d_func()->predictNextRequest().headerField("user-agent");
+                }
+            } else {
                 value = request.headerField("user-agent");
+            }
             if (!value.isEmpty()) {
                 QNetworkProxy proxy(socket->proxy());
                 proxy.setRawHeader("User-Agent", value); //detaches
@@ -885,8 +894,11 @@ void QHttpNetworkConnectionChannel::_q_connected()
         }
         connection->d_func()->networkLayerDetected(networkLayerPreference);
     } else {
-        if (((connection->d_func()->networkLayerState == QHttpNetworkConnectionPrivate::IPv4) && (networkLayerPreference != QAbstractSocket::IPv4Protocol))
-            || ((connection->d_func()->networkLayerState == QHttpNetworkConnectionPrivate::IPv6) && (networkLayerPreference != QAbstractSocket::IPv6Protocol))) {
+        bool anyProtocol = networkLayerPreference == QAbstractSocket::AnyIPProtocol;
+        if (((connection->d_func()->networkLayerState == QHttpNetworkConnectionPrivate::IPv4)
+             && (networkLayerPreference != QAbstractSocket::IPv4Protocol && !anyProtocol))
+            || ((connection->d_func()->networkLayerState == QHttpNetworkConnectionPrivate::IPv6)
+                && (networkLayerPreference != QAbstractSocket::IPv6Protocol && !anyProtocol))) {
             close();
             // This is the second connection so it has to be closed and we can schedule it for another request.
             QMetaObject::invokeMethod(connection, "_q_startNextRequest", Qt::QueuedConnection);
@@ -989,7 +1001,8 @@ void QHttpNetworkConnectionChannel::_q_error(QAbstractSocket::SocketError socket
             // this check is under this condition in 'if'):
             if (protocolHandler.data()) {
                 if (connection->connectionType() == QHttpNetworkConnection::ConnectionTypeHTTP2Direct
-                    || connection->connectionType() == QHttpNetworkConnection::ConnectionTypeHTTP2) {
+                    || (connection->connectionType() == QHttpNetworkConnection::ConnectionTypeHTTP2
+                        && switchedToHttp2)) {
                     auto h2Handler = static_cast<QHttp2ProtocolHandler *>(protocolHandler.data());
                     h2Handler->handleConnectionClosure();
                     protocolHandler.reset();
@@ -1194,8 +1207,7 @@ void QHttpNetworkConnectionChannel::_q_encrypted()
         // after establishing a secure connection we immediately start sending
         // HTTP/2 frames.
         switch (sslSocket->sslConfiguration().nextProtocolNegotiationStatus()) {
-        case QSslConfiguration::NextProtocolNegotiationNegotiated:
-        case QSslConfiguration::NextProtocolNegotiationUnsupported: {
+        case QSslConfiguration::NextProtocolNegotiationNegotiated: {
             QByteArray nextProtocol = sslSocket->sslConfiguration().nextNegotiatedProtocol();
             if (nextProtocol == QSslConfiguration::NextProtocolHttp1_1) {
                 // fall through to create a QHttpProtocolHandler
@@ -1217,17 +1229,12 @@ void QHttpNetworkConnectionChannel::_q_encrypted()
             }
         }
             Q_FALLTHROUGH();
+        case QSslConfiguration::NextProtocolNegotiationUnsupported: // No agreement, try HTTP/1(.1)
         case QSslConfiguration::NextProtocolNegotiationNone: {
             protocolHandler.reset(new QHttpProtocolHandler(this));
-            if (!sslConfiguration.data()) {
-                // Our own auto-tests bypass the normal initialization (done by
-                // QHttpThreadDelegate), this means in the past we'd have here
-                // the default constructed QSslConfiguration without any protocols
-                // to negotiate. Let's create it now:
-                sslConfiguration.reset(new QSslConfiguration);
-            }
 
-            QList<QByteArray> protocols = sslConfiguration->allowedNextProtocols();
+            QSslConfiguration newConfiguration = sslSocket->sslConfiguration();
+            QList<QByteArray> protocols = newConfiguration.allowedNextProtocols();
             const int nProtocols = protocols.size();
             // Clear the protocol that we failed to negotiate, so we do not try
             // it again on other channels that our connection can create/open.
@@ -1237,10 +1244,10 @@ void QHttpNetworkConnectionChannel::_q_encrypted()
                 protocols.removeAll(QSslConfiguration::NextProtocolSpdy3_0);
 
             if (nProtocols > protocols.size()) {
-                sslConfiguration->setAllowedNextProtocols(protocols);
+                newConfiguration.setAllowedNextProtocols(protocols);
                 const int channelCount = connection->d_func()->channelCount;
                 for (int i = 0; i < channelCount; ++i)
-                    connection->d_func()->channels[i].setSslConfiguration(*sslConfiguration);
+                    connection->d_func()->channels[i].setSslConfiguration(newConfiguration);
             }
 
             connection->setConnectionType(QHttpNetworkConnection::ConnectionTypeHTTP);

@@ -175,7 +175,7 @@ class SerialIoHandlerWin::UiThreadHelper final
  private:
   // DeviceMonitorWin::Observer
   void OnDeviceRemoved(const GUID& class_guid,
-                       const std::string& device_path) override {
+                       const base::string16& device_path) override {
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
     io_thread_task_runner_->PostTask(
         FROM_HERE, base::BindOnce(&SerialIoHandlerWin::OnDeviceRemoved,
@@ -192,7 +192,7 @@ class SerialIoHandlerWin::UiThreadHelper final
   DISALLOW_COPY_AND_ASSIGN(UiThreadHelper);
 };
 
-void SerialIoHandlerWin::OnDeviceRemoved(const std::string& device_path) {
+void SerialIoHandlerWin::OnDeviceRemoved(const base::string16& device_path) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   DeviceInfoQueryWin device_info_query;
@@ -266,7 +266,11 @@ bool SerialIoHandlerWin::PostOpen() {
 void SerialIoHandlerWin::ReadImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(pending_read_buffer());
-  DCHECK(file().IsValid());
+
+  if (!file().IsValid()) {
+    QueueReadCompleted(0, mojom::SerialReceiveError::DISCONNECTED);
+    return;
+  }
 
   if (!SetCommMask(file().GetPlatformFile(), EV_RXCHAR)) {
     VPLOG(1) << "Failed to set serial event flags";
@@ -285,7 +289,11 @@ void SerialIoHandlerWin::ReadImpl() {
 void SerialIoHandlerWin::WriteImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(pending_write_buffer());
-  DCHECK(file().IsValid());
+
+  if (!file().IsValid()) {
+    QueueWriteCompleted(0, mojom::SerialSendError::DISCONNECTED);
+    return;
+  }
 
   BOOL ok = ::WriteFile(file().GetPlatformFile(), pending_write_buffer(),
                         pending_write_buffer_len(), NULL,

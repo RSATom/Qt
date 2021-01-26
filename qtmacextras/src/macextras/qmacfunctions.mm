@@ -64,6 +64,10 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \fn CGContextRef QtMac::currentCGContext()
+    \obsolete
+
+    Use \c UIGraphicsGetCurrentContext() or
+    \c NSGraphicsContext.currentContext.CGContext instead.
 
     Returns the current CoreGraphics context.
 */
@@ -101,6 +105,7 @@ QByteArray fromNSData(const NSData *data)
 #if QT_DEPRECATED_SINCE(5, 12)
 /*!
     \fn CGImageRef QtMac::toCGImageRef(const QPixmap &pixmap)
+    \obsolete Use QPixmap::toImage() and QImage::toCGImage() instead.
 
     Creates a \c CGImageRef equivalent to the QPixmap \a pixmap. Returns the \c CGImageRef handle.
 

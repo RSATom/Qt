@@ -10,7 +10,7 @@
 #include "include/core/SkPath.h"
 #include "include/utils/SkRandom.h"
 #include "samplecode/Sample.h"
-#include "src/core/SkStrike.h"
+#include "src/core/SkScalerCache.h"
 #include "src/core/SkStrikeCache.h"
 #include "src/core/SkStrikeSpec.h"
 #include "src/core/SkTaskGroup.h"
@@ -34,13 +34,13 @@ public:
     void onOnceBeforeDraw() final {
         SkFont defaultFont;
         SkStrikeSpec strikeSpec = SkStrikeSpec::MakeWithNoDevice(defaultFont);
-        auto cache = strikeSpec.findOrCreateExclusiveStrike();
+        auto strike = strikeSpec.findOrCreateStrike();
         SkPath glyphPaths[52];
         for (int i = 0; i < 52; ++i) {
             // I and l are rects on OS X ...
             char c = "aQCDEFGH7JKLMNOPBRZTUVWXYSAbcdefghijk1mnopqrstuvwxyz"[i];
             SkPackedGlyphID id(defaultFont.unicharToGlyph(c));
-            sk_ignore_unused_variable(cache->getScalerContext()->getPath(id, &glyphPaths[i]));
+            sk_ignore_unused_variable(strike->getScalerContext()->getPath(id, &glyphPaths[i]));
         }
 
         for (int i = 0; i < kNumPaths; ++i) {
@@ -115,14 +115,14 @@ void PathText::Glyph::init(SkRandom& rand, const SkPath& path) {
 }
 
 void PathText::Glyph::reset(SkRandom& rand, int w, int h) {
-    int screensize = SkTMax(w, h);
+    int screensize = std::max(w, h);
     const SkRect& bounds = fPath.getBounds();
     SkScalar t;
 
     fPosition = {rand.nextF() * w, rand.nextF() * h};
     t = pow(rand.nextF(), 100);
     fZoom = ((1 - t) * screensize / 50 + t * screensize / 3) /
-            SkTMax(bounds.width(), bounds.height());
+            std::max(bounds.width(), bounds.height());
     fSpin = rand.nextF() * 360;
     fMidpt = {bounds.centerX(), bounds.centerY()};
 }
@@ -143,7 +143,7 @@ public:
     }
 
     void reset() override {
-        const SkScalar screensize = static_cast<SkScalar>(SkTMax(this->width(), this->height()));
+        const SkScalar screensize = static_cast<SkScalar>(std::max(this->width(), this->height()));
         this->INHERITED::reset();
 
         for (auto& v : fVelocities) {
@@ -356,7 +356,7 @@ private:
 };
 
 void WavyPathText::Waves::reset(SkRandom& rand, int w, int h) {
-    const double pixelsPerMeter = 0.06 * SkTMax(w, h);
+    const double pixelsPerMeter = 0.06 * std::max(w, h);
     const double medianWavelength = 8 * pixelsPerMeter;
     const double medianWaveAmplitude = 0.05 * 4 * pixelsPerMeter;
     const double gravity = 9.8 * pixelsPerMeter;
@@ -424,6 +424,8 @@ SkPoint WavyPathText::Waves::apply(float tsec, const Sk2f matrix[3], const SkPoi
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-DEF_SAMPLE( return new WavyPathText; )
-DEF_SAMPLE( return new MovingPathText; )
 DEF_SAMPLE( return new PathText; )
+DEF_SAMPLE( return new MovingPathText; )
+
+Sample* MakeWavyPathTextSample() { return new WavyPathText; }
+static SampleRegistry WavyPathText(MakeWavyPathTextSample);

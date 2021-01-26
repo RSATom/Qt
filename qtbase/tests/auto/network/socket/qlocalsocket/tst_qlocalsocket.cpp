@@ -175,7 +175,7 @@ public:
         connect(this, SIGNAL(disconnected()),
                 this, SLOT(slotDisconnected()));
         connect(this, SIGNAL(errorOccurred(QLocalSocket::LocalSocketError)),
-                this, SLOT(slotError(QLocalSocket::LocalSocketError)));
+                this, SLOT(slotErrorOccurred(QLocalSocket::LocalSocketError)));
         connect(this, SIGNAL(stateChanged(QLocalSocket::LocalSocketState)),
                 this, SLOT(slotStateChanged(QLocalSocket::LocalSocketState)));
         connect(this, SIGNAL(readyRead()),
@@ -1267,6 +1267,7 @@ void tst_QLocalSocket::syncDisconnectNotify()
     QVERIFY(serverSocket);
     delete serverSocket;
     QCOMPARE(client.waitForReadyRead(), false);
+    QVERIFY(!client.putChar(0));
 }
 
 void tst_QLocalSocket::asyncDisconnectNotify()

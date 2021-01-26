@@ -251,10 +251,10 @@ Renderer::Renderer(QRenderAspect::RenderType type)
     , m_lightGathererJob(new CachingLightGatherer(&m_cache))
     , m_renderableEntityFilterJob(new CachingRenderableEntityFilter(&m_cache))
     , m_computableEntityFilterJob(new CachingComputableEntityFilter(&m_cache))
-    , m_bufferGathererJob(CreateSynchronizerJobPtr([this] { lookForDirtyBuffers(); }, JobTypes::DirtyBufferGathering))
-    , m_vaoGathererJob(CreateSynchronizerJobPtr([this] { lookForAbandonedVaos(); }, JobTypes::DirtyVaoGathering))
-    , m_textureGathererJob(CreateSynchronizerJobPtr([this] { lookForDirtyTextures(); }, JobTypes::DirtyTextureGathering))
-    , m_sendSetFenceHandlesToFrontendJob(CreateSynchronizerJobPtr([this] { sendSetFenceHandlesToFrontend(); }, JobTypes::SendSetFenceHandlesToFrontend))
+    , m_bufferGathererJob(CreateSynchronizerJobPtr([this] { lookForDirtyBuffers(); }, JobTypes::DirtyBufferGathering, 0))
+    , m_vaoGathererJob(CreateSynchronizerJobPtr([this] { lookForAbandonedVaos(); }, JobTypes::DirtyVaoGathering, 0))
+    , m_textureGathererJob(CreateSynchronizerJobPtr([this] { lookForDirtyTextures(); }, JobTypes::DirtyTextureGathering, 0))
+    , m_sendSetFenceHandlesToFrontendJob(CreateSynchronizerJobPtr([this] { sendSetFenceHandlesToFrontend(); }, JobTypes::SendSetFenceHandlesToFrontend, 0))
     , m_introspectShaderJob(CreateSynchronizerPostFramePtr([this] { reloadDirtyShaders(); },
                                                            [this] (Qt3DCore::QAspectManager *m) { sendShaderChangesToFrontend(m); },
                                                            JobTypes::DirtyShaderGathering))
@@ -534,7 +534,11 @@ void Renderer::shutdown()
     QMutexLocker lock(&m_hasBeenInitializedMutex);
 
     qCDebug(Backend) << Q_FUNC_INFO << "Requesting renderer shutdown";
-    m_running.storeRelaxed(0);
+    const bool wasRunning = m_running.testAndSetRelaxed(1, 0);
+
+    // We might have already been shutdown
+    if (!wasRunning)
+        return;
 
     // We delete any renderqueue that we may not have had time to render
     // before the surface was destroyed
@@ -623,7 +627,8 @@ void Renderer::releaseGraphicsResources()
         m_submissionContext->releaseRenderTargets();
 
         m_frameProfiler.reset();
-        context->doneCurrent();
+        if (m_ownedContext)
+            context->doneCurrent();
     } else {
         qWarning() << "Failed to make context current: OpenGL resources will not be destroyed";
     }
@@ -1780,7 +1785,7 @@ bool Renderer::shouldRender() const
 {
     // Only render if something changed during the last frame, or the last frame
     // was not rendered successfully (or render-on-demand is disabled)
-    return (m_settings->renderPolicy() == QRenderSettings::Always
+    return ((m_settings && m_settings->renderPolicy() == QRenderSettings::Always)
             || m_dirtyBits.marked != 0
             || m_dirtyBits.remaining != 0
             || !m_lastFrameCorrect.loadRelaxed());

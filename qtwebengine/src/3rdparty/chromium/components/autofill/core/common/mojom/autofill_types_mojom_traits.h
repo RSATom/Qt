@@ -153,6 +153,10 @@ struct StructTraits<autofill::mojom::FormFieldDataDataView,
     return r.label_source;
   }
 
+  static gfx::RectF bounds(const autofill::FormFieldData& r) {
+    return r.bounds;
+  }
+
   static bool Read(autofill::mojom::FormFieldDataDataView data,
                    autofill::FormFieldData* out);
 };
@@ -427,9 +431,9 @@ struct StructTraits<autofill::mojom::PasswordGenerationUIDataDataView,
     return r.text_direction;
   }
 
-  static const autofill::PasswordForm& password_form(
+  static const autofill::FormData& form_data(
       const autofill::password_generation::PasswordGenerationUIData& r) {
-    return r.password_form;
+    return r.form_data;
   }
 
   static bool Read(
@@ -520,8 +524,6 @@ struct StructTraits<autofill::mojom::PasswordFormDataView,
       const autofill::PasswordForm& r) {
     return r.confirmation_password_element;
   }
-
-  static bool preferred(const autofill::PasswordForm& r) { return r.preferred; }
 
   static const base::Time& date_created(const autofill::PasswordForm& r) {
     return r.date_created;

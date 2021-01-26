@@ -14,11 +14,15 @@
 #include "base/unguessable_token.h"
 #include "net/base/network_isolation_key.h"
 #include "net/base/request_priority.h"
+#include "net/cookies/site_for_cookies.h"
 #include "net/http/http_request_headers.h"
 #include "net/url_request/url_request.h"
+#include "services/network/public/cpp/optional_trust_token_params.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "services/network/public/mojom/cors.mojom-shared.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
+#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "services/network/public/mojom/trust_tokens.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -58,9 +62,9 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ResourceRequest {
 
   // See comments in network.mojom.URLRequest in url_loader.mojom for details
   // of each field.
-  std::string method = "GET";
+  std::string method = net::HttpRequestHeaders::kGetMethod;
   GURL url;
-  GURL site_for_cookies;
+  net::SiteForCookies site_for_cookies;
   bool attach_same_site_cookies = false;
   bool update_first_party_url_on_redirect = false;
   base::Optional<url::Origin> request_initiator;
@@ -86,6 +90,7 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ResourceRequest {
   mojom::RedirectMode redirect_mode = mojom::RedirectMode::kFollow;
   std::string fetch_integrity;
   int fetch_request_context_type = 0;
+  mojom::RequestDestination destination = mojom::RequestDestination::kEmpty;
   scoped_refptr<ResourceRequestBody> request_body;
   bool keepalive = false;
   bool has_user_gesture = false;
@@ -102,14 +107,22 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ResourceRequest {
   base::Optional<base::UnguessableToken> throttling_profile_id;
   net::HttpRequestHeaders custom_proxy_pre_cache_headers;
   net::HttpRequestHeaders custom_proxy_post_cache_headers;
-  bool custom_proxy_use_alternate_proxy_list = false;
   base::Optional<base::UnguessableToken> fetch_window_id;
   base::Optional<std::string> devtools_request_id;
   bool is_signed_exchange_prefetch_cache_enabled = false;
   bool obey_origin_policy = false;
   base::Optional<base::UnguessableToken> recursive_prefetch_token;
   base::Optional<TrustedParams> trusted_params;
+  // |trust_token_params| uses a custom base::Optional-like type to make the
+  // field trivially copyable; see OptionalTrustTokenParams's definition for
+  // more context.
+  OptionalTrustTokenParams trust_token_params;
 };
+
+// This does not accept |kDefault| referrer policy.
+COMPONENT_EXPORT(NETWORK_CPP_BASE)
+net::URLRequest::ReferrerPolicy ReferrerPolicyForUrlRequest(
+    mojom::ReferrerPolicy referrer_policy);
 
 }  // namespace network
 

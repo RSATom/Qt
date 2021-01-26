@@ -24,7 +24,6 @@
 #include "content/browser/isolated_origin_util.h"
 #include "content/browser/isolation_context.h"
 #include "content/public/browser/child_process_security_policy.h"
-#include "content/public/common/resource_type.h"
 #include "storage/common/file_system/file_system_types.h"
 #include "url/origin.h"
 
@@ -75,6 +74,10 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
 
     Handle& operator=(const Handle&) = delete;
     Handle& operator=(Handle&&);
+
+    // Create a new instance of Handle, holding another reference to the same
+    // process ID as the current one.
+    Handle Duplicate();
 
     // Returns true if this object has a valid process ID.
     // Returns false if this object was created with the default constructor,
@@ -178,6 +181,11 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
   // Identical to the above method, but takes url::Origin as input.
   bool CanAccessDataForOrigin(int child_id, const url::Origin& origin);
 
+  // Shared helper for GURL and url::Origin processing.
+  bool CanAccessDataForOrigin(int child_id,
+                              const GURL& url,
+                              bool url_is_precursor_of_opaque_origin);
+
   // Determines if the combination of |origin| & |url| is safe to commit to
   // the process associated with |child_id|.
   //
@@ -220,6 +228,37 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
   bool GetMatchingIsolatedOrigin(const IsolationContext& isolation_context,
                                  const url::Origin& origin,
                                  url::Origin* result);
+
+  // Removes any origin isolation opt-in entries associated with the
+  // |isolation_context| of the BrowsingInstance.
+  void RemoveOptInIsolatedOriginsForBrowsingInstance(
+      const IsolationContext& isolation_context);
+
+  // Registers |origin|'s isolation status with respect to the BrowsingInstance
+  // associated with |isolation_context|. If it has already been registered,
+  // then nothing will be changed by this call.
+  void AddOptInIsolatedOriginForBrowsingInstance(
+      const IsolationContext& isolation_context,
+      const url::Origin& origin);
+
+  // This function will check whether |origin| has opted-in to process isolation
+  // (via OriginPolicy), with respect to the current state of the
+  // |isolation_context|. It is different from IsIsolatedOrigin() in that it
+  // only deals with OriginPolicy isolation status, whereas IsIsolatedOrigin()
+  // considers all possible mechanisms for requesting isolation.
+  // It will check for two things: 1) whether |origin|
+  // already has a site instance in the |isolation_context|
+  //    in which case we follow the same policy, or
+  // 2) if it's not currently listed, whether |origin| is listed in the master
+  //    list of origins requesting isolation via an OriginPolicy opt-in.
+  bool DoesOriginRequestOptInIsolation(
+      const IsolationContext& isolation_context,
+      const url::Origin& origin);
+
+  // This function manages updates to the master list of origins requesting
+  // isolation, e.g. via an OriginPolicy.
+  void UpdateOriginIsolationOptInListIfNecessary(const url::Origin& origin,
+                                                 bool requests_isolation);
 
   // A version of GetMatchingIsolatedOrigin that takes in both the |origin| and
   // the |site_url| that |origin| corresponds to.  |site_url| is the key by
@@ -379,16 +418,6 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
   //       represents a stricter subset. It must also be used for
   //       renderer-initiated navigations.
   bool CanRedirectToURL(const GURL& url);
-
-  // Returns true if the policy object has security state information for
-  // |child_id|. This is essentially a way to determine if the policy object
-  // is actively tracking permissions for |child_id|. This method can be called
-  // from the UI & IO threads.
-  //
-  // DO NOT ADD NEW CALLERS OF THIS METHOD.
-  // TODO(933089): Remove this method once a better long term solution is
-  // implemented for the one caller doing Blob URL revocation.
-  bool HasSecurityState(int child_id);
 
   // Sets "killed_process_origin_lock" crash key with lock info for the
   // process associated with |child_id|.
@@ -671,6 +700,17 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
   //      BrowsingInstance ID 7.
   base::flat_map<GURL, std::vector<IsolatedOriginEntry>> isolated_origins_
       GUARDED_BY(isolated_origins_lock_);
+
+  // Two maps, one to track an up-to-date set of Origins requesting opt-in
+  // isolation, and the other to track the current opt-in status of an Origin
+  // within a BrowsingInstance, so that that status can be made consistent over
+  // the lifetime of the BrowsingInstance.
+  base::Lock origins_isolation_opt_in_lock_;
+  base::flat_set<url::Origin> origin_isolation_opt_ins_
+      GUARDED_BY(origins_isolation_opt_in_lock_);
+  base::flat_map<BrowsingInstanceId, std::vector<url::Origin>>
+      origin_isolation_by_browsing_instance_
+          GUARDED_BY(origins_isolation_opt_in_lock_);
 
   DISALLOW_COPY_AND_ASSIGN(ChildProcessSecurityPolicyImpl);
 };

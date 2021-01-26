@@ -47,7 +47,7 @@ public:
     }
 
     void reject(size_t index, int rejectedMaxDimension) {
-        fRejectedMaxDimension = SkTMax(fRejectedMaxDimension, rejectedMaxDimension);
+        fRejectedMaxDimension = std::max(fRejectedMaxDimension, rejectedMaxDimension);
         this->reject(index);
     }
 
@@ -147,6 +147,9 @@ public:
 
     // Load the buffer with SkPackedGlyphIDs and positions in source space.
     void startSource(const SkZip<const SkGlyphID, const SkPoint>& source, SkPoint origin);
+
+    // Use the original glyphIDs and positions.
+    void startPaths(const SkZip<const SkGlyphID, const SkPoint>& source);
 
     // Load the buffer with SkPackedGlyphIDs and positions using the device transform.
     void startDevice(

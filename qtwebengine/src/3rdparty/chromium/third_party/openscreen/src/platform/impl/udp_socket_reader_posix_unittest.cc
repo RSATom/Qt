@@ -14,7 +14,7 @@
 #include "platform/test/fake_udp_socket.h"
 
 namespace openscreen {
-namespace platform {
+namespace {
 
 using namespace ::testing;
 using ::testing::_;
@@ -48,10 +48,15 @@ class MockUdpSocketPosix : public UdpSocketPosix {
 // Mock event waiter
 class MockNetworkWaiter final : public SocketHandleWaiter {
  public:
+  MockNetworkWaiter() : SocketHandleWaiter(&FakeClock::now) {}
+  ~MockNetworkWaiter() override = default;
+
   MOCK_METHOD2(
       AwaitSocketsReadable,
       ErrorOr<std::vector<SocketHandleRef>>(const std::vector<SocketHandleRef>&,
                                             const Clock::duration&));
+
+  FakeClock fake_clock{Clock::time_point{Clock::duration{1234567}}};
 };
 
 // Mock Task Runner
@@ -77,6 +82,8 @@ class MockTaskRunner final : public TaskRunner {
   uint32_t tasks_posted;
   uint32_t delayed_tasks_posted;
 };
+
+}  // namespace
 
 // Class extending NetworkWaiter to allow for looking at protected data.
 class TestingUdpSocketReader final : public UdpSocketReaderPosix {
@@ -129,5 +136,4 @@ TEST(UdpSocketReaderTest, UnwatchReadableSucceeds) {
   EXPECT_FALSE(network_waiter.IsMappedRead(socket.get()));
 }
 
-}  // namespace platform
 }  // namespace openscreen

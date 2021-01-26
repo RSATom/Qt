@@ -60,6 +60,7 @@
 #include "third_party/blink/public/platform/scheduler/web_rail_mode_observer.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_connection_type.h"
+#include "third_party/blink/public/platform/web_isolate.h"
 #include "third_party/blink/public/web/web_memory_statistics.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -99,22 +100,16 @@ class SyntheticBeginFrameSource;
 
 namespace content {
 class AudioRendererMixerManager;
-class BrowserPluginManager;
 class CategorizedWorkerPool;
 class GpuVideoAcceleratorFactoriesImpl;
 class LowMemoryModeController;
 class RenderThreadObserver;
 class RendererBlinkPlatformImpl;
 class ResourceDispatcher;
+class VariationsRenderThreadObserver;
 
 #if defined(OS_ANDROID)
 class StreamTextureFactory;
-#endif
-
-#if defined(COMPILER_MSVC)
-// See explanation for other RenderViewHostImpl which is the same issue.
-#pragma warning(push)
-#pragma warning(disable: 4250)
 #endif
 
 // The RenderThreadImpl class represents the main thread, where RenderView
@@ -196,7 +191,6 @@ class CONTENT_EXPORT RenderThreadImpl
   scoped_refptr<base::SingleThreadTaskRunner> GetIOTaskRunner() override;
 
   // CompositorDependencies implementation.
-  bool IsGpuRasterizationForced() override;
   int GetGpuRasterizationMSAASampleCount() override;
   bool IsLcdTextEnabled() override;
   bool IsZeroCopyEnabled() override;
@@ -218,10 +212,6 @@ class CONTENT_EXPORT RenderThreadImpl
       scoped_refptr<FrameSwapMessageQueue> frame_swap_message_queue,
       const GURL& url,
       LayerTreeFrameSinkCallback callback,
-      mojo::PendingReceiver<mojom::RenderFrameMetadataObserverClient>
-          render_frame_metadata_observer_client_receiver,
-      mojo::PendingRemote<mojom::RenderFrameMetadataObserver>
-          render_frame_metadata_observer_remote,
       const char* client_name) override;
 #ifdef OS_ANDROID
   bool UsingSynchronousCompositing() override;
@@ -283,10 +273,6 @@ class CONTENT_EXPORT RenderThreadImpl
   bool EnableStreamTextureCopy();
 #endif
 
-  BrowserPluginManager* browser_plugin_manager() const {
-    return browser_plugin_manager_.get();
-  }
-
   blink::WebVideoCaptureImplManager* video_capture_impl_manager() const {
     return vc_manager_.get();
   }
@@ -341,6 +327,10 @@ class CONTENT_EXPORT RenderThreadImpl
     void AddListenerUnfreezableTaskRunner(
         int32_t routing_id,
         scoped_refptr<base::SingleThreadTaskRunner> unfreezable_task_runner);
+
+    // Removes |unfreezable_task_runner| for the task to be executed later.
+    void RemoveListenerUnfreezableTaskRunner(
+        int32_t routing_id);
 
     // Called on the I/O thread.
     // Returns the unfreezable task runner associated with |routing_id|.
@@ -542,8 +532,6 @@ class CONTENT_EXPORT RenderThreadImpl
   std::unique_ptr<ResourceDispatcher> resource_dispatcher_;
   std::unique_ptr<URLLoaderThrottleProvider> url_loader_throttle_provider_;
 
-  std::unique_ptr<BrowserPluginManager> browser_plugin_manager_;
-
   // Filter out unfreezable messages and pass it to unfreezable task runners.
   scoped_refptr<UnfreezableMessageFilter> unfreezable_message_filter_;
 
@@ -621,11 +609,12 @@ class CONTENT_EXPORT RenderThreadImpl
 
   std::unique_ptr<viz::Gpu> gpu_;
 
+  std::unique_ptr<VariationsRenderThreadObserver> variations_observer_;
+
   scoped_refptr<base::SingleThreadTaskRunner>
       main_thread_compositor_task_runner_;
 
   // Compositor settings.
-  bool is_gpu_rasterization_forced_;
   int gpu_rasterization_msaa_sample_count_;
   bool is_lcd_text_enabled_;
   bool is_zero_copy_enabled_;
@@ -672,6 +661,8 @@ class CONTENT_EXPORT RenderThreadImpl
 
   mojo::AssociatedRemote<mojom::RenderMessageFilter> render_message_filter_;
 
+  std::unique_ptr<blink::WebIsolate> isolate_;
+
   RendererMemoryMetrics purge_and_suspend_memory_metrics_;
   bool needs_to_record_first_active_paint_;
   base::TimeTicks was_backgrounded_time_;
@@ -693,10 +684,6 @@ class CONTENT_EXPORT RenderThreadImpl
 
   DISALLOW_COPY_AND_ASSIGN(RenderThreadImpl);
 };
-
-#if defined(COMPILER_MSVC)
-#pragma warning(pop)
-#endif
 
 }  // namespace content
 

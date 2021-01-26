@@ -25,10 +25,11 @@
 #include "src/tracing/core/trace_writer_for_testing.h"
 #include "test/gtest_and_gmock.h"
 
-#include "protos/perfetto/config/process_stats/process_stats_config.pbzero.h"
-#include "protos/perfetto/trace/trace_packet.pbzero.h"
+#include "protos/perfetto/config/process_stats/process_stats_config.gen.h"
+#include "protos/perfetto/trace/ps/process_stats.gen.h"
+#include "protos/perfetto/trace/ps/process_tree.gen.h"
 
-using ::perfetto::protos::pbzero::ProcessStatsConfig;
+using ::perfetto::protos::gen::ProcessStatsConfig;
 using ::testing::_;
 using ::testing::ElementsAreArray;
 using ::testing::Invoke;
@@ -79,35 +80,54 @@ TEST_F(ProcessStatsDataSourceTest, WriteOnceProcess) {
 
   data_source->OnPids({42});
 
-  std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
+  auto trace = writer_raw_->GetAllTracePackets();
   ASSERT_EQ(trace.size(), 1u);
   auto ps_tree = trace[0].process_tree();
   ASSERT_EQ(ps_tree.processes_size(), 1);
-  auto first_process = ps_tree.processes(0);
+  auto first_process = ps_tree.processes()[0];
   ASSERT_EQ(first_process.pid(), 42);
   ASSERT_EQ(first_process.ppid(), 17);
   ASSERT_EQ(first_process.uid(), 43);
   ASSERT_THAT(first_process.cmdline(), ElementsAreArray({"foo", "bar", "baz"}));
 }
 
+// Regression test for b/147438623.
+TEST_F(ProcessStatsDataSourceTest, NonNulTerminatedCmdline) {
+  auto data_source = GetProcessStatsDataSource(DataSourceConfig());
+  EXPECT_CALL(*data_source, ReadProcPidFile(42, "status"))
+      .WillOnce(Return(
+          "Name: foo\nTgid:\t42\nPid:   42\nPPid:  17\nUid:  43 44 45 56\n"));
+  EXPECT_CALL(*data_source, ReadProcPidFile(42, "cmdline"))
+      .WillOnce(Return(std::string("surfaceflinger", 14)));
+
+  data_source->OnPids({42});
+
+  auto trace = writer_raw_->GetAllTracePackets();
+  ASSERT_EQ(trace.size(), 1u);
+  auto ps_tree = trace[0].process_tree();
+  ASSERT_EQ(ps_tree.processes_size(), 1);
+  auto first_process = ps_tree.processes()[0];
+  ASSERT_THAT(first_process.cmdline(), ElementsAreArray({"surfaceflinger"}));
+}
+
 TEST_F(ProcessStatsDataSourceTest, DontRescanCachedPIDsAndTIDs) {
   // assertion helpers
   auto expected_process = [](int pid) {
-    return [pid](protos::ProcessTree::Process process) {
+    return [pid](protos::gen::ProcessTree::Process process) {
       return process.pid() == pid && process.cmdline_size() > 0 &&
-             process.cmdline(0) == "proc_" + std::to_string(pid);
+             process.cmdline()[0] == "proc_" + std::to_string(pid);
     };
   };
   auto expected_thread = [](int tid) {
-    return [tid](protos::ProcessTree::Thread thread) {
+    return [tid](protos::gen::ProcessTree::Thread thread) {
       return thread.tid() == tid && thread.tgid() == tid / 10 * 10 &&
              thread.name() == "thread_" + std::to_string(tid);
     };
   };
 
   DataSourceConfig ds_config;
-  protozero::HeapBuffered<ProcessStatsConfig> cfg;
-  cfg->set_record_thread_names(true);
+  ProcessStatsConfig cfg;
+  cfg.set_record_thread_names(true);
   ds_config.set_process_stats_config_raw(cfg.SerializeAsString());
   auto data_source = GetProcessStatsDataSource(ds_config);
   for (int p : {10, 11, 12, 20, 21, 22, 30, 31, 32}) {
@@ -131,7 +151,7 @@ TEST_F(ProcessStatsDataSourceTest, DontRescanCachedPIDsAndTIDs) {
   data_source->OnPids({10, 30, 10, 31, 32});
 
   // check written contents
-  std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
+  auto trace = writer_raw_->GetAllTracePackets();
   EXPECT_EQ(trace.size(), 3u);
 
   // first packet - two unique processes, four threads
@@ -168,7 +188,7 @@ TEST_F(ProcessStatsDataSourceTest, IncrementalStateClear) {
   data_source->OnPids({42});
 
   {
-    std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
+    auto trace = writer_raw_->GetAllTracePackets();
     ASSERT_EQ(trace.size(), 1u);
     auto packet = trace[0];
     // First packet in the trace has no previous state, so the clear marker is
@@ -177,9 +197,9 @@ TEST_F(ProcessStatsDataSourceTest, IncrementalStateClear) {
 
     auto ps_tree = packet.process_tree();
     ASSERT_EQ(ps_tree.processes_size(), 1);
-    ASSERT_EQ(ps_tree.processes(0).pid(), 42);
-    ASSERT_EQ(ps_tree.processes(0).ppid(), 17);
-    ASSERT_THAT(ps_tree.processes(0).cmdline(),
+    ASSERT_EQ(ps_tree.processes()[0].pid(), 42);
+    ASSERT_EQ(ps_tree.processes()[0].ppid(), 17);
+    ASSERT_THAT(ps_tree.processes()[0].cmdline(),
                 ElementsAreArray({"first_cmdline"}));
   }
 
@@ -191,7 +211,7 @@ TEST_F(ProcessStatsDataSourceTest, IncrementalStateClear) {
   data_source->OnPids({42});
 
   {
-    std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
+    auto trace = writer_raw_->GetAllTracePackets();
     ASSERT_EQ(trace.size(), 1u);
   }
 
@@ -208,16 +228,16 @@ TEST_F(ProcessStatsDataSourceTest, IncrementalStateClear) {
 
   {
     // Second packet with new proc information.
-    std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
+    auto trace = writer_raw_->GetAllTracePackets();
     ASSERT_EQ(trace.size(), 2u);
     auto packet = trace[1];
     ASSERT_TRUE(packet.incremental_state_cleared());
 
     auto ps_tree = packet.process_tree();
     ASSERT_EQ(ps_tree.processes_size(), 1);
-    ASSERT_EQ(ps_tree.processes(0).pid(), 42);
-    ASSERT_EQ(ps_tree.processes(0).ppid(), 18);
-    ASSERT_THAT(ps_tree.processes(0).cmdline(),
+    ASSERT_EQ(ps_tree.processes()[0].pid(), 42);
+    ASSERT_EQ(ps_tree.processes()[0].ppid(), 18);
+    ASSERT_THAT(ps_tree.processes()[0].cmdline(),
                 ElementsAreArray({"second_cmdline"}));
   }
 }
@@ -225,15 +245,15 @@ TEST_F(ProcessStatsDataSourceTest, IncrementalStateClear) {
 TEST_F(ProcessStatsDataSourceTest, RenamePids) {
   // assertion helpers
   auto expected_old_process = [](int pid) {
-    return [pid](protos::ProcessTree::Process process) {
+    return [pid](protos::gen::ProcessTree::Process process) {
       return process.pid() == pid && process.cmdline_size() > 0 &&
-             process.cmdline(0) == "proc_" + std::to_string(pid);
+             process.cmdline()[0] == "proc_" + std::to_string(pid);
     };
   };
   auto expected_new_process = [](int pid) {
-    return [pid](protos::ProcessTree::Process process) {
+    return [pid](protos::gen::ProcessTree::Process process) {
       return process.pid() == pid && process.cmdline_size() > 0 &&
-             process.cmdline(0) == "new_" + std::to_string(pid);
+             process.cmdline()[0] == "new_" + std::to_string(pid);
     };
   };
 
@@ -264,7 +284,7 @@ TEST_F(ProcessStatsDataSourceTest, RenamePids) {
   data_source->OnPids({10, 20});
 
   // check written contents
-  std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
+  auto trace = writer_raw_->GetAllTracePackets();
   EXPECT_EQ(trace.size(), 3u);
 
   // first packet - two unique processes
@@ -289,9 +309,9 @@ TEST_F(ProcessStatsDataSourceTest, RenamePids) {
 
 TEST_F(ProcessStatsDataSourceTest, ProcessStats) {
   DataSourceConfig ds_config;
-  protozero::HeapBuffered<ProcessStatsConfig> cfg;
-  cfg->set_proc_stats_poll_ms(1);
-  cfg->add_quirks(ProcessStatsConfig::DISABLE_ON_DEMAND);
+  ProcessStatsConfig cfg;
+  cfg.set_proc_stats_poll_ms(1);
+  cfg.add_quirks(ProcessStatsConfig::DISABLE_ON_DEMAND);
   ds_config.set_process_stats_config_raw(cfg.SerializeAsString());
   auto data_source = GetProcessStatsDataSource(ds_config);
 
@@ -340,8 +360,8 @@ TEST_F(ProcessStatsDataSourceTest, ProcessStats) {
   task_runner_.RunUntilCheckpoint("all_done");
   data_source->Flush(1 /* FlushRequestId */, []() {});
 
-  std::vector<protos::ProcessStats::Process> processes;
-  std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
+  std::vector<protos::gen::ProcessStats::Process> processes;
+  auto trace = writer_raw_->GetAllTracePackets();
   for (const auto& packet : trace) {
     for (const auto& process : packet.process_stats().processes()) {
       processes.push_back(process);
@@ -368,10 +388,10 @@ TEST_F(ProcessStatsDataSourceTest, ProcessStats) {
 
 TEST_F(ProcessStatsDataSourceTest, CacheProcessStats) {
   DataSourceConfig ds_config;
-  protozero::HeapBuffered<ProcessStatsConfig> cfg;
-  cfg->set_proc_stats_poll_ms(105);
-  cfg->set_proc_stats_cache_ttl_ms(220);
-  cfg->add_quirks(ProcessStatsConfig::DISABLE_ON_DEMAND);
+  ProcessStatsConfig cfg;
+  cfg.set_proc_stats_poll_ms(105);
+  cfg.set_proc_stats_cache_ttl_ms(220);
+  cfg.add_quirks(ProcessStatsConfig::DISABLE_ON_DEMAND);
   ds_config.set_process_stats_config_raw(cfg.SerializeAsString());
   auto data_source = GetProcessStatsDataSource(ds_config);
 
@@ -411,8 +431,8 @@ TEST_F(ProcessStatsDataSourceTest, CacheProcessStats) {
   task_runner_.RunUntilCheckpoint("all_done");
   data_source->Flush(1 /* FlushRequestId */, []() {});
 
-  std::vector<protos::ProcessStats::Process> processes;
-  std::vector<protos::TracePacket> trace = writer_raw_->GetAllTracePackets();
+  std::vector<protos::gen::ProcessStats::Process> processes;
+  auto trace = writer_raw_->GetAllTracePackets();
   for (const auto& packet : trace) {
     for (const auto& process : packet.process_stats().processes()) {
       processes.push_back(process);

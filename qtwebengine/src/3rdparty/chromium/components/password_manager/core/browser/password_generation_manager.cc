@@ -9,7 +9,6 @@
 
 #include "base/callback.h"
 #include "base/time/default_clock.h"
-#include "components/password_manager/core/browser/form_fetcher.h"
 #include "components/password_manager/core/browser/form_saver.h"
 #include "components/password_manager/core/browser/password_form_manager_for_ui.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
@@ -63,6 +62,7 @@ class PasswordDataForUI : public PasswordFormManagerForUI {
   void OnNoInteraction(bool is_update) override;
   void PermanentlyBlacklist() override;
   void OnPasswordsRevealed() override;
+  void MoveCredentialsToAccountStore() override;
 
  private:
   PasswordForm pending_form_;
@@ -170,6 +170,8 @@ void PasswordDataForUI::PermanentlyBlacklist() {}
 
 void PasswordDataForUI::OnPasswordsRevealed() {}
 
+void PasswordDataForUI::MoveCredentialsToAccountStore() {}
+
 // Returns a form from |matches| that causes a name conflict with |generated|.
 const PasswordForm* FindUsernameConflict(
     const PasswordForm& generated,
@@ -197,24 +199,20 @@ std::unique_ptr<PasswordGenerationManager> PasswordGenerationManager::Clone()
 
 void PasswordGenerationManager::GeneratedPasswordAccepted(
     PasswordForm generated,
-    const FormFetcher& fetcher,
+    const std::vector<const PasswordForm*>& non_federated_matches,
+    const std::vector<const PasswordForm*>& federated_matches,
     base::WeakPtr<PasswordManagerDriver> driver) {
-  if (!base::FeatureList::IsEnabled(features::kGenerationNoOverwrites)) {
-    // If the feature not enabled, just proceed with the generation.
-    driver->GeneratedPasswordAccepted(generated.password_value);
-    return;
-  }
   // Clear the username value if there are already saved credentials with
   // the same username in order to prevent overwriting.
-  std::vector<const PasswordForm*> matches = fetcher.GetNonFederatedMatches();
-  if (FindUsernameConflict(generated, matches)) {
+  if (FindUsernameConflict(generated, non_federated_matches)) {
     generated.username_value.clear();
-    const PasswordForm* conflict = FindUsernameConflict(generated, matches);
+    const PasswordForm* conflict =
+        FindUsernameConflict(generated, non_federated_matches);
     if (conflict) {
       LogGenerationPresaveConflict(
           GenerationPresaveConflict::kConflictWithEmptyUsername);
       auto bubble_launcher = std::make_unique<PasswordDataForUI>(
-          std::move(generated), matches, fetcher.GetFederatedMatches(),
+          std::move(generated), non_federated_matches, federated_matches,
           base::BindRepeating(&PasswordGenerationManager::OnPresaveBubbleResult,
                               weak_factory_.GetWeakPtr(), std::move(driver)));
       client_->PromptUserToSaveOrUpdatePassword(std::move(bubble_launcher),
@@ -265,7 +263,6 @@ void PasswordGenerationManager::CommitGeneratedPassword(
     const base::string16& old_password,
     FormSaver* form_saver) {
   DCHECK(presaved_);
-  generated.preferred = true;
   generated.date_last_used = clock_->Now();
   generated.date_created = clock_->Now();
   form_saver->UpdateReplace(generated, matches, old_password,

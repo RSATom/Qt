@@ -23,7 +23,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "perfetto/ext/base/flat_set.h"
+#include "perfetto/base/flat_set.h"
 #include "perfetto/ext/base/scoped_file.h"
 #include "perfetto/ext/base/weak_ptr.h"
 #include "perfetto/ext/tracing/core/basic_types.h"
@@ -48,7 +48,7 @@ class ProcessStats_Process;
 
 class ProcessStatsDataSource : public ProbesDataSource {
  public:
-  static constexpr int kTypeId = 3;
+  static const ProbesDataSource::Descriptor descriptor;
 
   ProcessStatsDataSource(base::TaskRunner*,
                          TracingSessionID,

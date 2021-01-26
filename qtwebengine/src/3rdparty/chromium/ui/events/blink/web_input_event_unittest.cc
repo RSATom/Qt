@@ -18,6 +18,7 @@
 #include "ui/events/keycodes/dom/dom_key.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/events/test/keyboard_layout.h"
+#include "ui/events/x/x11_event_translation.h"
 
 #if defined(USE_X11)
 #include "ui/events/test/events_test_utils_x11.h"
@@ -81,8 +82,8 @@ TEST(WebInputEventTest, TestMakeWebKeyboardEvent) {
   {
     // Press Ctrl.
     xev.InitKeyEvent(ET_KEY_PRESSED, VKEY_CONTROL, 0);
-    KeyEvent event(xev);
-    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(event);
+    auto event = ui::BuildKeyEventFromXEvent(*xev);
+    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(*event);
     // However, modifier bit for Control in |webkit_event| should be set.
     EXPECT_EQ(blink::WebInputEvent::kControlKey,
               webkit_event.GetModifiers() & ~kLocationModifiers);
@@ -90,8 +91,8 @@ TEST(WebInputEventTest, TestMakeWebKeyboardEvent) {
   {
     // Release Ctrl.
     xev.InitKeyEvent(ET_KEY_RELEASED, VKEY_CONTROL, ControlMask);
-    KeyEvent event(xev);
-    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(event);
+    auto event = ui::BuildKeyEventFromXEvent(*xev);
+    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(*event);
     // However, modifier bit for Control in |webkit_event| shouldn't be set.
     EXPECT_EQ(0, webkit_event.GetModifiers() & ~kLocationModifiers);
   }
@@ -107,8 +108,8 @@ TEST(WebInputEventTest, TestMakeWebKeyboardEventWindowsKeyCode) {
     XEvent* xevent = xev;
     xevent->xkey.keycode =
         KeycodeConverter::DomCodeToNativeKeycode(DomCode::CONTROL_LEFT);
-    KeyEvent event(xev);
-    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(event);
+    auto event = ui::BuildKeyEventFromXEvent(*xev);
+    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(*event);
     EXPECT_EQ(VKEY_CONTROL, webkit_event.windows_key_code);
   }
   {
@@ -117,8 +118,8 @@ TEST(WebInputEventTest, TestMakeWebKeyboardEventWindowsKeyCode) {
     XEvent* xevent = xev;
     xevent->xkey.keycode =
         KeycodeConverter::DomCodeToNativeKeycode(DomCode::CONTROL_RIGHT);
-    KeyEvent event(xev);
-    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(event);
+    auto event = ui::BuildKeyEventFromXEvent(*xev);
+    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(*event);
     EXPECT_EQ(VKEY_CONTROL, webkit_event.windows_key_code);
   }
 #elif defined(OS_WIN)
@@ -225,8 +226,8 @@ TEST(WebInputEventTest, TestMakeWebKeyboardEventKeyPadKeyCode) {
         XKeysymToKeycode(gfx::GetXDisplay(), test_case.x_keysym);
     if (!xevent->xkey.keycode)
       continue;
-    KeyEvent event(xev);
-    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(event);
+    auto event = ui::BuildKeyEventFromXEvent(*xev);
+    blink::WebKeyboardEvent webkit_event = MakeWebKeyboardEvent(*event);
     EXPECT_EQ(test_case.expected_result, (webkit_event.GetModifiers() &
                                           blink::WebInputEvent::kIsKeyPad) != 0)
         << "Failed in " << i << "th test case: "
@@ -253,8 +254,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_EQ(blink::WebMouseEvent::Button::kLeft, webkit_event.button);
     EXPECT_EQ(blink::WebInputEvent::kMouseDown, webkit_event.GetType());
     EXPECT_EQ(ui_event.GetClickCount(), webkit_event.click_count);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Left released.
@@ -269,8 +270,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_EQ(blink::WebMouseEvent::Button::kLeft, webkit_event.button);
     EXPECT_EQ(blink::WebInputEvent::kMouseUp, webkit_event.GetType());
     EXPECT_EQ(ui_event.GetClickCount(), webkit_event.click_count);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Middle pressed.
@@ -285,8 +286,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_EQ(blink::WebMouseEvent::Button::kMiddle, webkit_event.button);
     EXPECT_EQ(blink::WebInputEvent::kMouseDown, webkit_event.GetType());
     EXPECT_EQ(ui_event.GetClickCount(), webkit_event.click_count);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Middle released.
@@ -301,8 +302,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_EQ(blink::WebMouseEvent::Button::kMiddle, webkit_event.button);
     EXPECT_EQ(blink::WebInputEvent::kMouseUp, webkit_event.GetType());
     EXPECT_EQ(ui_event.GetClickCount(), webkit_event.click_count);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Right pressed.
@@ -317,8 +318,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_EQ(blink::WebMouseEvent::Button::kRight, webkit_event.button);
     EXPECT_EQ(blink::WebInputEvent::kMouseDown, webkit_event.GetType());
     EXPECT_EQ(ui_event.GetClickCount(), webkit_event.click_count);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Right released.
@@ -333,8 +334,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_EQ(blink::WebMouseEvent::Button::kRight, webkit_event.button);
     EXPECT_EQ(blink::WebInputEvent::kMouseUp, webkit_event.GetType());
     EXPECT_EQ(ui_event.GetClickCount(), webkit_event.click_count);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Moved
@@ -348,8 +349,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_EQ(blink::WebMouseEvent::Button::kNoButton, webkit_event.button);
     EXPECT_EQ(blink::WebInputEvent::kMouseMove, webkit_event.GetType());
     EXPECT_EQ(ui_event.GetClickCount(), webkit_event.click_count);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Moved with left down
@@ -364,8 +365,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_EQ(blink::WebMouseEvent::Button::kLeft, webkit_event.button);
     EXPECT_EQ(blink::WebInputEvent::kMouseMove, webkit_event.GetType());
     EXPECT_EQ(ui_event.GetClickCount(), webkit_event.click_count);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Left with shift pressed.
@@ -380,8 +381,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_EQ(blink::WebMouseEvent::Button::kLeft, webkit_event.button);
     EXPECT_EQ(blink::WebInputEvent::kMouseDown, webkit_event.GetType());
     EXPECT_EQ(ui_event.GetClickCount(), webkit_event.click_count);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Default values for PointerDetails.
@@ -398,8 +399,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_TRUE(std::isnan(webkit_event.force));
     EXPECT_EQ(0.0f, webkit_event.tangential_pressure);
     EXPECT_EQ(0, webkit_event.twist);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
   {
     // Stylus values for PointerDetails.
@@ -426,8 +427,8 @@ TEST(WebInputEventTest, TestMakeWebMouseEvent) {
     EXPECT_FLOAT_EQ(0.6f, webkit_event.tangential_pressure);
     EXPECT_EQ(269, webkit_event.twist);
     EXPECT_EQ(63, webkit_event.id);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
 }
 
@@ -456,8 +457,8 @@ TEST(WebInputEventTest, TestMakeWebMouseWheelEvent) {
     EXPECT_TRUE(std::isnan(webkit_event.force));
     EXPECT_EQ(0.0f, webkit_event.tangential_pressure);
     EXPECT_EQ(0, webkit_event.twist);
-    EXPECT_EQ(123, webkit_event.PositionInWidget().x);
-    EXPECT_EQ(321, webkit_event.PositionInWidget().y);
+    EXPECT_EQ(123, webkit_event.PositionInWidget().x());
+    EXPECT_EQ(321, webkit_event.PositionInWidget().y());
   }
 }
 
@@ -531,10 +532,10 @@ TEST(WebInputEventTest, MousePointerEvent) {
     ASSERT_TRUE(blink::WebInputEvent::IsMouseEventType(web_event.GetType()));
     ASSERT_EQ(tests[i].web_type, web_event.GetType());
     ASSERT_EQ(tests[i].web_modifiers, web_event.GetModifiers());
-    ASSERT_EQ(tests[i].location.x(), web_event.PositionInWidget().x);
-    ASSERT_EQ(tests[i].location.y(), web_event.PositionInWidget().y);
-    ASSERT_EQ(tests[i].screen_location.x(), web_event.PositionInScreen().x);
-    ASSERT_EQ(tests[i].screen_location.y(), web_event.PositionInScreen().y);
+    ASSERT_EQ(tests[i].location.x(), web_event.PositionInWidget().x());
+    ASSERT_EQ(tests[i].location.y(), web_event.PositionInWidget().y());
+    ASSERT_EQ(tests[i].screen_location.x(), web_event.PositionInScreen().x());
+    ASSERT_EQ(tests[i].screen_location.y(), web_event.PositionInScreen().y());
   }
 }
 
@@ -549,10 +550,10 @@ TEST(WebInputEventTest, MouseLeaveScreenCoordinate) {
 
   // WM_MOUSELEAVE events take coordinates from cursor position instead of
   // LPARAM.
-  ASSERT_EQ(250, web_event.PositionInWidget().x);
-  ASSERT_EQ(350, web_event.PositionInWidget().y);
-  ASSERT_EQ(250, web_event.PositionInScreen().x);
-  ASSERT_EQ(350, web_event.PositionInScreen().y);
+  ASSERT_EQ(250, web_event.PositionInWidget().x());
+  ASSERT_EQ(350, web_event.PositionInWidget().y());
+  ASSERT_EQ(250, web_event.PositionInScreen().x());
+  ASSERT_EQ(350, web_event.PositionInScreen().y());
 }
 #endif
 

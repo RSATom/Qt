@@ -71,23 +71,6 @@ namespace internal {
 
 constexpr int kRegListSizeInBits = sizeof(RegList) * kBitsPerByte;
 
-const int kNumRegs = kNumberOfRegisters;
-// Registers x0-x17 are caller-saved.
-const int kNumJSCallerSaved = 18;
-const RegList kJSCallerSaved = 0x3ffff;
-
-// Number of registers for which space is reserved in safepoints. Must be a
-// multiple of eight.
-// TODO(all): Refine this number.
-const int kNumSafepointRegisters = 32;
-
-// Define the list of registers actually saved at safepoints.
-// Note that the number of saved registers may be smaller than the reserved
-// space, i.e. kNumSafepointSavedRegisters <= kNumSafepointRegisters.
-#define kSafepointSavedRegisters CPURegList::GetSafepointSavedRegisters().list()
-#define kNumSafepointSavedRegisters \
-  CPURegList::GetSafepointSavedRegisters().Count()
-
 // Some CPURegister methods can return Register and VRegister types, so we
 // need to declare them in advance.
 class Register;
@@ -108,14 +91,10 @@ class CPURegister : public RegisterBase<CPURegister, kRegAfterLast> {
     return CPURegister{kCode_no_reg, 0, kNoRegister};
   }
 
-  template <int code, int size, RegisterType type>
-  static constexpr CPURegister Create() {
-    static_assert(IsValid(code, size, type), "Cannot create invalid registers");
-    return CPURegister{code, size, type};
-  }
-
-  static CPURegister Create(int code, int size, RegisterType type) {
+  static constexpr CPURegister Create(int code, int size, RegisterType type) {
+#if V8_HAS_CXX14_CONSTEXPR
     DCHECK(IsValid(code, size, type));
+#endif
     return CPURegister{code, size, type};
   }
 
@@ -242,27 +221,16 @@ class Register : public CPURegister {
  public:
   static constexpr Register no_reg() { return Register(CPURegister::no_reg()); }
 
-  template <int code, int size>
-  static constexpr Register Create() {
-    return Register(CPURegister::Create<code, size, CPURegister::kRegister>());
-  }
-
-  static Register Create(int code, int size) {
+  static constexpr Register Create(int code, int size) {
     return Register(CPURegister::Create(code, size, CPURegister::kRegister));
   }
 
   static Register XRegFromCode(unsigned code);
   static Register WRegFromCode(unsigned code);
 
-  static Register from_code(int code) {
+  static constexpr Register from_code(int code) {
     // Always return an X register.
     return Register::Create(code, kXRegSizeInBits);
-  }
-
-  template <int code>
-  static Register from_code() {
-    // Always return an X register.
-    return Register::Create<code, kXRegSizeInBits>();
   }
 
   static const char* GetSpecialRegisterName(int code) {
@@ -335,14 +303,10 @@ class VRegister : public CPURegister {
     return VRegister(CPURegister::no_reg(), 0);
   }
 
-  template <int code, int size, int lane_count = 1>
-  static constexpr VRegister Create() {
-    static_assert(IsValidLaneCount(lane_count), "Invalid lane count");
-    return VRegister(CPURegister::Create<code, size, kVRegister>(), lane_count);
-  }
-
-  static VRegister Create(int code, int size, int lane_count = 1) {
+  static constexpr VRegister Create(int code, int size, int lane_count = 1) {
+#if V8_HAS_CXX14_CONSTEXPR
     DCHECK(IsValidLaneCount(lane_count));
+#endif
     return VRegister(CPURegister::Create(code, size, CPURegister::kVRegister),
                      lane_count);
   }
@@ -459,7 +423,7 @@ constexpr Register no_reg = NoReg;
 constexpr VRegister no_dreg = NoVReg;
 
 #define DEFINE_REGISTER(register_class, name, ...) \
-  constexpr register_class name = register_class::Create<__VA_ARGS__>()
+  constexpr register_class name = register_class::Create(__VA_ARGS__)
 #define ALIAS_REGISTER(register_class, alias, name) \
   constexpr register_class alias = name
 
@@ -619,10 +583,6 @@ class V8_EXPORT_PRIVATE CPURegList {
   void Combine(int code);
   void Remove(int code);
 
-  // Remove all callee-saved registers from the list. This can be useful when
-  // preparing registers for an AAPCS64 function call, for example.
-  void RemoveCalleeSaved();
-
   // Align the list to 16 bytes.
   void Align();
 
@@ -638,9 +598,6 @@ class V8_EXPORT_PRIVATE CPURegList {
   // 64-bits being caller-saved.
   static CPURegList GetCallerSaved(int size = kXRegSizeInBits);
   static CPURegList GetCallerSavedV(int size = kDRegSizeInBits);
-
-  // Registers saved as safepoints.
-  static CPURegList GetSafepointSavedRegisters();
 
   bool IsEmpty() const {
     return list_ == 0;

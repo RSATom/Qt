@@ -6,8 +6,11 @@
 
 #include <limits>
 
+#include "include/v8-fast-api-calls.h"
 #include "src/base/bits.h"
+#include "src/base/small-vector.h"
 #include "src/codegen/code-factory.h"
+#include "src/codegen/machine-type.h"
 #include "src/codegen/tick-counter.h"
 #include "src/compiler/access-builder.h"
 #include "src/compiler/common-operator.h"
@@ -175,10 +178,16 @@ void ReplaceEffectControlUses(Node* node, Node* effect, Node* control) {
 }
 
 bool CanOverflowSigned32(const Operator* op, Type left, Type right,
-                         Zone* type_zone) {
-  // We assume the inputs are checked Signed32 (or known statically
-  // to be Signed32). Technically, the inputs could also be minus zero, but
-  // that cannot cause overflow.
+                         TypeCache const* type_cache, Zone* type_zone) {
+  // We assume the inputs are checked Signed32 (or known statically to be
+  // Signed32). Technically, the inputs could also be minus zero, which we treat
+  // as 0 for the purpose of this function.
+  if (left.Maybe(Type::MinusZero())) {
+    left = Type::Union(left, type_cache->kSingletonZero, type_zone);
+  }
+  if (right.Maybe(Type::MinusZero())) {
+    right = Type::Union(right, type_cache->kSingletonZero, type_zone);
+  }
   left = Type::Intersect(left, Type::Signed32(), type_zone);
   right = Type::Intersect(right, Type::Signed32(), type_zone);
   if (left.IsNone() || right.IsNone()) return false;
@@ -1468,7 +1477,8 @@ class RepresentationSelector {
     if (lower()) {
       if (truncation.IsUsedAsWord32() ||
           !CanOverflowSigned32(node->op(), left_feedback_type,
-                               right_feedback_type, graph_zone())) {
+                               right_feedback_type, type_cache_,
+                               graph_zone())) {
         ChangeToPureOp(node, Int32Op(node));
 
       } else {
@@ -1643,7 +1653,8 @@ class RepresentationSelector {
   }
 
   void VisitCheckBounds(Node* node, SimplifiedLowering* lowering) {
-    CheckParameters const& p = CheckParametersOf(node->op());
+    CheckBoundsParameters const& p = CheckBoundsParametersOf(node->op());
+    FeedbackSource const& feedback = p.check_parameters().feedback();
     Type const index_type = TypeOf(node->InputAt(0));
     Type const length_type = TypeOf(node->InputAt(1));
     if (length_type.Is(Type::Unsigned31())) {
@@ -1654,8 +1665,7 @@ class RepresentationSelector {
         VisitBinop(node, UseInfo::TruncatingWord32(),
                    MachineRepresentation::kWord32);
         if (lower()) {
-          CheckBoundsParameters::Mode mode =
-              CheckBoundsParameters::kDeoptOnOutOfBounds;
+          CheckBoundsParameters::Mode mode = p.mode();
           if (lowering->poisoning_level_ ==
                   PoisoningMitigationLevel::kDontPoison &&
               (index_type.IsNone() || length_type.IsNone() ||
@@ -1666,32 +1676,126 @@ class RepresentationSelector {
             mode = CheckBoundsParameters::kAbortOnOutOfBounds;
           }
           NodeProperties::ChangeOp(
-              node, simplified()->CheckedUint32Bounds(p.feedback(), mode));
+              node, simplified()->CheckedUint32Bounds(feedback, mode));
         }
       } else {
-        VisitBinop(node, UseInfo::CheckedTaggedAsArrayIndex(p.feedback()),
+        VisitBinop(node, UseInfo::CheckedTaggedAsArrayIndex(feedback),
                    UseInfo::Word(), MachineType::PointerRepresentation());
         if (lower()) {
           if (jsgraph_->machine()->Is64()) {
             NodeProperties::ChangeOp(
-                node, simplified()->CheckedUint64Bounds(p.feedback()));
+                node, simplified()->CheckedUint64Bounds(feedback, p.mode()));
           } else {
             NodeProperties::ChangeOp(
-                node,
-                simplified()->CheckedUint32Bounds(
-                    p.feedback(), CheckBoundsParameters::kDeoptOnOutOfBounds));
+                node, simplified()->CheckedUint32Bounds(feedback, p.mode()));
           }
         }
       }
     } else {
-      DCHECK(length_type.Is(type_cache_->kPositiveSafeInteger));
+      CHECK(length_type.Is(type_cache_->kPositiveSafeInteger));
       VisitBinop(node,
-                 UseInfo::CheckedSigned64AsWord64(kIdentifyZeros, p.feedback()),
+                 UseInfo::CheckedSigned64AsWord64(kIdentifyZeros, feedback),
                  UseInfo::Word64(), MachineRepresentation::kWord64);
       if (lower()) {
         NodeProperties::ChangeOp(
-            node, simplified()->CheckedUint64Bounds(p.feedback()));
+            node, simplified()->CheckedUint64Bounds(feedback, p.mode()));
       }
+    }
+  }
+
+  static MachineType MachineTypeFor(CTypeInfo::Type type) {
+    switch (type) {
+      case CTypeInfo::Type::kVoid:
+        return MachineType::Int32();
+      case CTypeInfo::Type::kBool:
+        return MachineType::Bool();
+      case CTypeInfo::Type::kInt32:
+        return MachineType::Int32();
+      case CTypeInfo::Type::kUint32:
+        return MachineType::Uint32();
+      case CTypeInfo::Type::kInt64:
+        return MachineType::Int64();
+      case CTypeInfo::Type::kUint64:
+        return MachineType::Uint64();
+      case CTypeInfo::Type::kFloat32:
+        return MachineType::Float32();
+      case CTypeInfo::Type::kFloat64:
+        return MachineType::Float64();
+      case CTypeInfo::Type::kUnwrappedApiObject:
+        return MachineType::Pointer();
+    }
+  }
+
+  UseInfo UseInfoForFastApiCallArgument(CTypeInfo::Type type,
+                                        FeedbackSource const& feedback) {
+    switch (type) {
+      case CTypeInfo::Type::kVoid:
+        UNREACHABLE();
+      case CTypeInfo::Type::kBool:
+        return UseInfo::Bool();
+      case CTypeInfo::Type::kInt32:
+      case CTypeInfo::Type::kUint32:
+      case CTypeInfo::Type::kFloat32:
+        return UseInfo::CheckedNumberAsWord32(feedback);
+      case CTypeInfo::Type::kInt64:
+        return UseInfo::CheckedSigned64AsWord64(kIdentifyZeros, feedback);
+      case CTypeInfo::Type::kFloat64:
+        return UseInfo::CheckedNumberAsFloat64(kIdentifyZeros, feedback);
+      // UseInfo::Word64 does not propagate any TypeCheckKind, so it relies
+      // on the implicit assumption that Word64 representation only holds
+      // Numbers, which is already no longer true with BigInts. By now,
+      // BigInts are handled in a very conservative way to make sure they don't
+      // fall into that pit, but future changes may break this here.
+      case CTypeInfo::Type::kUint64:
+        return UseInfo::Word64();
+      case CTypeInfo::Type::kUnwrappedApiObject:
+        return UseInfo::Word();
+    }
+  }
+
+  static constexpr int kInitialArgumentsCount = 10;
+
+  void VisitFastApiCall(Node* node) {
+    FastApiCallParameters const& params = FastApiCallParametersOf(node->op());
+    const CFunctionInfo* c_signature = params.signature();
+    int c_arg_count = c_signature->ArgumentCount();
+    int value_input_count = node->op()->ValueInputCount();
+    // function, ... C args
+    CHECK_EQ(c_arg_count + 1, value_input_count);
+
+    base::SmallVector<UseInfo, kInitialArgumentsCount> arg_use_info(
+        c_arg_count);
+    ProcessInput(node, 0, UseInfo::Word());
+    // Propagate representation information from TypeInfo.
+    for (int i = 0; i < c_arg_count; i++) {
+      arg_use_info[i] = UseInfoForFastApiCallArgument(
+          c_signature->ArgumentInfo(i).GetType(), params.feedback());
+      ProcessInput(node, i + 1, arg_use_info[i]);
+    }
+
+    MachineType return_type =
+        MachineTypeFor(c_signature->ReturnInfo().GetType());
+    SetOutput(node, return_type.representation());
+
+    if (lower()) {
+      MachineSignature::Builder builder(graph()->zone(), 1, c_arg_count);
+      builder.AddReturn(return_type);
+      for (int i = 0; i < c_arg_count; ++i) {
+        MachineType machine_type =
+            MachineTypeFor(c_signature->ArgumentInfo(i).GetType());
+        // Here the arg_use_info are indexed starting from 1 because of the
+        // function input, while this loop is only over the actual arguments.
+        DCHECK_EQ(arg_use_info[i].representation(),
+                  machine_type.representation());
+        builder.AddParam(machine_type);
+      }
+
+      CallDescriptor* call_descriptor = Linkage::GetSimplifiedCDescriptor(
+          graph()->zone(), builder.Build(), CallDescriptor::kNoFlags);
+
+      call_descriptor->SetCFunctionInfo(c_signature);
+
+      NodeProperties::ChangeOp(node, common()->Call(call_descriptor));
     }
   }
 
@@ -3428,6 +3532,12 @@ class RepresentationSelector {
         VisitUnop(node, UseInfo::AnyTagged(), MachineRepresentation::kTagged);
         return;
       }
+      case IrOpcode::kCheckClosure: {
+        VisitUnop(node,
+                  UseInfo::CheckedHeapObjectAsTaggedPointer(FeedbackSource()),
+                  MachineRepresentation::kTaggedPointer);
+        return;
+      }
       case IrOpcode::kConvertTaggedHoleToUndefined: {
         if (InputIs(node, Type::NumberOrOddball()) &&
             truncation.IsUsedAsWord32()) {
@@ -3510,6 +3620,7 @@ class RepresentationSelector {
         return VisitObjectState(node);
       case IrOpcode::kObjectId:
         return SetOutput(node, MachineRepresentation::kTaggedPointer);
+
       case IrOpcode::kTypeGuard: {
         // We just get rid of the sigma here, choosing the best representation
         // for the sigma's type.
@@ -3529,6 +3640,10 @@ class RepresentationSelector {
         SetOutput(node, representation);
         return;
       }
+
+      case IrOpcode::kFoldConstant:
+        VisitInputs(node);
+        return SetOutput(node, MachineRepresentation::kTaggedPointer);
 
       case IrOpcode::kFinishRegion:
         VisitInputs(node);
@@ -3554,6 +3669,11 @@ class RepresentationSelector {
           VisitBinop(node, UseInfo::AnyTagged(),
                      MachineRepresentation::kTaggedSigned);
         }
+        return;
+      }
+
+      case IrOpcode::kFastApiCall: {
+        VisitFastApiCall(node);
         return;
       }
 

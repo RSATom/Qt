@@ -101,6 +101,11 @@ static const quint16 PSK_SERVER_PORT = 4433;
 static const QByteArray PSK_CLIENT_PRESHAREDKEY = QByteArrayLiteral("\x1a\x2b\x3c\x4d\x5e\x6f");
 static const QByteArray PSK_SERVER_IDENTITY_HINT = QByteArrayLiteral("QtTestServerHint");
 static const QByteArray PSK_CLIENT_IDENTITY = QByteArrayLiteral("Client_identity");
+
+QT_BEGIN_NAMESPACE
+void qt_ForceTlsSecurityLevel();
+QT_END_NAMESPACE
+
 #endif  // !QT_NO_OPENSSL
 
 class tst_QSslSocket : public QObject
@@ -435,6 +440,10 @@ void tst_QSslSocket::init()
         QSKIP("No proxy support");
 #endif // QT_NO_NETWORKPROXY
     }
+
+#ifndef QT_NO_OPENSSL
+    QT_PREPEND_NAMESPACE(qt_ForceTlsSecurityLevel)();
+#endif // QT_NO_OPENSSL
 
     qt_qhostinfo_clear_cache();
 }
@@ -3425,14 +3434,6 @@ void tst_QSslSocket::verifyClientCertificate()
     // check server socket
     QVERIFY(server.socket);
 
-#if QT_CONFIG(schannel)
-    // As additional info to the QEXPECT_FAIL below:
-    // This is because schannel treats it as an error (client side) if you don't have a certificate
-    // when asked for one.
-    QEXPECT_FAIL("NoCert:VerifyPeer",
-                 "The client disconnects first, which causes the event "
-                 "loop to quit before the server disconnects.", Continue);
-#endif
     QCOMPARE(server.socket->state(), expectedState);
     QCOMPARE(server.socket->isEncrypted(), works);
 

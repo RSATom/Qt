@@ -38,8 +38,10 @@ public:
         // read texels outside of the domain.  We could perform additional texture reads and filter
         // in the shader, but are not currently doing this for performance reasons
         kRepeat_Mode,
+        // Mirror wrap texture coordinates. NOTE: suffers the same filtering limitation as kRepeat.
+        kMirrorRepeat_Mode,
 
-        kLastMode = kRepeat_Mode
+        kLastMode = kMirrorRepeat_Mode
     };
     static const int kModeCount = kLastMode + 1;
 
@@ -103,7 +105,7 @@ public:
         return IsDecalSampled(wraps[0], wraps[1], modeX, modeY);
     }
 
-    static bool IsDecalSampled(const GrSamplerState& sampler, Mode modeX, Mode modeY) {
+    static bool IsDecalSampled(GrSamplerState sampler, Mode modeX, Mode modeY) {
         return IsDecalSampled(sampler.wrapModeX(), sampler.wrapModeY(), modeX, modeY);
     }
 
@@ -176,14 +178,14 @@ public:
          * account for the texture's origin. Filtering at the edge of the domain is inferred from
          * the GrSamplerState's filter mode.
          */
-        void setData(const GrGLSLProgramDataManager&, const GrTextureDomain&, const GrSurfaceProxy*,
-                     const GrSamplerState& state);
+        void setData(const GrGLSLProgramDataManager&, const GrTextureDomain&,
+                     const GrSurfaceProxyView&, GrSamplerState state);
         /** Same as above but with direct control over decal filtering. */
         void setData(const GrGLSLProgramDataManager&, const GrTextureDomain&, const GrSurfaceProxy*,
-                     bool filterIfDecal);
+                     GrSurfaceOrigin, bool filterIfDecal);
 
         enum {
-            kModeBits = 2, // See DomainKey().
+            kModeBits = 3,  // See DomainKey().
             kDomainKeyBits = 4
         };
 
@@ -192,7 +194,7 @@ public:
          * computed key. The returned will be limited to the lower kDomainKeyBits bits.
          */
         static uint32_t DomainKey(const GrTextureDomain& domain) {
-            GR_STATIC_ASSERT(kModeCount <= (1 << kModeBits));
+            static_assert(kModeCount <= (1 << kModeBits), "");
             return domain.modeX() | (domain.modeY() << kModeBits);
         }
 
@@ -229,127 +231,4 @@ protected:
     int     fIndex;
 };
 
-/**
- * This effect applies a domain rectangle with an edge "mode" to the result of the child FP's coord
- * transform. Currently the passed FP (including its descendants) must have exactly 1 coord
- * transform (due to internal program builder restrictions). Also, it's important to note that the
- * domain rectangle is applied  AFTER the corod transform. This allows us to continue to lift the
- * coord transform to the vertex shader. It might make this nicer for some use cases to add a
- * pre-coord transform option and try to adjust the domain rect internally to convert to
- * post-coord transform and keep everything in the vertex shader for simple use cases.
- */
-class GrDomainEffect : public GrFragmentProcessor {
-public:
-    static std::unique_ptr<GrFragmentProcessor> Make(std::unique_ptr<GrFragmentProcessor>,
-                                                     const SkRect& domain,
-                                                     GrTextureDomain::Mode,
-                                                     bool decalIsFiltered);
-
-    static std::unique_ptr<GrFragmentProcessor> Make(std::unique_ptr<GrFragmentProcessor>,
-                                                     const SkRect& domain,
-                                                     GrTextureDomain::Mode modeX,
-                                                     GrTextureDomain::Mode modeY,
-                                                     bool decalIsFiltered);
-
-    // These variants infer decalIsFiltered from the Filter mode (true if not kNearest).
-    static std::unique_ptr<GrFragmentProcessor> Make(std::unique_ptr<GrFragmentProcessor>,
-                                                     const SkRect& domain,
-                                                     GrTextureDomain::Mode,
-                                                     GrSamplerState::Filter);
-
-    static std::unique_ptr<GrFragmentProcessor> Make(std::unique_ptr<GrFragmentProcessor>,
-                                                     const SkRect& domain,
-                                                     GrTextureDomain::Mode modeX,
-                                                     GrTextureDomain::Mode modeY,
-                                                     GrSamplerState::Filter);
-
-    const char* name() const override { return "Domain"; }
-
-    std::unique_ptr<GrFragmentProcessor> clone() const override {
-        return std::unique_ptr<GrFragmentProcessor>(new GrDomainEffect(*this));
-    }
-
-#ifdef SK_DEBUG
-    SkString dumpInfo() const override {
-        SkString str;
-        str.appendf("Domain: [L: %.2f, T: %.2f, R: %.2f, B: %.2f], filterDecal: %d",
-                    fDomain.domain().fLeft, fDomain.domain().fTop, fDomain.domain().fRight,
-                    fDomain.domain().fBottom, fDecalIsFiltered);
-        str.append(INHERITED::dumpInfo());
-        return str;
-    }
-#endif
-
-private:
-    GrFragmentProcessor::OptimizationFlags Flags(GrFragmentProcessor*, GrTextureDomain::Mode,
-                                                 GrTextureDomain::Mode);
-
-    GrCoordTransform fCoordTransform;
-    GrTextureDomain fDomain;
-    bool fDecalIsFiltered;
-
-    GrDomainEffect(std::unique_ptr<GrFragmentProcessor>,
-                   const GrCoordTransform& transform,
-                   const SkRect& domain,
-                   GrTextureDomain::Mode modeX,
-                   GrTextureDomain::Mode modeY,
-                   bool decalIsFiltered);
-
-    explicit GrDomainEffect(const GrDomainEffect&);
-
-    GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
-
-    void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override;
-
-    bool onIsEqual(const GrFragmentProcessor&) const override;
-
-    GR_DECLARE_FRAGMENT_PROCESSOR_TEST
-
-    typedef GrFragmentProcessor INHERITED;
-};
-
-class GrDeviceSpaceTextureDecalFragmentProcessor : public GrFragmentProcessor {
-public:
-    static std::unique_ptr<GrFragmentProcessor> Make(sk_sp<GrSurfaceProxy>,
-                                                     const SkIRect& subset,
-                                                     const SkIPoint& deviceSpaceOffset);
-
-    const char* name() const override { return "GrDeviceSpaceTextureDecalFragmentProcessor"; }
-
-#ifdef SK_DEBUG
-    SkString dumpInfo() const override {
-        SkString str;
-        str.appendf("Domain: [L: %.2f, T: %.2f, R: %.2f, B: %.2f] Offset: [%d %d]",
-                    fTextureDomain.domain().fLeft, fTextureDomain.domain().fTop,
-                    fTextureDomain.domain().fRight, fTextureDomain.domain().fBottom,
-                    fDeviceSpaceOffset.fX, fDeviceSpaceOffset.fY);
-        str.append(INHERITED::dumpInfo());
-        return str;
-    }
-#endif
-
-    std::unique_ptr<GrFragmentProcessor> clone() const override;
-
-private:
-    TextureSampler fTextureSampler;
-    GrTextureDomain fTextureDomain;
-    SkIPoint fDeviceSpaceOffset;
-
-    GrDeviceSpaceTextureDecalFragmentProcessor(sk_sp<GrSurfaceProxy>,
-                                               const SkIRect&, const SkIPoint&);
-    GrDeviceSpaceTextureDecalFragmentProcessor(const GrDeviceSpaceTextureDecalFragmentProcessor&);
-
-    GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
-
-    // Since we always use decal mode, there is no need for key data.
-    void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override {}
-
-    bool onIsEqual(const GrFragmentProcessor& fp) const override;
-
-    const TextureSampler& onTextureSampler(int) const override { return fTextureSampler; }
-
-    GR_DECLARE_FRAGMENT_PROCESSOR_TEST
-
-    typedef GrFragmentProcessor INHERITED;
-};
 #endif

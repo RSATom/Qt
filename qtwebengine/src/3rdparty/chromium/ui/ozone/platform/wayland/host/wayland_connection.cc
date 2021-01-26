@@ -83,14 +83,15 @@ bool WaylandConnection::Initialize() {
     LOG(ERROR) << "No wl_shm object";
     return false;
   }
-  if (!seat_) {
-    LOG(ERROR) << "No wl_seat object";
-    return false;
-  }
   if (!shell_v6_ && !shell_) {
     LOG(ERROR) << "No Wayland shell found";
     return false;
   }
+
+  // When we are running tests with weston in headless mode, the seat is not
+  // announced.
+  if (!seat_)
+    LOG(WARNING) << "No wl_seat object. The functionality may suffer.";
 
   return true;
 }
@@ -122,13 +123,17 @@ void WaylandConnection::MaybePrepareReadQueue() {
 }
 
 void WaylandConnection::ScheduleFlush() {
-  if (scheduled_flush_)
-    return;
-  DCHECK(base::MessageLoopCurrentForUI::IsSet());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&WaylandConnection::Flush, base::Unretained(this)));
-  scheduled_flush_ = true;
+  // When we are in tests, the message loop is set later when the
+  // initialization of the OzonePlatform complete. Thus, just
+  // flush directly. This doesn't happen in normal run.
+  if (!base::MessageLoopCurrentForUI::IsSet()) {
+    Flush();
+  } else if (!scheduled_flush_) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&WaylandConnection::Flush, base::Unretained(this)));
+    scheduled_flush_ = true;
+  }
 }
 
 void WaylandConnection::SetCursorBitmap(const std::vector<SkBitmap>& bitmaps,
@@ -174,6 +179,9 @@ void WaylandConnection::RequestDragData(
 }
 
 bool WaylandConnection::IsDragInProgress() {
+  // |data_device_| can be null when running on headless weston.
+  if (!data_device_)
+    return false;
   return data_device_->IsDragEntered() || drag_data_source();
 }
 
@@ -281,6 +289,7 @@ void WaylandConnection::Global(void* data,
   if (!connection->compositor_ && strcmp(interface, "wl_compositor") == 0) {
     connection->compositor_ = wl::Bind<wl_compositor>(
         registry, name, std::min(version, kMaxCompositorVersion));
+    connection->compositor_version_ = version;
     if (!connection->compositor_)
       LOG(ERROR) << "Failed to bind to wl_compositor global";
   } else if (!connection->subcompositor_ &&

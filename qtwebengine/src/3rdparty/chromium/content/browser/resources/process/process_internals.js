@@ -22,7 +22,7 @@ function selectTab(id) {
   for (let i = 0; i < tabContents.length; i++) {
     const tabContent = tabContents[i];
     const tabHeader = tabHeaders[i];
-    const isTargetTab = tabContent.id == id;
+    const isTargetTab = tabContent.id === id;
 
     found = found || isTargetTab;
     tabContent.classList.toggle('selected', isTargetTab);
@@ -231,7 +231,7 @@ function loadIsolatedOriginInfo() {
 
 document.addEventListener('DOMContentLoaded', function() {
   // Setup Mojo interface to the backend.
-  pageHandler = mojom.ProcessInternalsHandler.getRemote(true);
+  pageHandler = mojom.ProcessInternalsHandler.getRemote();
 
   // Get the Site Isolation mode and populate it.
   pageHandler.getIsolationMode().then((response) => {

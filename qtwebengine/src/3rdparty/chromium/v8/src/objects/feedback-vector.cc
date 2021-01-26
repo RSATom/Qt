@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 #include "src/objects/feedback-vector.h"
+#include "src/diagnostics/code-tracer.h"
+#include "src/heap/off-thread-factory-inl.h"
 #include "src/ic/handler-configuration-inl.h"
 #include "src/ic/ic-inl.h"
 #include "src/objects/data-handler-inl.h"
@@ -73,9 +75,10 @@ void FeedbackMetadata::SetKind(FeedbackSlot slot, FeedbackSlotKind kind) {
 }
 
 // static
-Handle<FeedbackMetadata> FeedbackMetadata::New(Isolate* isolate,
+template <typename LocalIsolate>
+Handle<FeedbackMetadata> FeedbackMetadata::New(LocalIsolate* isolate,
                                                const FeedbackVectorSpec* spec) {
-  Factory* factory = isolate->factory();
+  auto* factory = isolate->factory();
 
   const int slot_count = spec == nullptr ? 0 : spec->slots();
   const int closure_feedback_cell_count =
@@ -110,6 +113,11 @@ Handle<FeedbackMetadata> FeedbackMetadata::New(Isolate* isolate,
 
   return metadata;
 }
+
+template Handle<FeedbackMetadata> FeedbackMetadata::New(
+    Isolate* isolate, const FeedbackVectorSpec* spec);
+template Handle<FeedbackMetadata> FeedbackMetadata::New(
+    OffThreadIsolate* isolate, const FeedbackVectorSpec* spec);
 
 bool FeedbackMetadata::SpecDiffersFrom(
     const FeedbackVectorSpec* other_spec) const {
@@ -360,10 +368,12 @@ void FeedbackVector::EvictOptimizedCodeMarkedForDeoptimization(
   Code code = Code::cast(slot->GetHeapObject());
   if (code.marked_for_deoptimization()) {
     if (FLAG_trace_deopt) {
-      PrintF("[evicting optimizing code marked for deoptimization (%s) for ",
+      CodeTracer::Scope scope(GetIsolate()->GetCodeTracer());
+      PrintF(scope.file(),
+             "[evicting optimizing code marked for deoptimization (%s) for ",
              reason);
-      shared.ShortPrint();
-      PrintF("]\n");
+      shared.ShortPrint(scope.file());
+      PrintF(scope.file(), "]\n");
     }
     if (!code.deopt_already_counted()) {
       code.set_deopt_already_counted(true);
@@ -631,9 +641,16 @@ InlineCacheState FeedbackNexus::ic_state() const {
       if (feedback == MaybeObject::FromObject(
                           *FeedbackVector::MegamorphicSentinel(isolate))) {
         return GENERIC;
-      } else if (feedback->IsWeakOrCleared() ||
-                 (feedback->GetHeapObjectIfStrong(&heap_object) &&
-                  heap_object.IsAllocationSite())) {
+      } else if (feedback->IsWeakOrCleared()) {
+        if (feedback->GetHeapObjectIfWeak(&heap_object)) {
+          if (heap_object.IsFeedbackCell()) {
+            return POLYMORPHIC;
+          }
+          CHECK(heap_object.IsJSFunction() || heap_object.IsJSBoundFunction());
+        }
+        return MONOMORPHIC;
+      } else if (feedback->GetHeapObjectIfStrong(&heap_object) &&
+                 heap_object.IsAllocationSite()) {
         return MONOMORPHIC;
       }
 
@@ -966,7 +983,7 @@ int FeedbackNexus::ExtractMaps(MapHandles* maps) const {
 
 int FeedbackNexus::ExtractMapsAndHandlers(
     std::vector<std::pair<Handle<Map>, MaybeObjectHandle>>* maps_and_handlers,
-    bool try_update_deprecated) const {
+    bool drop_deprecated) const {
   DCHECK(IsLoadICKind(kind()) ||
          IsStoreICKind(kind()) | IsKeyedLoadICKind(kind()) ||
          IsKeyedStoreICKind(kind()) || IsStoreOwnICKind(kind()) ||
@@ -998,13 +1015,10 @@ int FeedbackNexus::ExtractMapsAndHandlers(
         MaybeObject handler = array.Get(i + 1);
         if (!handler->IsCleared()) {
           DCHECK(IC::IsHandler(handler));
-          Handle<Map> map(Map::cast(heap_object), isolate);
-          if (try_update_deprecated &&
-              !Map::TryUpdate(isolate, map).ToHandle(&map)) {
-            continue;
-          }
+          Map map = Map::cast(heap_object);
+          if (drop_deprecated && map.is_deprecated()) continue;
           maps_and_handlers->push_back(
-              MapAndHandler(map, handle(handler, isolate)));
+              MapAndHandler(handle(map, isolate), handle(handler, isolate)));
           found++;
         }
       }
@@ -1014,13 +1028,10 @@ int FeedbackNexus::ExtractMapsAndHandlers(
     MaybeObject handler = GetFeedbackExtra();
     if (!handler->IsCleared()) {
       DCHECK(IC::IsHandler(handler));
-      Handle<Map> map = handle(Map::cast(heap_object), isolate);
-      if (try_update_deprecated &&
-          !Map::TryUpdate(isolate, map).ToHandle(&map)) {
-        return 0;
-      }
+      Map map = Map::cast(heap_object);
+      if (drop_deprecated && map.is_deprecated()) return 0;
       maps_and_handlers->push_back(
-          MapAndHandler(map, handle(handler, isolate)));
+          MapAndHandler(handle(map, isolate), handle(handler, isolate)));
       return 1;
     }
   }

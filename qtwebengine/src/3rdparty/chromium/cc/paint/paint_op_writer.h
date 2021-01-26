@@ -75,6 +75,9 @@ class CC_PAINT_EXPORT PaintOpWriter {
   void Write(SkFilterQuality filter_quality) {
     Write(static_cast<uint8_t>(filter_quality));
   }
+  void Write(SkBlendMode blend_mode) {
+    Write(static_cast<uint8_t>(blend_mode));
+  }
   void Write(bool data) { Write(static_cast<uint8_t>(data)); }
 
   // Aligns the memory to the given alignment.
@@ -102,6 +105,11 @@ class CC_PAINT_EXPORT PaintOpWriter {
   // |quality| is set to the quality that should be used when rasterizing this
   // image.
   void Write(const DrawImage& draw_image, SkSize* scale_adjustment);
+
+#ifndef OS_ANDROID
+  // Serializes the given |skottie| vector graphic.
+  void Write(scoped_refptr<SkottieWrapper> skottie);
+#endif
 
  private:
   template <typename T>

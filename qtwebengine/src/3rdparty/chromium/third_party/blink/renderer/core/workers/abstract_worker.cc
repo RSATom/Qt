@@ -38,7 +38,7 @@
 namespace blink {
 
 AbstractWorker::AbstractWorker(ExecutionContext* context)
-    : ContextLifecycleStateObserver(context) {}
+    : ExecutionContextLifecycleStateObserver(context) {}
 
 AbstractWorker::~AbstractWorker() = default;
 
@@ -67,7 +67,7 @@ KURL AbstractWorker::ResolveURL(ExecutionContext* execution_context,
 
   if (ContentSecurityPolicy* csp =
           execution_context->GetContentSecurityPolicy()) {
-    if (!csp->AllowRequestWithoutIntegrity(request_context, script_url) ||
+    if (!csp->AllowRequestWithoutIntegrity(request_context, script_url, script_url, RedirectStatus::kNoRedirect) ||
         !csp->AllowWorkerContextFromSource(script_url)) {
       exception_state.ThrowSecurityError(
           "Access to the script at '" + script_url.ElidedString() +
@@ -79,9 +79,9 @@ KURL AbstractWorker::ResolveURL(ExecutionContext* execution_context,
   return script_url;
 }
 
-void AbstractWorker::Trace(blink::Visitor* visitor) {
+void AbstractWorker::Trace(Visitor* visitor) {
   EventTargetWithInlineData::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 }  // namespace blink

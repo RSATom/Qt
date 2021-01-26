@@ -52,9 +52,7 @@ static_library("test_support") {
   deps = [
     "//base",
   ]
-  public_deps = [
-    ":router",
-  ]
+  public_deps = [ ":router" ]
   sources = [
     "test/test_helper.cc",
     "test/test_helper.h",

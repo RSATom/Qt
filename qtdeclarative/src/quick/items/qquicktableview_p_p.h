@@ -211,7 +211,9 @@ public:
         ViewportOnly = 0x2,
         CalculateNewTopLeftRow = 0x4,
         CalculateNewTopLeftColumn = 0x8,
-        All = 0x10,
+        CalculateNewContentWidth = 0x10,
+        CalculateNewContentHeight = 0x20,
+        All = 0x40,
     };
     Q_DECLARE_FLAGS(RebuildOptions, RebuildOption)
 
@@ -355,7 +357,8 @@ public:
 
     void updateContentWidth();
     void updateContentHeight();
-    void updateAverageEdgeSize();
+    void updateAverageColumnWidth();
+    void updateAverageRowHeight();
     RebuildOptions checkForVisibilityChanges();
     void forceLayout();
 
@@ -430,6 +433,7 @@ public:
     void scheduleRebuildIfFastFlick();
     void setLocalViewportX(qreal contentX);
     void setLocalViewportY(qreal contentY);
+    void syncViewportRect();
     void syncViewportPosRecursive();
 
     void fetchMoreData();
@@ -457,6 +461,8 @@ public:
 
     QPoint cell;
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QQuickTableViewPrivate::RebuildOptions)
 
 QT_END_NAMESPACE
 

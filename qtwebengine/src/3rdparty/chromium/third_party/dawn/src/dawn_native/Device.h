@@ -29,16 +29,14 @@
 #include <memory>
 
 namespace dawn_native {
-
-    using ErrorCallback = void (*)(const char* errorMessage, void* userData);
-
     class AdapterBase;
     class AttachmentState;
     class AttachmentStateBlueprint;
+    class BindGroupLayoutBase;
+    class DynamicUploader;
     class ErrorScope;
     class ErrorScopeTracker;
     class FenceSignalTracker;
-    class DynamicUploader;
     class StagingBufferBase;
 
     class DeviceBase {
@@ -46,7 +44,7 @@ namespace dawn_native {
         DeviceBase(AdapterBase* adapter, const DeviceDescriptor* descriptor);
         virtual ~DeviceBase();
 
-        void HandleError(wgpu::ErrorType type, const char* message);
+        void HandleError(InternalErrorType type, const char* message);
 
         bool ConsumedError(MaybeError maybeError) {
             if (DAWN_UNLIKELY(maybeError.IsError())) {
@@ -154,7 +152,7 @@ namespace dawn_native {
         RenderPipelineBase* CreateRenderPipeline(const RenderPipelineDescriptor* descriptor);
         SamplerBase* CreateSampler(const SamplerDescriptor* descriptor);
         ShaderModuleBase* CreateShaderModule(const ShaderModuleDescriptor* descriptor);
-        SwapChainBase* CreateSwapChain(const SwapChainDescriptor* descriptor);
+        SwapChainBase* CreateSwapChain(Surface* surface, const SwapChainDescriptor* descriptor);
         TextureBase* CreateTexture(const TextureDescriptor* descriptor);
         TextureViewBase* CreateTextureView(TextureBase* texture,
                                            const TextureViewDescriptor* descriptor);
@@ -163,9 +161,13 @@ namespace dawn_native {
 
         void Tick();
 
+        void SetDeviceLostCallback(wgpu::DeviceLostCallback callback, void* userdata);
         void SetUncapturedErrorCallback(wgpu::ErrorCallback callback, void* userdata);
         void PushErrorScope(wgpu::ErrorFilter filter);
         bool PopErrorScope(wgpu::ErrorCallback callback, void* userdata);
+
+        MaybeError ValidateIsAlive() const;
+
         ErrorScope* GetCurrentErrorScope();
 
         void Reference();
@@ -188,12 +190,22 @@ namespace dawn_native {
         bool IsValidationEnabled() const;
         size_t GetLazyClearCountForTesting();
         void IncrementLazyClearCountForTesting();
+        void LoseForTesting();
+        bool IsLost() const;
 
       protected:
         void SetToggle(Toggle toggle, bool isEnabled);
         void ApplyToggleOverrides(const DeviceDescriptor* deviceDescriptor);
+        void BaseDestructor();
 
         std::unique_ptr<DynamicUploader> mDynamicUploader;
+        // LossStatus::Alive means the device is alive and can be used normally.
+        // LossStatus::BeingLost means the device is in the process of being lost and should not
+        //              accept any new commands.
+        // LossStatus::AlreadyLost means the device has been lost and can no longer be used,
+        //             all resources have been freed.
+        enum class LossStatus { Alive, BeingLost, AlreadyLost };
+        LossStatus mLossStatus = LossStatus::Alive;
 
       private:
         virtual ResultOrError<BindGroupBase*> CreateBindGroupImpl(
@@ -213,6 +225,11 @@ namespace dawn_native {
         virtual ResultOrError<ShaderModuleBase*> CreateShaderModuleImpl(
             const ShaderModuleDescriptor* descriptor) = 0;
         virtual ResultOrError<SwapChainBase*> CreateSwapChainImpl(
+            const SwapChainDescriptor* descriptor) = 0;
+        // Note that previousSwapChain may be nullptr, or come from a different backend.
+        virtual ResultOrError<NewSwapChainBase*> CreateSwapChainImpl(
+            Surface* surface,
+            NewSwapChainBase* previousSwapChain,
             const SwapChainDescriptor* descriptor) = 0;
         virtual ResultOrError<TextureBase*> CreateTextureImpl(
             const TextureDescriptor* descriptor) = 0;
@@ -239,6 +256,7 @@ namespace dawn_native {
         MaybeError CreateShaderModuleInternal(ShaderModuleBase** result,
                                               const ShaderModuleDescriptor* descriptor);
         MaybeError CreateSwapChainInternal(SwapChainBase** result,
+                                           Surface* surface,
                                            const SwapChainDescriptor* descriptor);
         MaybeError CreateTextureInternal(TextureBase** result, const TextureDescriptor* descriptor);
         MaybeError CreateTextureViewInternal(TextureViewBase** result,
@@ -249,7 +267,21 @@ namespace dawn_native {
 
         void SetDefaultToggles();
 
-        void ConsumeError(ErrorData* error);
+        void ConsumeError(std::unique_ptr<ErrorData> error);
+
+        // Destroy is used to clean up and release resources used by device, does not wait for GPU
+        // or check errors.
+        virtual void Destroy() = 0;
+
+        // WaitForIdleForDestruction waits for GPU to finish, checks errors and gets ready for
+        // destruction. This is only used when properly destructing the device. For a real
+        // device loss, this function doesn't need to be called since the driver already closed all
+        // resources.
+        virtual MaybeError WaitForIdleForDestruction() = 0;
+
+        void HandleLoss(const char* message);
+        wgpu::DeviceLostCallback mDeviceLostCallback = nullptr;
+        void* mDeviceLostUserdata;
 
         AdapterBase* mAdapter = nullptr;
 

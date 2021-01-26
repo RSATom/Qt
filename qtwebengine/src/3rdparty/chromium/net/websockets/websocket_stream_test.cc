@@ -11,6 +11,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/containers/span.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/statistics_recorder.h"
@@ -85,8 +86,8 @@ static url::Origin Origin() {
   return url::Origin::Create(GURL(kOrigin));
 }
 
-static GURL SiteForCookies() {
-  return GURL(kOrigin);
+static net::SiteForCookies SiteForCookies() {
+  return net::SiteForCookies::FromOrigin(Origin());
 }
 
 static net::NetworkIsolationKey CreateNetworkIsolationKey() {
@@ -1464,7 +1465,7 @@ TEST_P(WebSocketStreamCreateBasicAuthTest, FailureNoCredentials) {
   EXPECT_TRUE(has_failed());
   EXPECT_EQ("HTTP Authentication failed; no valid credentials available",
             failure_message());
-  EXPECT_TRUE(response_info_);
+  EXPECT_FALSE(response_info_);
 }
 
 TEST_P(WebSocketStreamCreateBasicAuthTest, SuccessPasswordInUrl) {
@@ -1482,7 +1483,7 @@ TEST_P(WebSocketStreamCreateBasicAuthTest, FailureIncorrectPasswordInUrl) {
                                 "Zm9vOmJheg==", kUnauthorizedResponse);
   WaitUntilConnectDone();
   EXPECT_TRUE(has_failed());
-  EXPECT_TRUE(response_info_);
+  EXPECT_FALSE(response_info_);
 }
 
 TEST_P(WebSocketStreamCreateBasicAuthTest, SuccessfulConnectionReuse) {

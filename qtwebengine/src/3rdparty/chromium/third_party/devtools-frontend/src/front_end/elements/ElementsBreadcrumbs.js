@@ -2,10 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../common/common.js';
+import * as SDK from '../sdk/sdk.js';
+import * as UI from '../ui/ui.js';
+
+import {decorateNodeLabel} from './DOMLinkifier.js';
+
 /**
  * @unrestricted
  */
-export default class ElementsBreadcrumbs extends UI.HBox {
+export class ElementsBreadcrumbs extends UI.Widget.HBox {
   constructor() {
     super(true);
     this.registerRequiredCSS('elements/breadcrumbs.css');
@@ -26,7 +32,7 @@ export default class ElementsBreadcrumbs extends UI.HBox {
   }
 
   /**
-   * @param {!Array.<!SDK.DOMNode>} nodes
+   * @param {!Array.<!SDK.DOMModel.DOMNode>} nodes
    */
   updateNodes(nodes) {
     if (!nodes.length) {
@@ -43,7 +49,7 @@ export default class ElementsBreadcrumbs extends UI.HBox {
   }
 
   /**
-   * @param {?SDK.DOMNode} node
+   * @param {?SDK.DOMModel.DOMNode} node
    */
   setSelectedNode(node) {
     this._currentDOMNode = node;
@@ -53,7 +59,7 @@ export default class ElementsBreadcrumbs extends UI.HBox {
   _mouseMovedInCrumbs(event) {
     const nodeUnderMouse = event.target;
     const crumbElement = nodeUnderMouse.enclosingNodeOrSelfWithClass('crumb');
-    const node = /** @type {?SDK.DOMNode} */ (crumbElement ? crumbElement[this._nodeSymbol] : null);
+    const node = /** @type {?SDK.DOMModel.DOMNode} */ (crumbElement ? crumbElement[this._nodeSymbol] : null);
     if (node) {
       node.highlight();
     }
@@ -61,7 +67,7 @@ export default class ElementsBreadcrumbs extends UI.HBox {
 
   _mouseMovedOutOfCrumbs(event) {
     if (this._currentDOMNode) {
-      SDK.OverlayModel.hideDOMNodeHighlight();
+      SDK.OverlayModel.OverlayModel.hideDOMNodeHighlight();
     }
   }
 
@@ -98,7 +104,7 @@ export default class ElementsBreadcrumbs extends UI.HBox {
   }
 
   /**
-   * @param {!SDK.DOMNode} domNode
+   * @param {!SDK.DOMModel.DOMNode} domNode
    * @return {?string}
    */
   _determineElementTitle(domNode) {
@@ -109,7 +115,7 @@ export default class ElementsBreadcrumbs extends UI.HBox {
         }
         return null;
       case Node.TEXT_NODE:
-        return Common.UIString('(text)');
+        return Common.UIString.UIString('(text)');
       case Node.COMMENT_NODE:
         return '<!-->';
       case Node.DOCUMENT_TYPE_NODE:
@@ -170,7 +176,7 @@ export default class ElementsBreadcrumbs extends UI.HBox {
         crumb.appendChild(nameElement);
         crumb.title = crumbTitle;
       } else {
-        Elements.DOMLinkifier.decorateNodeLabel(current, crumb);
+        decorateNodeLabel(current, crumb);
       }
 
       if (current === currentDOMNode) {
@@ -472,15 +478,3 @@ export default class ElementsBreadcrumbs extends UI.HBox {
 export const Events = {
   NodeSelected: Symbol('NodeSelected')
 };
-
-/* Legacy exported object */
-self.Elements = self.Elements || {};
-
-/* Legacy exported object */
-Elements = Elements || {};
-
-/** @constructor */
-Elements.ElementsBreadcrumbs = ElementsBreadcrumbs;
-
-/** @enum {symbol} */
-Elements.ElementsBreadcrumbs.Events = Events;

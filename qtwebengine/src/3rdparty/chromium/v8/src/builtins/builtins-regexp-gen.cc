@@ -44,8 +44,8 @@ TNode<RawPtrT> RegExpBuiltinsAssembler::LoadCodeObjectEntry(TNode<Code> code) {
   TVARIABLE(RawPtrT, var_result);
 
   Label if_code_is_off_heap(this), out(this);
-  TNode<Int32T> builtin_index = UncheckedCast<Int32T>(
-      LoadObjectField(code, Code::kBuiltinIndexOffset, MachineType::Int32()));
+  TNode<Int32T> builtin_index =
+      LoadObjectField<Int32T>(code, Code::kBuiltinIndexOffset);
   {
     GotoIfNot(Word32Equal(builtin_index, Int32Constant(Builtins::kNoBuiltinId)),
               &if_code_is_off_heap);
@@ -164,9 +164,9 @@ void RegExpBuiltinsAssembler::FastStoreLastIndex(TNode<JSRegExp> regexp,
   StoreObjectField(regexp, field_offset, value);
 }
 
-void RegExpBuiltinsAssembler::SlowStoreLastIndex(SloppyTNode<Context> context,
-                                                 SloppyTNode<Object> regexp,
-                                                 SloppyTNode<Object> value) {
+void RegExpBuiltinsAssembler::SlowStoreLastIndex(TNode<Context> context,
+                                                 TNode<Object> regexp,
+                                                 TNode<Object> value) {
   TNode<String> name = HeapConstant(isolate()->factory()->lastIndex_string());
   SetPropertyStrict(context, regexp, name, value);
 }
@@ -1233,8 +1233,8 @@ TNode<BoolT> RegExpBuiltinsAssembler::FlagGetter(TNode<Context> context,
 }
 
 TNode<Number> RegExpBuiltinsAssembler::AdvanceStringIndex(
-    SloppyTNode<String> string, SloppyTNode<Number> index,
-    SloppyTNode<BoolT> is_unicode, bool is_fastpath) {
+    TNode<String> string, TNode<Number> index, TNode<BoolT> is_unicode,
+    bool is_fastpath) {
   CSA_ASSERT(this, IsString(string));
   CSA_ASSERT(this, IsNumberNormalized(index));
   if (is_fastpath) CSA_ASSERT(this, TaggedIsPositiveSmi(index));

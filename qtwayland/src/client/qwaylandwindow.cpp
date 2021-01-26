@@ -76,7 +76,7 @@ QWaylandWindow *QWaylandWindow::mMouseGrab = nullptr;
 QWaylandWindow::QWaylandWindow(QWindow *window, QWaylandDisplay *display)
     : QPlatformWindow(window)
     , mDisplay(display)
-    , mFrameQueue(mDisplay->createEventQueue())
+    , mFrameQueue(mDisplay->createFrameQueue())
     , mResizeAfterSwap(qEnvironmentVariableIsSet("QT_WAYLAND_RESIZE_AFTER_SWAP"))
 {
     {
@@ -86,6 +86,8 @@ QWaylandWindow::QWaylandWindow(QWindow *window, QWaylandDisplay *display)
             mFrameCallbackTimeout = frameCallbackTimeout;
     }
 
+    mScale = waylandScreen() ? waylandScreen()->scale() : 1; // fallback to 1 if we don't have a real screen
+
     static WId id = 1;
     mWindowId = id++;
     initializeWlSurface();
@@ -93,6 +95,7 @@ QWaylandWindow::QWaylandWindow(QWindow *window, QWaylandDisplay *display)
 
 QWaylandWindow::~QWaylandWindow()
 {
+    mDisplay->destroyFrameQueue(mFrameQueue);
     mDisplay->handleWindowDestroyed(this);
 
     delete mWindowDecoration;
@@ -181,8 +184,6 @@ void QWaylandWindow::initWindow()
             qWarning("Could not create a shell surface object.");
         }
     }
-
-    mScale = waylandScreen() ? waylandScreen()->scale() : 1; // fallback to 1 if we don't have a real screen
 
     // Enable high-dpi rendering. Scale() returns the screen scale factor and will
     // typically be integer 1 (normal-dpi) or 2 (high-dpi). Call set_buffer_scale()
@@ -363,6 +364,9 @@ void QWaylandWindow::setGeometry(const QRect &rect)
 
     if (mShellSurface)
         mShellSurface->setWindowGeometry(windowContentGeometry());
+
+    if (isOpaque() && mMask.isEmpty())
+        setOpaqueArea(rect);
 }
 
 void QWaylandWindow::resizeFromApplyConfigure(const QSize &sizeWithMargins, const QPoint &offset)
@@ -462,10 +466,16 @@ void QWaylandWindow::setMask(const QRegion &mask)
 
     if (mMask.isEmpty()) {
         mSurface->set_input_region(nullptr);
+
+        if (isOpaque())
+            setOpaqueArea(QRect(QPoint(0, 0), geometry().size()));
     } else {
         struct ::wl_region *region = mDisplay->createRegion(mMask);
         mSurface->set_input_region(region);
         wl_region_destroy(region);
+
+        if (isOpaque())
+            setOpaqueArea(mMask);
     }
 
     mSurface->commit();
@@ -518,8 +528,20 @@ void QWaylandWindow::applyConfigure()
         doApplyConfigure();
 
     lock.unlock();
-    sendExposeEvent(QRect(QPoint(), geometry().size()));
+    sendRecursiveExposeEvent();
     QWindowSystemInterface::flushWindowSystemEvents();
+}
+
+void QWaylandWindow::sendRecursiveExposeEvent()
+{
+    if (!window()->isVisible())
+        return;
+    sendExposeEvent(QRect(QPoint(), geometry().size()));
+
+    for (QWaylandSubSurface *subSurface : qAsConst(mChildren)) {
+        auto subWindow = subSurface->window();
+        subWindow->sendRecursiveExposeEvent();
+    }
 }
 
 void QWaylandWindow::attach(QWaylandBuffer *buffer, int x, int y)
@@ -604,33 +626,29 @@ void QWaylandWindow::handleFrameCallback()
     mFrameCallbackElapsedTimer.invalidate();
 
     // The rest can wait until we can run it on the correct thread
-    auto doHandleExpose = [this]() {
-        bool wasExposed = isExposed();
-        mFrameCallbackTimedOut = false;
-        if (!wasExposed && isExposed()) // Did setting mFrameCallbackTimedOut make the window exposed?
-            sendExposeEvent(QRect(QPoint(), geometry().size()));
-        if (wasExposed && hasPendingUpdateRequest())
-            deliverUpdateRequest();
-    };
+    if (!mWaitingForUpdateDelivery) {
+        auto doHandleExpose = [this]() {
+            bool wasExposed = isExposed();
+            mFrameCallbackTimedOut = false;
+            if (!wasExposed && isExposed()) // Did setting mFrameCallbackTimedOut make the window exposed?
+                sendExposeEvent(QRect(QPoint(), geometry().size()));
+            if (wasExposed && hasPendingUpdateRequest())
+                deliverUpdateRequest();
 
-    if (thread() != QThread::currentThread()) {
-        QMetaObject::invokeMethod(this, doHandleExpose);
-    } else {
-        doHandleExpose();
+            mWaitingForUpdateDelivery = false;
+        };
+
+        // Queued connection, to make sure we don't call handleUpdate() from inside waitForFrameSync()
+        // in the single-threaded case.
+        mWaitingForUpdateDelivery = true;
+        QMetaObject::invokeMethod(this, doHandleExpose, Qt::QueuedConnection);
     }
 }
 
-QMutex QWaylandWindow::mFrameSyncMutex;
-
 bool QWaylandWindow::waitForFrameSync(int timeout)
 {
-    if (!mWaitingForFrameCallback)
-        return true;
-
-    QMutexLocker locker(&mFrameSyncMutex);
-
-    wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(mFrameCallback), mFrameQueue);
-    mDisplay->dispatchQueueWhile(mFrameQueue, [&]() { return mWaitingForFrameCallback; }, timeout);
+    QMutexLocker locker(mFrameQueue.mutex);
+    mDisplay->dispatchQueueWhile(mFrameQueue.queue, [&]() { return mWaitingForFrameCallback; }, timeout);
 
     if (mWaitingForFrameCallback) {
         qCDebug(lcWaylandBackingstore) << "Didn't receive frame callback in time, window should now be inexposed";
@@ -1104,6 +1122,7 @@ void QWaylandWindow::timerEvent(QTimerEvent *event)
     }
     if (mFrameCallbackElapsedTimer.isValid() && callbackTimerExpired) {
         mFrameCallbackElapsedTimer.invalidate();
+
         qCDebug(lcWaylandBackingstore) << "Didn't receive frame callback in time, window should now be inexposed";
         mFrameCallbackTimedOut = true;
         mWaitingForUpdate = false;
@@ -1152,7 +1171,11 @@ void QWaylandWindow::handleUpdate()
         mFrameCallback = nullptr;
     }
 
-    mFrameCallback = mSurface->frame();
+    QMutexLocker locker(mFrameQueue.mutex);
+    struct ::wl_surface *wrappedSurface = reinterpret_cast<struct ::wl_surface *>(wl_proxy_create_wrapper(mSurface->object()));
+    wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(wrappedSurface), mFrameQueue.queue);
+    mFrameCallback = wl_surface_frame(wrappedSurface);
+    wl_proxy_wrapper_destroy(wrappedSurface);
     wl_callback_add_listener(mFrameCallback, &QWaylandWindow::callbackListener, this);
     mWaitingForFrameCallback = true;
     mWaitingForUpdate = false;
@@ -1199,6 +1222,23 @@ bool QtWaylandClient::QWaylandWindow::startSystemMove()
     if (auto seat = display()->lastInputDevice())
         return mShellSurface && mShellSurface->move(seat);
     return false;
+}
+
+bool QWaylandWindow::isOpaque() const
+{
+    return window()->requestedFormat().alphaBufferSize() <= 0;
+}
+
+void QWaylandWindow::setOpaqueArea(const QRegion &opaqueArea)
+{
+    if (opaqueArea == mOpaqueArea || !mSurface)
+        return;
+
+    mOpaqueArea = opaqueArea;
+
+    struct ::wl_region *region = mDisplay->createRegion(opaqueArea);
+    mSurface->set_opaque_region(region);
+    wl_region_destroy(region);
 }
 
 }

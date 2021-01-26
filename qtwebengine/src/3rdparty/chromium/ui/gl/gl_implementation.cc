@@ -45,6 +45,7 @@ const struct {
 typedef std::vector<base::NativeLibrary> LibraryArray;
 
 GLImplementation g_gl_implementation = kGLImplementationNone;
+ANGLEImplementation g_angle_implementation = ANGLEImplementation::kNone;
 LibraryArray* g_libraries;
 GLGetProcAddressProc g_get_proc_address;
 
@@ -136,6 +137,14 @@ void SetGLImplementation(GLImplementation implementation) {
 
 GLImplementation GetGLImplementation() {
   return g_gl_implementation;
+}
+
+void SetANGLEImplementation(ANGLEImplementation implementation) {
+  g_angle_implementation = implementation;
+}
+
+ANGLEImplementation GetANGLEImplementation() {
+  return g_angle_implementation;
 }
 
 bool HasDesktopGLFeatures() {

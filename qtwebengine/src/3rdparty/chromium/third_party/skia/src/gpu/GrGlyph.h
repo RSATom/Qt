@@ -16,12 +16,8 @@
 #include "include/private/SkChecksum.h"
 #include "include/private/SkFixed.h"
 
-struct GrGlyph {
-    enum MaskStyle {
-        kCoverage_MaskStyle,
-        kDistance_MaskStyle
-    };
-
+class GrGlyph {
+public:
     static GrMaskFormat FormatFromSkGlyph(SkMask::Format format) {
         switch (format) {
             case SkMask::kBW_Format:
@@ -35,69 +31,25 @@ struct GrGlyph {
                 return kA565_GrMaskFormat;
             case SkMask::kARGB32_Format:
                 return kARGB_GrMaskFormat;
-            default:
-                SkDEBUGFAIL("unsupported SkMask::Format");
-                return kA8_GrMaskFormat;
         }
-    }
 
-    static MaskStyle MaskStyleFromSkGlyph(const SkGlyph& skGlyph) {
-        return skGlyph.maskFormat() == SkMask::kSDF_Format
-           ? GrGlyph::MaskStyle::kDistance_MaskStyle
-           : GrGlyph::MaskStyle::kCoverage_MaskStyle;
+        SkUNREACHABLE;
     }
 
     GrGlyph(const SkGlyph& skGlyph)
-        : fPackedID{skGlyph.getPackedID()}
-        , fMaskFormat{FormatFromSkGlyph(skGlyph.maskFormat())}
-        , fMaskStyle{MaskStyleFromSkGlyph(skGlyph)}
-        , fBounds{GrIRect16::Make(skGlyph.iRect())} {}
-
-
-    SkRect destRect(SkPoint origin) {
-        return SkRect::MakeXYWH(
-                SkIntToScalar(fBounds.fLeft) + origin.x(),
-                SkIntToScalar(fBounds.fTop)  + origin.y(),
-                SkIntToScalar(fBounds.width()),
-                SkIntToScalar(fBounds.height()));
+            : fPackedID{skGlyph.getPackedID()}
+            , fWidthHeight(SkIPoint16::Make(skGlyph.width(), skGlyph.height())) {
     }
 
-    SkRect destRect(SkPoint origin, SkScalar textScale) {
-        if (fMaskStyle == kCoverage_MaskStyle) {
-            return SkRect::MakeXYWH(
-                    SkIntToScalar(fBounds.fLeft)    * textScale + origin.x(),
-                    SkIntToScalar(fBounds.fTop)     * textScale + origin.y(),
-                    SkIntToScalar(fBounds.width())  * textScale,
-                    SkIntToScalar(fBounds.height()) * textScale);
-        } else {
-            return SkRect::MakeXYWH(
-                    (SkIntToScalar(fBounds.fLeft) + SK_DistanceFieldInset) * textScale + origin.x(),
-                    (SkIntToScalar(fBounds.fTop)  + SK_DistanceFieldInset) * textScale + origin.y(),
-                    (SkIntToScalar(fBounds.width())  - 2 * SK_DistanceFieldInset) * textScale,
-                    (SkIntToScalar(fBounds.height()) - 2 * SK_DistanceFieldInset) * textScale);
-        }
-    }
+    int width() const { return fWidthHeight.fX; }
+    int height() const { return fWidthHeight.fY; }
+    uint32_t pageIndex() const { return GrDrawOpAtlas::GetPageIndexFromID(fPlotLocator); }
 
-    int width() const { return fBounds.width(); }
-    int height() const { return fBounds.height(); }
-    uint32_t pageIndex() const { return GrDrawOpAtlas::GetPageIndexFromID(fID); }
-    MaskStyle maskStyle() const { return fMaskStyle; }
+    const SkPackedGlyphID      fPackedID;
+    const SkIPoint16           fWidthHeight{0, 0};
 
-    // GetKey and Hash for the the hash table.
-    static const SkPackedGlyphID& GetKey(const GrGlyph& glyph) {
-        return glyph.fPackedID;
-    }
-
-    static uint32_t Hash(SkPackedGlyphID key) {
-        return SkChecksum::Mix(key.hash());
-    }
-
-    const SkPackedGlyphID  fPackedID;
-    const GrMaskFormat     fMaskFormat;
-    const MaskStyle        fMaskStyle;
-    const GrIRect16        fBounds;
-    SkIPoint16             fAtlasLocation{0, 0};
-    GrDrawOpAtlas::AtlasID fID{GrDrawOpAtlas::kInvalidAtlasID};
+    SkIPoint16                 fAtlasLocation{0, 0};
+    GrDrawOpAtlas::PlotLocator fPlotLocator{GrDrawOpAtlas::kInvalidPlotLocator};
 };
 
 #endif

@@ -27,6 +27,7 @@ class TaskRunner;
 
 namespace storage {
 class BlobStorageContext;
+class BlobUrlRegistry;
 namespace mojom {
 class BlobStorageContext;
 }
@@ -57,10 +58,12 @@ class CONTENT_EXPORT ChromeBlobStorageContext
   static mojo::PendingRemote<storage::mojom::BlobStorageContext> GetRemoteFor(
       BrowserContext* browser_context);
 
-  void InitializeOnIOThread(base::FilePath blob_storage_dir,
+  void InitializeOnIOThread(const base::FilePath& profile_dir,
+                            const base::FilePath& blob_storage_dir,
                             scoped_refptr<base::TaskRunner> file_task_runner);
 
   storage::BlobStorageContext* context() const;
+  storage::BlobUrlRegistry* url_registry() const;
 
   // Bind a BlobStorageContext mojo interface to be used by storage apis.
   // This interface should not be exposed to renderers.
@@ -108,6 +111,7 @@ class CONTENT_EXPORT ChromeBlobStorageContext
   friend class base::DeleteHelper<ChromeBlobStorageContext>;
 
   std::unique_ptr<storage::BlobStorageContext> context_;
+  std::unique_ptr<storage::BlobUrlRegistry> url_registry_;
 };
 
 // Returns the BlobStorageContext associated with the

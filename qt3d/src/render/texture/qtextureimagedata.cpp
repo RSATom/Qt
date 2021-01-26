@@ -54,6 +54,7 @@ QTextureImageDataPrivate::QTextureImageDataPrivate()
     , m_faces(-1)
     , m_mipLevels(-1)
     , m_blockSize(-1)
+    , m_alignment(1)
     , m_target(QOpenGLTexture::Target2D)
     , m_format(QOpenGLTexture::NoFormat)
     , m_pixelFormat(QOpenGLTexture::RGBA)
@@ -87,6 +88,9 @@ QByteArray QTextureImageDataPrivate::data(int layer, int face, int mipmapLevel) 
         return QByteArray();
     }
 
+    if (m_dataExtractor)
+        return m_dataExtractor(m_data, layer, face, mipmapLevel);
+
     if (m_isKtx)
         return ktxData(layer, face, mipmapLevel);
 
@@ -110,6 +114,15 @@ void QTextureImageDataPrivate::setData(const QByteArray &data,
     m_isCompressed = isCompressed;
     m_data = data;
     m_blockSize = blockSize;
+}
+
+void QTextureImageDataPrivate::setData(const QByteArray &data,
+                                       std::function<QByteArray(QByteArray rawData, int layer, int face, int mipmapLevel)> dataExtractor,
+                                       bool isCompressed)
+{
+    m_isCompressed = isCompressed;
+    m_data = data;
+    m_dataExtractor = dataExtractor;
 }
 
 int QTextureImageDataPrivate::ddsLayerSize() const
@@ -188,6 +201,7 @@ void QTextureImageData::cleanup() Q_DECL_NOTHROW
     d->m_faces = -1;
     d->m_mipLevels = -1;
     d->m_blockSize = 0;
+    d->m_alignment = 1;
     d->m_isCompressed = false;
     d->m_data.clear();
 }

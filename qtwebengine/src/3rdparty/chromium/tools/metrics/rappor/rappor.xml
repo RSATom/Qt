@@ -119,59 +119,17 @@ components/rappor/rappor_parameters.h.
   </summary>
 </rappor-metric>
 
-<rappor-metric name="DeviceSensors.DeviceMotionCrossOrigin"
-    type="ETLD_PLUS_ONE">
-  <owner>timvolodine@chromium.org</owner>
-  <summary>
-    The domain and registry of the URL that is using Device Motion API from a
-    frame with an origin different to that of the main frame.
-  </summary>
-</rappor-metric>
-
-<rappor-metric name="DeviceSensors.DeviceOrientationCrossOrigin"
-    type="ETLD_PLUS_ONE">
-  <owner>timvolodine@chromium.org</owner>
-  <summary>
-    The domain and registry of the URL that is using Device Orientation API from
-    a frame with an origin different to that of the main frame.
-  </summary>
-</rappor-metric>
-
-<rappor-metric name="NTP.ExplicitUserAction.PageNavigation.NTPTileClick"
+<rappor-metric name="Extensions.CrossOriginFetchFromContentScript3"
     type="UMA_RAPPOR_TYPE">
-  <owner>knn@chromium.org</owner>
+  <owner>lukasza@chromium.org</owner>
   <summary>
-    The eTLD+1 of the website visited by a user by clicking on the tile in the
-    NewTabPage.
-  </summary>
-</rappor-metric>
+    The ID of an extension which triggers a cross-origin CORS-mode request from
+    a content script if such a request results would be allowed by CORB, but
+    potentially blocked by CORS.
 
-<rappor-metric name="NTP.ExplicitUserAction.PageNavigation.OmniboxNonSearch"
-    type="UMA_RAPPOR_TYPE">
-  <owner>knn@chromium.org</owner>
-  <summary>
-    The eTLD+1 of the website visited by a user by typing the URL in the omnibox
-    including those completed from suggestions but not including those that end
-    up being searches in the search engine.
-  </summary>
-</rappor-metric>
-
-<rappor-metric name="PowerfulFeatureUse.ETLDPlus1.GetUserMedia.Insecure"
-    type="ETLD_PLUS_ONE">
-  <owner>guidou@chromium.org</owner>
-  <owner>hta@chromium.org</owner>
-  <summary>
-    The ETLD+1 of the URL that uses the getUserMedia API from an insecure
-    origin.
-  </summary>
-</rappor-metric>
-
-<rappor-metric name="PowerfulFeatureUse.ETLDPlus1.GetUserMedia.Secure"
-    type="ETLD_PLUS_ONE">
-  <owner>guidou@chromium.org</owner>
-  <owner>hta@chromium.org</owner>
-  <summary>
-    The ETLD+1 of the URL that uses the getUserMedia API from a secure origin.
+    Note that this data is only gathered if the
+    CorbAllowlistAlsoAppliesToOorCors feature is disabled. Also note that this
+    data is not gathered for extensions that are already on the allowlist.
   </summary>
 </rappor-metric>
 
@@ -194,59 +152,11 @@ components/rappor/rappor_parameters.h.
   </summary>
 </rappor-metric>
 
-<rappor-metric name="PowerfulFeatureUse.Host.Fullscreen.Insecure"
-    type="ETLD_PLUS_ONE">
-  <owner>jww@chromium.org</owner>
-  <summary>
-    The host of the URL that uses the fullscreen API from an insecure origin.
-  </summary>
-</rappor-metric>
-
 <rappor-metric name="PowerfulFeatureUse.Host.Geolocation.Insecure"
     type="ETLD_PLUS_ONE">
   <owner>jww@chromium.org</owner>
   <summary>
     The host of the URL that uses the geolocation API from an insecure origin.
-  </summary>
-</rappor-metric>
-
-<rappor-metric name="RTCPeerConnection.Audio" type="ETLD_PLUS_ONE">
-  <owner>guidou@chromium.org</owner>
-  <owner>hta@chromium.org</owner>
-  <owner>tommi@chromium.org</owner>
-  <summary>
-    The ETLD+1 of the URL with a WebRTC peer connection with at least one audio
-    track.
-  </summary>
-</rappor-metric>
-
-<rappor-metric name="RTCPeerConnection.DataChannel" type="ETLD_PLUS_ONE">
-  <owner>guidou@chromium.org</owner>
-  <owner>hta@chromium.org</owner>
-  <owner>tommi@chromium.org</owner>
-  <summary>
-    The ETLD+1 of the URL with a WebRTC peer connection with at least one data
-    channel.
-  </summary>
-</rappor-metric>
-
-<rappor-metric name="RTCPeerConnection.Unconnected" type="ETLD_PLUS_ONE">
-  <owner>guidou@chromium.org</owner>
-  <owner>hta@chromium.org</owner>
-  <owner>tommi@chromium.org</owner>
-  <summary>
-    The ETLD+1 of the URL with a WebRTC peer connection that was created but
-    never connected.
-  </summary>
-</rappor-metric>
-
-<rappor-metric name="RTCPeerConnection.Video" type="ETLD_PLUS_ONE">
-  <owner>guidou@chromium.org</owner>
-  <owner>hta@chromium.org</owner>
-  <owner>tommi@chromium.org</owner>
-  <summary>
-    The ETLD+1 of the URL with a WebRTC peer connection with at least one video
-    track.
   </summary>
 </rappor-metric>
 

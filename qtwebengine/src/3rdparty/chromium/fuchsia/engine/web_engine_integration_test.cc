@@ -7,21 +7,21 @@
 #include <lib/fdio/directory.h>
 #include <lib/fidl/cpp/binding.h>
 #include <lib/sys/cpp/component_context.h>
+#include <zircon/processargs.h>
 
 #include "base/command_line.h"
 #include "base/fuchsia/default_context.h"
 #include "base/fuchsia/file_utils.h"
 #include "base/fuchsia/fuchsia_logging.h"
-#include "base/fuchsia/service_directory_client.h"
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/test/task_environment.h"
+#include "fuchsia/base/context_provider_test_connector.h"
 #include "fuchsia/base/fit_adapter.h"
 #include "fuchsia/base/frame_test_util.h"
 #include "fuchsia/base/result_receiver.h"
 #include "fuchsia/base/test_devtools_list_fetcher.h"
 #include "fuchsia/base/test_navigation_listener.h"
-#include "fuchsia/engine/test/context_provider_test_connector.h"
 #include "net/http/http_request_headers.h"
 #include "net/test/embedded_test_server/default_handlers.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -44,8 +44,17 @@ class WebEngineIntegrationTest : public testing::Test {
   ~WebEngineIntegrationTest() override = default;
 
   void SetUp() override {
+    embedded_test_server_.ServeFilesFromSourceDirectory(
+        "fuchsia/engine/test/data");
     net::test_server::RegisterDefaultHandlers(&embedded_test_server_);
     ASSERT_TRUE(embedded_test_server_.Start());
+  }
+
+  void StartWebEngine() {
+    web_context_provider_ =
+        cr_fuchsia::ConnectContextProvider(web_engine_controller_.NewRequest());
+    web_context_provider_.set_error_handler(
+        [](zx_status_t status) { ADD_FAILURE(); });
   }
 
   fuchsia::web::CreateContextParams DefaultContextParams() const {
@@ -73,6 +82,17 @@ class WebEngineIntegrationTest : public testing::Test {
     return create_params;
   }
 
+  void CreateNavigationListener() {
+    // Attach a navigation listener, to monitor the state of the Frame.
+    navigation_listener_ =
+        std::make_unique<cr_fuchsia::TestNavigationListener>();
+    navigation_listener_binding_ =
+        std::make_unique<fidl::Binding<fuchsia::web::NavigationEventListener>>(
+            navigation_listener_.get());
+    frame_->SetNavigationEventListener(
+        navigation_listener_binding_->NewBinding());
+  }
+
   void CreateContextAndFrame(fuchsia::web::CreateContextParams params) {
     web_context_provider_->Create(std::move(params), context_.NewRequest());
     context_.set_error_handler([](zx_status_t status) { ADD_FAILURE(); });
@@ -83,6 +103,8 @@ class WebEngineIntegrationTest : public testing::Test {
     frame_->GetNavigationController(navigation_controller_.NewRequest());
     navigation_controller_.set_error_handler(
         [](zx_status_t status) { ADD_FAILURE(); });
+
+    CreateNavigationListener();
   }
 
   void CreateContextAndExpectError(fuchsia::web::CreateContextParams params,
@@ -100,19 +122,21 @@ class WebEngineIntegrationTest : public testing::Test {
                                        const GURL& url) {
     CreateContextAndFrame(std::move(params));
 
-    // Attach a navigation listener, to monitor the state of the Frame.
-    cr_fuchsia::TestNavigationListener listener;
-    fidl::Binding<fuchsia::web::NavigationEventListener> listener_binding(
-        &listener);
-    frame_->SetNavigationEventListener(listener_binding.NewBinding());
-
     // Navigate the Frame to |url| and wait for it to complete loading.
     fuchsia::web::LoadUrlParams load_url_params;
     ASSERT_TRUE(cr_fuchsia::LoadUrlAndExpectResponse(
         navigation_controller_.get(), std::move(load_url_params), url.spec()));
 
     // Wait for the URL to finish loading.
-    listener.RunUntilUrlEquals(url);
+    navigation_listener_->RunUntilUrlEquals(url);
+  }
+
+  void GrantPermission(fuchsia::web::PermissionType type,
+                       const std::string& origin) {
+    fuchsia::web::PermissionDescriptor permission;
+    permission.set_type(type);
+    frame_->SetPermissionState(std::move(permission), origin,
+                               fuchsia::web::PermissionState::GRANTED);
   }
 
   std::string ExecuteJavaScriptWithStringResult(base::StringPiece script) {
@@ -122,6 +146,8 @@ class WebEngineIntegrationTest : public testing::Test {
   }
 
  protected:
+  void RunPermissionTest(bool grant);
+
   const base::test::TaskEnvironment task_environment_;
 
   fidl::InterfaceHandle<fuchsia::sys::ComponentController>
@@ -134,14 +160,15 @@ class WebEngineIntegrationTest : public testing::Test {
   fuchsia::web::FramePtr frame_;
   fuchsia::web::NavigationControllerPtr navigation_controller_;
 
+  std::unique_ptr<cr_fuchsia::TestNavigationListener> navigation_listener_;
+  std::unique_ptr<fidl::Binding<fuchsia::web::NavigationEventListener>>
+      navigation_listener_binding_;
+
   DISALLOW_COPY_AND_ASSIGN(WebEngineIntegrationTest);
 };
 
 TEST_F(WebEngineIntegrationTest, ValidUserAgent) {
-  ConnectContextProvider(web_context_provider_.NewRequest(),
-                         web_engine_controller_.NewRequest());
-  web_context_provider_.set_error_handler(
-      [](zx_status_t status) { ADD_FAILURE(); });
+  StartWebEngine();
 
   const std::string kEchoHeaderPath =
       std::string("/echoheader?") + net::HttpRequestHeaders::kUserAgent;
@@ -188,10 +215,7 @@ TEST_F(WebEngineIntegrationTest, ValidUserAgent) {
 }
 
 TEST_F(WebEngineIntegrationTest, InvalidUserAgent) {
-  ConnectContextProvider(web_context_provider_.NewRequest(),
-                         web_engine_controller_.NewRequest());
-  web_context_provider_.set_error_handler(
-      [](zx_status_t status) { ADD_FAILURE(); });
+  StartWebEngine();
 
   const std::string kEchoHeaderPath =
       std::string("/echoheader?") + net::HttpRequestHeaders::kUserAgent;
@@ -224,10 +248,7 @@ TEST_F(WebEngineIntegrationTest, InvalidUserAgent) {
 // - DevTools becomes available when the first debuggable Frame is created.
 // - DevTools closes when the last debuggable Frame is closed.
 TEST_F(WebEngineIntegrationTest, RemoteDebuggingPort) {
-  ConnectContextProvider(web_context_provider_.NewRequest(),
-                         web_engine_controller_.NewRequest());
-  web_context_provider_.set_error_handler(
-      [](zx_status_t status) { ADD_FAILURE(); });
+  StartWebEngine();
 
   // Create a Context with remote debugging enabled via an ephemeral port.
   fuchsia::web::CreateContextParams create_params;
@@ -325,10 +346,7 @@ TEST_F(WebEngineIntegrationTest, RemoteDebuggingPort) {
 // Check that remote debugging requests for Frames in non-debuggable Contexts
 // cause an error to be reported.
 TEST_F(WebEngineIntegrationTest, RequestDebuggableFrameInNonDebuggableContext) {
-  ConnectContextProvider(web_context_provider_.NewRequest(),
-                         web_engine_controller_.NewRequest());
-  web_context_provider_.set_error_handler(
-      [](zx_status_t status) { ADD_FAILURE(); });
+  StartWebEngine();
 
   fuchsia::web::CreateContextParams create_params = DefaultContextParams();
 
@@ -354,10 +372,7 @@ TEST_F(WebEngineIntegrationTest, RequestDebuggableFrameInNonDebuggableContext) {
 
 // Navigates to a resource served under the "testdata" ContentDirectory.
 TEST_F(WebEngineIntegrationTest, ContentDirectoryProvider) {
-  ConnectContextProvider(web_context_provider_.NewRequest(),
-                         web_engine_controller_.NewRequest());
-  web_context_provider_.set_error_handler(
-      [](zx_status_t status) { ADD_FAILURE(); });
+  StartWebEngine();
 
   const GURL kUrl("fuchsia-dir://testdata/title1.html");
   constexpr char kTitle[] = "title 1";
@@ -372,18 +387,11 @@ TEST_F(WebEngineIntegrationTest, ContentDirectoryProvider) {
   EXPECT_TRUE(cr_fuchsia::LoadUrlAndExpectResponse(
       navigation_controller_.get(), fuchsia::web::LoadUrlParams(),
       kUrl.spec()));
-  cr_fuchsia::TestNavigationListener navigation_listener;
-  fidl::Binding<fuchsia::web::NavigationEventListener> listener_binding(
-      &navigation_listener);
-  frame_->SetNavigationEventListener(listener_binding.NewBinding());
-  navigation_listener.RunUntilUrlAndTitleEquals(kUrl, kTitle);
+  navigation_listener_->RunUntilUrlAndTitleEquals(kUrl, kTitle);
 }
 
 TEST_F(WebEngineIntegrationTest, PlayAudio) {
-  ConnectContextProvider(web_context_provider_.NewRequest(),
-                         web_engine_controller_.NewRequest());
-  web_context_provider_.set_error_handler(
-      [](zx_status_t status) { ADD_FAILURE(); });
+  StartWebEngine();
 
   fuchsia::web::CreateContextParams create_params =
       DefaultContextParamsWithTestData();
@@ -403,9 +411,63 @@ TEST_F(WebEngineIntegrationTest, PlayAudio) {
       navigation_controller_.get(), std::move(load_url_params),
       "fuchsia-dir://testdata/play_audio.html"));
 
-  cr_fuchsia::TestNavigationListener navigation_listener;
-  fidl::Binding<fuchsia::web::NavigationEventListener> listener_binding(
-      &navigation_listener);
-  frame_->SetNavigationEventListener(listener_binding.NewBinding());
-  navigation_listener.RunUntilTitleEquals("ended");
+  navigation_listener_->RunUntilTitleEquals("ended");
+}
+
+void WebEngineIntegrationTest::RunPermissionTest(bool grant) {
+  StartWebEngine();
+
+  fuchsia::web::CreateContextParams create_params =
+      DefaultContextParamsWithTestData();
+  CreateContextAndFrame(std::move(create_params));
+
+  if (grant) {
+    GrantPermission(fuchsia::web::PermissionType::MICROPHONE,
+                    "fuchsia-dir://testdata/");
+  }
+
+  EXPECT_TRUE(cr_fuchsia::LoadUrlAndExpectResponse(
+      navigation_controller_.get(), fuchsia::web::LoadUrlParams(),
+      "fuchsia-dir://testdata/check_mic_permission.html"));
+
+  navigation_listener_->RunUntilTitleEquals(grant ? "granted" : "denied");
+}
+
+TEST_F(WebEngineIntegrationTest, PermissionDenied) {
+  RunPermissionTest(false);
+}
+
+TEST_F(WebEngineIntegrationTest, PermissionGranted) {
+  RunPermissionTest(true);
+}
+
+TEST_F(WebEngineIntegrationTest, MicrophoneAccess_WithPermission) {
+  StartWebEngine();
+
+  fuchsia::web::CreateContextParams create_params = DefaultContextParams();
+  create_params.set_features(fuchsia::web::ContextFeatureFlags::AUDIO);
+  CreateContextAndFrame(std::move(create_params));
+
+  GrantPermission(fuchsia::web::PermissionType::MICROPHONE,
+                  embedded_test_server_.GetURL("/").GetOrigin().spec());
+
+  EXPECT_TRUE(cr_fuchsia::LoadUrlAndExpectResponse(
+      navigation_controller_.get(), fuchsia::web::LoadUrlParams(),
+      embedded_test_server_.GetURL("/mic.html").spec()));
+
+  navigation_listener_->RunUntilTitleEquals("ended");
+}
+
+TEST_F(WebEngineIntegrationTest, MicrophoneAccess_WithoutPermission) {
+  StartWebEngine();
+
+  fuchsia::web::CreateContextParams create_params = DefaultContextParams();
+  create_params.set_features(fuchsia::web::ContextFeatureFlags::AUDIO);
+  CreateContextAndFrame(std::move(create_params));
+
+  EXPECT_TRUE(cr_fuchsia::LoadUrlAndExpectResponse(
+      navigation_controller_.get(), fuchsia::web::LoadUrlParams(),
+      embedded_test_server_.GetURL("/mic.html?NoPermission").spec()));
+
+  navigation_listener_->RunUntilTitleEquals("ended");
 }

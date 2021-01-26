@@ -291,15 +291,13 @@ class FloatPoint {
   PP_FloatPoint float_point_;
 };
 
-}  // namespace pp
-
 /// Determines whether the x and y values of two Points are equal.
 ///
 /// @param[in] lhs The Point on the left-hand side of the equation.
 /// @param[in] rhs The Point on the right-hand side of the equation.
 ///
 /// @return true if they are equal, false if unequal.
-inline bool operator==(const pp::Point& lhs, const pp::Point& rhs) {
+inline bool operator==(const Point& lhs, const Point& rhs) {
   return lhs.x() == rhs.x() && lhs.y() == rhs.y();
 }
 
@@ -310,7 +308,7 @@ inline bool operator==(const pp::Point& lhs, const pp::Point& rhs) {
 ///
 /// @return true if the coordinates of lhs are equal to the coordinates
 /// of rhs, otherwise false.
-inline bool operator!=(const pp::Point& lhs, const pp::Point& rhs) {
+inline bool operator!=(const Point& lhs, const Point& rhs) {
   return !(lhs == rhs);
 }
 
@@ -320,7 +318,7 @@ inline bool operator!=(const pp::Point& lhs, const pp::Point& rhs) {
 /// @param[in] rhs The Point on the right-hand side of the equation.
 ///
 /// @return true if they are equal, false if unequal.
-inline bool operator==(const pp::FloatPoint& lhs, const pp::FloatPoint& rhs) {
+inline bool operator==(const FloatPoint& lhs, const FloatPoint& rhs) {
   return lhs.x() == rhs.x() && lhs.y() == rhs.y();
 }
 
@@ -331,8 +329,10 @@ inline bool operator==(const pp::FloatPoint& lhs, const pp::FloatPoint& rhs) {
 ///
 /// @return true if the coordinates of lhs are equal to the coordinates
 /// of rhs, otherwise false.
-inline bool operator!=(const pp::FloatPoint& lhs, const pp::FloatPoint& rhs) {
+inline bool operator!=(const FloatPoint& lhs, const FloatPoint& rhs) {
   return !(lhs == rhs);
 }
+
+}  // namespace pp
 
 #endif  // PPAPI_CPP_POINT_H_

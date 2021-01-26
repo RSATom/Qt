@@ -1,10 +1,18 @@
 // Copyright 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';
+
+import * as ARIAUtils from './ARIAUtils.js';
+import {Toolbar, ToolbarButton} from './Toolbar.js';
+import {createInput, createTextButton, ElementFocusRestorer} from './UIUtils.js';
+import {VBox} from './Widget.js';
+
 /**
  * @template T
  */
-export default class ListWidget extends UI.VBox {
+export class ListWidget extends VBox {
   /**
    * @param {!Delegate<T>} delegate
    */
@@ -14,9 +22,10 @@ export default class ListWidget extends UI.VBox {
     this._delegate = delegate;
 
     this._list = this.contentElement.createChild('div', 'list');
+    this._list.addEventListener('keydown', event => this._onKeyDown(event));
 
     this._lastSeparator = false;
-    /** @type {?UI.ElementFocusRestorer} */
+    /** @type {?ElementFocusRestorer} */
     this._focusRestorer = null;
     /** @type {!Array<T>} */
     this._items = [];
@@ -30,6 +39,7 @@ export default class ListWidget extends UI.VBox {
     this._editItem = null;
     /** @type {?Element} */
     this._editElement = null;
+    this._selectedIndex = -1;
 
     /** @type {?Element} */
     this._emptyPlaceholder = null;
@@ -66,7 +76,15 @@ export default class ListWidget extends UI.VBox {
       element.classList.add('editable');
       element.appendChild(this._createControls(item, element));
     }
+    const index = this._items.length - 1;
+    element.addEventListener('click', () => {
+      this._select(index, /* takeFocus */ true);
+    });
     this._elements.push(element);
+    if (this._selectedIndex === -1 || this._selectedIndex === index) {
+      this._select(index, /* takeFocus */ false);
+    }
+
     this._updatePlaceholder();
   }
 
@@ -98,6 +116,10 @@ export default class ListWidget extends UI.VBox {
     }
     element.remove();
 
+    if (this._selectedIndex === index) {
+      this._selectNext();
+    }
+
     this._elements.splice(index, 1);
     this._items.splice(index, 1);
     this._editable.splice(index, 1);
@@ -121,6 +143,65 @@ export default class ListWidget extends UI.VBox {
   }
 
   /**
+   * @param {!Event} event
+   */
+  _onKeyDown(event) {
+    if (this._editor || this._elements.length < 1) {
+      return;
+    }
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      if (this._selectedIndex < 0) {
+        return;
+      }
+
+      const offset = event.key === 'ArrowUp' ? -1 : 1;
+      const newIndex = this._selectedIndex + offset;
+      if (newIndex < 0 || newIndex >= this._elements.length) {
+        return;
+      }
+
+      this._select(newIndex, /* takeFocus */ true);
+      event.consume(true);
+    }
+  }
+
+  /**
+   * @param {number} index
+   * @param {boolean} takeFocus
+   */
+  _select(index, takeFocus) {
+    if (index < 0 || index >= this._elements.length) {
+      return;
+    }
+
+    if (this._selectedIndex >= 0) {
+      const oldSelectedElement = this._elements[this._selectedIndex].firstElementChild;
+      oldSelectedElement.tabIndex = -1;
+    }
+
+    const newSelectedElement = this._elements[index].firstElementChild;
+    newSelectedElement.tabIndex = 0;
+    this._selectedIndex = index;
+
+    if (takeFocus) {
+      newSelectedElement.focus();
+    }
+  }
+
+  _selectNext() {
+    if (this._selectedIndex < 0 || this._list.length === 0) {
+      return;
+    }
+
+    const offset = this._selectedIndex < this._list.length ? 1 : -1;
+    const nextIndex = this._selectedIndex + offset;
+
+    this._select(nextIndex, /* takeFocus */ false);
+  }
+
+
+  /**
    * @param {!T} item
    * @param {!Element} element
    * @return {!Element}
@@ -131,14 +212,14 @@ export default class ListWidget extends UI.VBox {
 
     const buttons = controls.createChild('div', 'controls-buttons');
 
-    const toolbar = new UI.Toolbar('', buttons);
+    const toolbar = new Toolbar('', buttons);
 
-    const editButton = new UI.ToolbarButton(Common.UIString('Edit'), 'largeicon-edit');
-    editButton.addEventListener(UI.ToolbarButton.Events.Click, onEditClicked.bind(this));
+    const editButton = new ToolbarButton(Common.UIString.UIString('Edit'), 'largeicon-edit');
+    editButton.addEventListener(ToolbarButton.Events.Click, onEditClicked.bind(this));
     toolbar.appendToolbarItem(editButton);
 
-    const removeButton = new UI.ToolbarButton(Common.UIString('Remove'), 'largeicon-trash-bin');
-    removeButton.addEventListener(UI.ToolbarButton.Events.Click, onRemoveClicked.bind(this));
+    const removeButton = new ToolbarButton(Common.UIString.UIString('Remove'), 'largeicon-trash-bin');
+    removeButton.addEventListener(ToolbarButton.Events.Click, onRemoveClicked.bind(this));
     toolbar.appendToolbarItem(removeButton);
 
     return controls;
@@ -193,7 +274,7 @@ export default class ListWidget extends UI.VBox {
     }
 
     this._stopEditing();
-    this._focusRestorer = new UI.ElementFocusRestorer(this.element);
+    this._focusRestorer = new ElementFocusRestorer(this.element);
 
     this._list.classList.add('list-editing');
     this._editItem = item;
@@ -207,8 +288,8 @@ export default class ListWidget extends UI.VBox {
     this._updatePlaceholder();
     this._list.insertBefore(this._editor.element, insertionPoint);
     this._editor.beginEdit(
-        item, index, element ? Common.UIString('Save') : Common.UIString('Add'), this._commitEditing.bind(this),
-        this._stopEditing.bind(this));
+        item, index, element ? Common.UIString.UIString('Save') : Common.UIString.UIString('Add'),
+        this._commitEditing.bind(this), this._stopEditing.bind(this));
   }
 
   _commitEditing() {
@@ -285,15 +366,15 @@ export class Editor {
     this._contentElement = this.element.createChild('div', 'editor-content');
 
     const buttonsRow = this.element.createChild('div', 'editor-buttons');
-    this._commitButton = UI.createTextButton('', this._commitClicked.bind(this), '', true /* primary */);
+    this._commitButton = createTextButton('', this._commitClicked.bind(this), '', true /* primary */);
     buttonsRow.appendChild(this._commitButton);
-    this._cancelButton = UI.createTextButton(Common.UIString('Cancel'), this._cancelClicked.bind(this));
+    this._cancelButton = createTextButton(Common.UIString.UIString('Cancel'), this._cancelClicked.bind(this));
     this._cancelButton.addEventListener(
         'keydown', onKeyDown.bind(null, isEnterKey, this._cancelClicked.bind(this)), false);
     buttonsRow.appendChild(this._cancelButton);
 
     this._errorMessageContainer = this.element.createChild('div', 'list-widget-input-validation-error');
-    UI.ARIAUtils.markAsAlert(this._errorMessageContainer);
+    ARIAUtils.markAsAlert(this._errorMessageContainer);
 
     /**
      * @param {function(!Event):boolean} predicate
@@ -311,7 +392,7 @@ export class Editor {
     this._controls = [];
     /** @type {!Map<string, !HTMLInputElement|!HTMLSelectElement>} */
     this._controlByName = new Map();
-    /** @type {!Array<function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !UI.ListWidget.ValidatorResult>} */
+    /** @type {!Array<function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !ValidatorResult>} */
     this._validators = [];
 
     /** @type {?function()} */
@@ -335,15 +416,15 @@ export class Editor {
    * @param {string} name
    * @param {string} type
    * @param {string} title
-   * @param {function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !UI.ListWidget.ValidatorResult} validator
+   * @param {function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !ValidatorResult} validator
    * @return {!HTMLInputElement}
    */
   createInput(name, type, title, validator) {
-    const input = /** @type {!HTMLInputElement} */ (UI.createInput('', type));
+    const input = /** @type {!HTMLInputElement} */ (createInput('', type));
     input.placeholder = title;
     input.addEventListener('input', this._validateControls.bind(this, false), false);
     input.addEventListener('blur', this._validateControls.bind(this, false), false);
-    UI.ARIAUtils.setAccessibleName(input, title);
+    ARIAUtils.setAccessibleName(input, title);
     this._controlByName.set(name, input);
     this._controls.push(input);
     this._validators.push(validator);
@@ -353,7 +434,7 @@ export class Editor {
   /**
    * @param {string} name
    * @param {!Array<string>} options
-   * @param {function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !UI.ListWidget.ValidatorResult} validator
+   * @param {function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !ValidatorResult} validator
    * @param {string=} title
    * @return {!HTMLSelectElement}
    */
@@ -366,7 +447,7 @@ export class Editor {
     }
     if (title) {
       select.title = title;
-      UI.ARIAUtils.setAccessibleName(select, title);
+      ARIAUtils.setAccessibleName(select, title);
     }
     select.addEventListener('input', this._validateControls.bind(this, false), false);
     select.addEventListener('blur', this._validateControls.bind(this, false), false);
@@ -396,9 +477,9 @@ export class Editor {
 
       input.classList.toggle('error-input', !valid && !forceValid);
       if (valid || forceValid) {
-        UI.ARIAUtils.setInvalid(input, false);
+        ARIAUtils.setInvalid(input, false);
       } else {
-        UI.ARIAUtils.setInvalid(input, true);
+        ARIAUtils.setInvalid(input, true);
       }
 
       if (!forceValid && errorMessage && !this._errorMessageContainer.textContent) {
@@ -454,25 +535,5 @@ export class Editor {
   }
 }
 
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.ListWidget = ListWidget;
-
-/**
- * @template T
- * @interface
- */
-UI.ListWidget.Delegate = Delegate;
-
-/**
- * @constructor
- */
-UI.ListWidget.Editor = Editor;
-
 /** @typedef {{valid: boolean, errorMessage: (string|undefined)}} */
-UI.ListWidget.ValidatorResult;
+export let ValidatorResult;

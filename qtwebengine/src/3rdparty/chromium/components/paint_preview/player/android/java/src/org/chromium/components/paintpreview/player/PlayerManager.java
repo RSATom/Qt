@@ -12,10 +12,16 @@ import android.widget.FrameLayout;
 
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.Callback;
+import org.chromium.base.UnguessableToken;
+import org.chromium.components.paintpreview.browser.NativePaintPreviewServiceProvider;
 import org.chromium.components.paintpreview.player.frame.PlayerFrameCoordinator;
+import org.chromium.url.GURL;
 
 import java.util.HashMap;
 import java.util.Map;
+
+import javax.annotation.Nonnull;
 
 /**
  * This is the only public class in this package and is hence the access point of this component for
@@ -26,11 +32,17 @@ public class PlayerManager {
     private PlayerCompositorDelegateImpl mDelegate;
     private PlayerFrameCoordinator mRootFrameCoordinator;
     private FrameLayout mHostView;
+    private Callback<Boolean> mViewReadyCallback;
 
-    public PlayerManager(Context context, String url) {
+    public PlayerManager(GURL url, Context context,
+            NativePaintPreviewServiceProvider nativePaintPreviewServiceProvider,
+            String directoryKey, @Nonnull LinkClickHandler linkClickHandler,
+            Callback<Boolean> viewReadyCallback) {
         mContext = context;
-        mDelegate = new PlayerCompositorDelegateImpl(url, this::onCompositorReady);
+        mDelegate = new PlayerCompositorDelegateImpl(nativePaintPreviewServiceProvider, url,
+                directoryKey, this::onCompositorReady, linkClickHandler);
         mHostView = new FrameLayout(mContext);
+        mViewReadyCallback = viewReadyCallback;
     }
 
     /**
@@ -38,8 +50,14 @@ public class PlayerManager {
      * method initializes a sub-component for each frame and adds the view for the root frame to
      * {@link #mHostView}.
      */
-    private void onCompositorReady(long rootFrameGuid, long[] frameGuids, int[] frameContentSize,
-            int[] subFramesCount, long[] subFrameGuids, int[] subFrameClipRects) {
+    private void onCompositorReady(boolean safeToShow, UnguessableToken rootFrameGuid,
+            UnguessableToken[] frameGuids, int[] frameContentSize, int[] subFramesCount,
+            UnguessableToken[] subFrameGuids, int[] subFrameClipRects) {
+        if (!safeToShow) {
+            mViewReadyCallback.onResult(safeToShow);
+            return;
+        }
+
         PaintPreviewFrame rootFrame = buildFrameTreeHierarchy(rootFrameGuid, frameGuids,
                 frameContentSize, subFramesCount, subFrameGuids, subFrameClipRects);
 
@@ -49,19 +67,21 @@ public class PlayerManager {
         mHostView.addView(mRootFrameCoordinator.getView(),
                 new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        mViewReadyCallback.onResult(safeToShow);
     }
 
     /**
-     * This method builds a hierarchy of {@link PaintPreviewFrame}s from primitive variables
-     * that originate from native. Detailed explanation of the parameters can be found in
-     * {@link PlayerCompositorDelegateImpl#onCompositorReady}.
+     * This method builds a hierarchy of {@link PaintPreviewFrame}s from primitive variables that
+     * originate from native. Detailed explanation of the parameters can be found in {@link
+     * PlayerCompositorDelegateImpl#onCompositorReady}.
+     *
      * @return The root {@link PaintPreviewFrame}
      */
     @VisibleForTesting
-    static PaintPreviewFrame buildFrameTreeHierarchy(long rootFrameGuid, long[] frameGuids,
-            int[] frameContentSize, int[] subFramesCount, long[] subFrameGuids,
-            int[] subFrameClipRects) {
-        Map<Long, PaintPreviewFrame> framesMap = new HashMap<>();
+    static PaintPreviewFrame buildFrameTreeHierarchy(UnguessableToken rootFrameGuid,
+            UnguessableToken[] frameGuids, int[] frameContentSize, int[] subFramesCount,
+            UnguessableToken[] subFrameGuids, int[] subFrameClipRects) {
+        Map<UnguessableToken, PaintPreviewFrame> framesMap = new HashMap<>();
         for (int i = 0; i < frameGuids.length; i++) {
             framesMap.put(frameGuids[i],
                     new PaintPreviewFrame(
@@ -95,7 +115,9 @@ public class PlayerManager {
      */
     private void buildSubFrameCoordinators(
             PlayerFrameCoordinator frameCoordinator, PaintPreviewFrame frame) {
-        if (frame.getSubFrames() == null || frame.getSubFrames().length == 0) return;
+        if (frame.getSubFrames() == null || frame.getSubFrames().length == 0) {
+            return;
+        }
 
         for (int i = 0; i < frame.getSubFrames().length; i++) {
             PaintPreviewFrame childFrame = frame.getSubFrames()[i];

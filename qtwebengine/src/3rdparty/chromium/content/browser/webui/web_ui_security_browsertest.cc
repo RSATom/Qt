@@ -12,7 +12,6 @@
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/browser/webui/web_ui_browsertest_util.h"
 #include "content/browser/webui/web_ui_controller_factory_registry.h"
 #include "content/public/browser/site_isolation_policy.h"
 #include "content/public/browser/web_ui.h"
@@ -26,6 +25,7 @@
 #include "content/public/test/test_frame_navigation_observer.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
+#include "content/public/test/web_ui_browsertest_util.h"
 #include "content/shell/browser/shell.h"
 #include "content/test/content_browser_test_utils_internal.h"
 #include "net/base/url_util.h"
@@ -48,6 +48,19 @@ class WebUISecurityTest : public ContentBrowserTest {
 
   DISALLOW_COPY_AND_ASSIGN(WebUISecurityTest);
 };
+
+// Verify chrome-untrusted:// have no bindings.
+IN_PROC_BROWSER_TEST_F(WebUISecurityTest, UntrustedNoBindings) {
+  auto* web_contents = shell()->web_contents();
+  AddUntrustedDataSource(web_contents->GetBrowserContext(), "test-host");
+
+  const GURL untrusted_url(GetChromeUntrustedUIURL("test-host/title1.html"));
+  EXPECT_TRUE(NavigateToURL(web_contents, untrusted_url));
+
+  EXPECT_FALSE(ChildProcessSecurityPolicyImpl::GetInstance()->HasWebUIBindings(
+      shell()->web_contents()->GetMainFrame()->GetProcess()->GetID()));
+  EXPECT_EQ(0, shell()->web_contents()->GetMainFrame()->GetEnabledBindings());
+}
 
 // Loads a WebUI which does not have any bindings.
 IN_PROC_BROWSER_TEST_F(WebUISecurityTest, NoBindings) {
@@ -410,6 +423,117 @@ IN_PROC_BROWSER_TEST_F(WebUISecurityTest, WebUIFailedNavigation) {
   EXPECT_FALSE(NavigateToURL(shell(), http_error_url));
   EXPECT_FALSE(root->current_frame_host()->web_ui());
   EXPECT_EQ(0, root->current_frame_host()->GetEnabledBindings());
+}
+
+// Verify fetch request to chrome-untrusted:// is blocked.
+IN_PROC_BROWSER_TEST_F(WebUISecurityTest,
+                       DisallowFetchRequestToChromeUntrusted) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL web_url(embedded_test_server()->GetURL("/title2.html"));
+  AddUntrustedDataSource(shell()->web_contents()->GetBrowserContext(),
+                         "test-host");
+
+  EXPECT_TRUE(NavigateToURL(shell(), web_url));
+  EXPECT_EQ(web_url, shell()->web_contents()->GetLastCommittedURL());
+
+  const char kFetchRequestScript[] =
+      "(async () => {"
+      "  try {"
+      "    let response = await fetch($1); "
+      "  }"
+      "  catch (e) {"
+      "    return e.message;"
+      "  }"
+      "  throw 'Fetch should fail';"
+      "})();";
+  {
+    GURL untrusted_url(GetChromeUntrustedUIURL("test-host/script.js"));
+    auto console_delegate = std::make_unique<ConsoleObserverDelegate>(
+        shell()->web_contents(),
+        "Fetch API cannot load " + untrusted_url.spec() +
+            ". URL scheme must be \"http\" or \"https\" for CORS request.");
+    shell()->web_contents()->SetDelegate(console_delegate.get());
+
+    EXPECT_EQ("Failed to fetch",
+              EvalJs(shell(), JsReplace(kFetchRequestScript, untrusted_url),
+                     EXECUTE_SCRIPT_DEFAULT_OPTIONS, 1 /* world_id */));
+    console_delegate->Wait();
+  }
+}
+
+// Verify XHR request to chrome-untrusted:// is blocked.
+IN_PROC_BROWSER_TEST_F(WebUISecurityTest, DisallowXHRRequestToChromeUntrusted) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL web_url(embedded_test_server()->GetURL("/title2.html"));
+  AddUntrustedDataSource(shell()->web_contents()->GetBrowserContext(),
+                         "test-host");
+
+  EXPECT_TRUE(NavigateToURL(shell(), web_url));
+  EXPECT_EQ(web_url, shell()->web_contents()->GetLastCommittedURL());
+
+  const char kXHRRequest[] =
+      "new Promise((resolve) => {"
+      "  const xhttp = new XMLHttpRequest();"
+      "  xhttp.open('GET', $1, true);"
+      "  xhttp.onload = () => { "
+      "    resolve('Request should have failed');"
+      "  };"
+      "  xhttp.onerror = () => {"
+      "    resolve('Request failed');"
+      "  };"
+      "  xhttp.send();"
+      "}); ";
+  {
+    GURL untrusted_url(GetChromeUntrustedUIURL("test-host/script.js"));
+    const std::string host = web_url.GetOrigin().spec();
+
+    auto console_delegate = std::make_unique<ConsoleObserverDelegate>(
+        shell()->web_contents(),
+        "Access to XMLHttpRequest at '" + untrusted_url.spec() +
+            "' from origin '" + host.substr(0, host.length() - 1) +
+            "' has been blocked by CORS policy: Cross origin requests are only "
+            "supported for protocol schemes: http, data, chrome, https.");
+
+    shell()->web_contents()->SetDelegate(console_delegate.get());
+    EXPECT_EQ("Request failed",
+              EvalJs(shell(), JsReplace(kXHRRequest, untrusted_url),
+                     EXECUTE_SCRIPT_DEFAULT_OPTIONS, 1 /* world_id */));
+    console_delegate->Wait();
+  }
+}
+
+// Verify load script from chrome-untrusted:// is blocked.
+IN_PROC_BROWSER_TEST_F(WebUISecurityTest,
+                       DisallowResourceRequestToChromeUntrusted) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL web_url(embedded_test_server()->GetURL("/title2.html"));
+  AddUntrustedDataSource(shell()->web_contents()->GetBrowserContext(),
+                         "test-host");
+
+  EXPECT_TRUE(NavigateToURL(shell(), web_url));
+  EXPECT_EQ(web_url, shell()->web_contents()->GetLastCommittedURL());
+
+  const char kLoadResourceScript[] =
+      "new Promise((resolve) => {"
+      "  const script = document.createElement('script');"
+      "  script.onload = () => {"
+      "    resolve('Script load should have failed');"
+      "  };"
+      "  script.onerror = () => {"
+      "    resolve('Load failed');"
+      "  };"
+      "  script.src = $1;"
+      "  document.body.appendChild(script);"
+      "});";
+
+  // There are no error messages in the console which is why we cannot check for
+  // them.
+  {
+    GURL untrusted_url(GetChromeUntrustedUIURL("test-host/script.js"));
+    EXPECT_EQ("Load failed",
+              EvalJs(shell(), JsReplace(kLoadResourceScript, untrusted_url),
+                     EXECUTE_SCRIPT_DEFAULT_OPTIONS, 1 /* world_id */));
+  }
 }
 
 }  // namespace content

@@ -6,7 +6,7 @@
 
 #include "base/auto_reset.h"
 #include "base/metrics/field_trial_params.h"
-#include "third_party/blink/public/platform/web_touch_event.h"
+#include "third_party/blink/public/common/input/web_touch_event.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event_path.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
@@ -104,7 +104,7 @@ void PointerEventManager::Clear() {
   dispatching_pointer_id_ = 0;
 }
 
-void PointerEventManager::Trace(blink::Visitor* visitor) {
+void PointerEventManager::Trace(Visitor* visitor) {
   visitor->Trace(frame_);
   visitor->Trace(element_under_pointer_);
   visitor->Trace(pointer_capture_target_);
@@ -366,8 +366,8 @@ void PointerEventManager::AdjustTouchPointerEvent(
       HitTestRequest::kRetargetForInert;
   LocalFrame& root_frame = frame_->LocalFrameRoot();
   // TODO(szager): Shouldn't this be PositionInScreen() ?
-  PhysicalOffset hit_test_point =
-      PhysicalOffset::FromFloatPointRound(pointer_event.PositionInWidget());
+  PhysicalOffset hit_test_point = PhysicalOffset::FromFloatPointRound(
+      FloatPoint(pointer_event.PositionInWidget()));
   hit_test_point -= PhysicalOffset(hit_rect_size * 0.5f);
   HitTestLocation location(PhysicalRect(hit_test_point, hit_rect_size));
   HitTestResult hit_test_result =
@@ -381,7 +381,8 @@ void PointerEventManager::AdjustTouchPointerEvent(
     pointer_event.SetPositionInWidget(adjusted_point.X(), adjusted_point.Y());
 
   frame_->GetEventHandler().CacheTouchAdjustmentResult(
-      pointer_event.unique_touch_event_id, pointer_event.PositionInWidget());
+      pointer_event.unique_touch_event_id,
+      FloatPoint(pointer_event.PositionInWidget()));
 }
 
 bool PointerEventManager::ShouldFilterEvent(PointerEvent* pointer_event) {
@@ -424,7 +425,7 @@ PointerEventManager::ComputePointerEventTarget(
         HitTestRequest::kActive | HitTestRequest::kRetargetForInert;
     HitTestLocation location(frame_->View()->ConvertFromRootFrame(
         PhysicalOffset::FromFloatPointRound(
-            web_pointer_event.PositionInWidget())));
+            FloatPoint(web_pointer_event.PositionInWidget()))));
     HitTestResult hit_test_tesult =
         frame_->GetEventHandler().HitTestResultAtLocation(location, hit_type);
     Element* target = hit_test_tesult.InnerElement();
@@ -706,8 +707,8 @@ WebInputEventResult PointerEventManager::DirectDispatchMousePointerEvent(
     return result;
   }
   pointer_event_factory_.SetLastPosition(
-      pointer_event_factory_.GetPointerEventId(event), event.PositionInScreen(),
-      event.GetType());
+      pointer_event_factory_.GetPointerEventId(event),
+      FloatPoint(event.PositionInScreen()), event.GetType());
 
   return WebInputEventResult::kHandledSuppressed;
 }
@@ -876,6 +877,9 @@ bool PointerEventManager::GetPointerCaptureState(
     PointerId pointer_id,
     Element** pointer_capture_target,
     Element** pending_pointer_capture_target) {
+  DCHECK(pointer_capture_target);
+  DCHECK(pending_pointer_capture_target);
+
   PointerCapturingMap::const_iterator it;
 
   it = pointer_capture_target_.find(pointer_id);
@@ -885,10 +889,8 @@ bool PointerEventManager::GetPointerCaptureState(
   Element* pending_pointercapture_target_temp =
       (it != pending_pointer_capture_target_.end()) ? it->value : nullptr;
 
-  if (pointer_capture_target)
-    *pointer_capture_target = pointer_capture_target_temp;
-  if (pending_pointer_capture_target)
-    *pending_pointer_capture_target = pending_pointercapture_target_temp;
+  *pointer_capture_target = pointer_capture_target_temp;
+  *pending_pointer_capture_target = pending_pointercapture_target_temp;
 
   return pointer_capture_target_temp != pending_pointercapture_target_temp;
 }
@@ -916,8 +918,9 @@ Element* PointerEventManager::ProcessCaptureAndPositionOfPointerEvent(
 
 void PointerEventManager::ProcessPendingPointerCapture(
     PointerEvent* pointer_event) {
-  Element* pointer_capture_target;
-  Element* pending_pointer_capture_target;
+  Element* pointer_capture_target = nullptr;
+  Element* pending_pointer_capture_target = nullptr;
+
   const PointerId pointer_id = pointer_event->pointerId();
   const bool is_capture_changed = GetPointerCaptureState(
       pointer_id, &pointer_capture_target, &pending_pointer_capture_target);
@@ -1084,9 +1087,9 @@ void PointerEventManager::SetLastPointerPositionForFrameBoundary(
     pointer_event_factory_.RemoveLastPosition(pointer_id);
   } else if (!last_target || new_target->GetDocument().GetFrame() !=
                                  last_target->GetDocument().GetFrame()) {
-    pointer_event_factory_.SetLastPosition(pointer_id,
-                                           web_pointer_event.PositionInScreen(),
-                                           web_pointer_event.GetType());
+    pointer_event_factory_.SetLastPosition(
+        pointer_id, FloatPoint(web_pointer_event.PositionInScreen()),
+        web_pointer_event.GetType());
   }
 }
 

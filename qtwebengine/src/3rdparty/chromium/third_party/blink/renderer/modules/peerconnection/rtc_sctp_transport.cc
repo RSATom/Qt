@@ -56,7 +56,7 @@ std::unique_ptr<SctpTransportProxy> CreateProxy(
     scoped_refptr<base::SingleThreadTaskRunner> worker_thread) {
   DCHECK(main_thread);
   DCHECK(worker_thread);
-  LocalFrame* frame = To<Document>(context)->GetFrame();
+  LocalFrame* frame = Document::From(context)->GetFrame();
   DCHECK(frame);
   return SctpTransportProxy::Create(*frame, main_thread, worker_thread,
                                     native_transport, delegate);
@@ -69,7 +69,7 @@ RTCSctpTransport::RTCSctpTransport(
     rtc::scoped_refptr<webrtc::SctpTransportInterface> native_transport)
     : RTCSctpTransport(context,
                        native_transport,
-                       To<Document>(context)->GetFrame()->GetTaskRunner(
+                       Document::From(context)->GetFrame()->GetTaskRunner(
                            TaskType::kNetworking),
 #if BUILDFLAG(ENABLE_WEBRTC)
                        PeerConnectionDependencyFactory::GetInstance()
@@ -84,7 +84,7 @@ RTCSctpTransport::RTCSctpTransport(
     rtc::scoped_refptr<webrtc::SctpTransportInterface> native_transport,
     scoped_refptr<base::SingleThreadTaskRunner> main_thread,
     scoped_refptr<base::SingleThreadTaskRunner> worker_thread)
-    : ContextClient(context),
+    : ExecutionContextClient(context),
       current_state_(webrtc::SctpTransportState::kNew),
       native_transport_(native_transport),
       proxy_(CreateProxy(context,
@@ -110,6 +110,12 @@ double RTCSctpTransport::maxMessageSize() const {
   // If local size is unlimited and remote side is unknown, return infinity.
   // http://w3c.github.io/webrtc-pc/#dfn-update-the-data-max-message-size
   return std::numeric_limits<double>::infinity();
+}
+
+base::Optional<int16_t> RTCSctpTransport::maxChannels() const {
+  if (!current_state_.MaxChannels())
+    return base::nullopt;
+  return current_state_.MaxChannels().value();
 }
 
 int16_t RTCSctpTransport::maxChannels(bool& isNull) const {
@@ -169,13 +175,13 @@ const AtomicString& RTCSctpTransport::InterfaceName() const {
 }
 
 ExecutionContext* RTCSctpTransport::GetExecutionContext() const {
-  return ContextClient::GetExecutionContext();
+  return ExecutionContextClient::GetExecutionContext();
 }
 
 void RTCSctpTransport::Trace(Visitor* visitor) {
   visitor->Trace(dtls_transport_);
   EventTargetWithInlineData::Trace(visitor);
-  ContextClient::Trace(visitor);
+  ExecutionContextClient::Trace(visitor);
   SctpTransportProxy::Delegate::Trace(visitor);
 }
 

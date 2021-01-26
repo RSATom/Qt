@@ -6,8 +6,9 @@
 
 #include <cstdint>
 
+#include "third_party/boringssl/src/include/openssl/ssl.h"
 #include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
 
 namespace quic {
 
@@ -56,8 +57,14 @@ std::string HistogramEnumString(WriteStatus enum_value) {
     case WRITE_STATUS_NUM_VALUES:
       return "NUM_VALUES";
   }
-  QUIC_DLOG(ERROR) << "Invalid WriteStatus value: " << enum_value;
+  QUIC_DLOG(ERROR) << "Invalid WriteStatus value: "
+                   << static_cast<int16_t>(enum_value);
   return "<invalid>";
+}
+
+std::ostream& operator<<(std::ostream& os, const WriteStatus& status) {
+  os << HistogramEnumString(status);
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, const WriteResult& s) {
@@ -79,8 +86,16 @@ MessageResult::MessageResult(MessageStatus status, QuicMessageId message_id)
     return #x;
 
 std::string QuicIetfTransportErrorCodeString(QuicIetfTransportErrorCodes c) {
-  if (static_cast<uint16_t>(c) >= 0xff00u) {
-    return QuicStrCat("Private value: ", static_cast<uint16_t>(c));
+  if (static_cast<uint64_t>(c) >= 0xff00u) {
+    return quiche::QuicheStrCat("Private(", static_cast<uint64_t>(c), ")");
+  }
+  if (c >= CRYPTO_ERROR_FIRST && c <= CRYPTO_ERROR_LAST) {
+    const int tls_error = static_cast<int>(c - CRYPTO_ERROR_FIRST);
+    const char* tls_error_description = SSL_alert_desc_string_long(tls_error);
+    if (strcmp("unknown", tls_error_description) != 0) {
+      return quiche::QuicheStrCat("CRYPTO_ERROR(", tls_error_description, ")");
+    }
+    return quiche::QuicheStrCat("CRYPTO_ERROR(unknown(", tls_error, "))");
   }
 
   switch (c) {
@@ -93,13 +108,19 @@ std::string QuicIetfTransportErrorCodeString(QuicIetfTransportErrorCodes c) {
     RETURN_STRING_LITERAL(FINAL_SIZE_ERROR);
     RETURN_STRING_LITERAL(FRAME_ENCODING_ERROR);
     RETURN_STRING_LITERAL(TRANSPORT_PARAMETER_ERROR);
-    RETURN_STRING_LITERAL(VERSION_NEGOTIATION_ERROR);
+    RETURN_STRING_LITERAL(CONNECTION_ID_LIMIT_ERROR);
     RETURN_STRING_LITERAL(PROTOCOL_VIOLATION);
-    RETURN_STRING_LITERAL(INVALID_MIGRATION);
-    default:
-      return QuicStrCat("Unknown Transport Error Code Value: ",
-                        static_cast<uint16_t>(c));
+    RETURN_STRING_LITERAL(INVALID_TOKEN);
+    RETURN_STRING_LITERAL(CRYPTO_BUFFER_EXCEEDED);
+    // CRYPTO_ERROR is handled in the if before this switch, these cases do not
+    // change behavior and are only here to make the compiler happy.
+    case CRYPTO_ERROR_FIRST:
+    case CRYPTO_ERROR_LAST:
+      DCHECK(false) << "Unexpected error " << static_cast<uint64_t>(c);
+      break;
   }
+
+  return quiche::QuicheStrCat("Unknown(", static_cast<uint64_t>(c), ")");
 }
 
 std::ostream& operator<<(std::ostream& os,
@@ -425,6 +446,97 @@ QuicErrorCodeToIetfMapping QuicErrorCodeToTransportErrorCode(
               {static_cast<uint64_t>(QUIC_STREAM_DATA_BEYOND_CLOSE_OFFSET)}};
     case QUIC_STREAM_MULTIPLE_OFFSET:
       return {true, {static_cast<uint64_t>(QUIC_STREAM_MULTIPLE_OFFSET)}};
+    case QUIC_HTTP_FRAME_TOO_LARGE:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_EXCESSIVE_LOAD)}};
+    case QUIC_HTTP_FRAME_ERROR:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_FRAME_ERROR)}};
+    case QUIC_HTTP_FRAME_UNEXPECTED_ON_SPDY_STREAM:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_FRAME_UNEXPECTED)}};
+    case QUIC_HTTP_FRAME_UNEXPECTED_ON_CONTROL_STREAM:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_FRAME_UNEXPECTED)}};
+    case QUIC_HTTP_INVALID_FRAME_SEQUENCE_ON_SPDY_STREAM:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_FRAME_UNEXPECTED)}};
+    case QUIC_HTTP_INVALID_FRAME_SEQUENCE_ON_CONTROL_STREAM:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_FRAME_UNEXPECTED)}};
+    case QUIC_HTTP_DUPLICATE_UNIDIRECTIONAL_STREAM:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_STREAM_CREATION_ERROR)}};
+    case QUIC_HTTP_SERVER_INITIATED_BIDIRECTIONAL_STREAM:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_STREAM_CREATION_ERROR)}};
+    case QUIC_HTTP_STREAM_WRONG_DIRECTION:
+      return {true, {static_cast<uint64_t>(STREAM_STATE_ERROR)}};
+    case QUIC_HTTP_CLOSED_CRITICAL_STREAM:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_CLOSED_CRITICAL_STREAM)}};
+    case QUIC_HTTP_MISSING_SETTINGS_FRAME:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_MISSING_SETTINGS)}};
+    case QUIC_HTTP_DUPLICATE_SETTING_IDENTIFIER:
+      return {false,
+              {static_cast<uint64_t>(
+                  QuicHttp3ErrorCode::IETF_QUIC_HTTP3_SETTINGS_ERROR)}};
+    case QUIC_HPACK_INDEX_VARINT_ERROR:
+      return {false, {static_cast<uint64_t>(QUIC_HPACK_INDEX_VARINT_ERROR)}};
+    case QUIC_HPACK_NAME_LENGTH_VARINT_ERROR:
+      return {false,
+              {static_cast<uint64_t>(QUIC_HPACK_NAME_LENGTH_VARINT_ERROR)}};
+    case QUIC_HPACK_VALUE_LENGTH_VARINT_ERROR:
+      return {false,
+              {static_cast<uint64_t>(QUIC_HPACK_VALUE_LENGTH_VARINT_ERROR)}};
+    case QUIC_HPACK_NAME_TOO_LONG:
+      return {false, {static_cast<uint64_t>(QUIC_HPACK_NAME_TOO_LONG)}};
+    case QUIC_HPACK_VALUE_TOO_LONG:
+      return {false, {static_cast<uint64_t>(QUIC_HPACK_VALUE_TOO_LONG)}};
+    case QUIC_HPACK_NAME_HUFFMAN_ERROR:
+      return {false, {static_cast<uint64_t>(QUIC_HPACK_NAME_HUFFMAN_ERROR)}};
+    case QUIC_HPACK_VALUE_HUFFMAN_ERROR:
+      return {false, {static_cast<uint64_t>(QUIC_HPACK_VALUE_HUFFMAN_ERROR)}};
+    case QUIC_HPACK_MISSING_DYNAMIC_TABLE_SIZE_UPDATE:
+      return {false,
+              {static_cast<uint64_t>(
+                  QUIC_HPACK_MISSING_DYNAMIC_TABLE_SIZE_UPDATE)}};
+    case QUIC_HPACK_INVALID_INDEX:
+      return {false, {static_cast<uint64_t>(QUIC_HPACK_INVALID_INDEX)}};
+    case QUIC_HPACK_INVALID_NAME_INDEX:
+      return {false, {static_cast<uint64_t>(QUIC_HPACK_INVALID_NAME_INDEX)}};
+    case QUIC_HPACK_DYNAMIC_TABLE_SIZE_UPDATE_NOT_ALLOWED:
+      return {false,
+              {static_cast<uint64_t>(
+                  QUIC_HPACK_DYNAMIC_TABLE_SIZE_UPDATE_NOT_ALLOWED)}};
+    case QUIC_HPACK_INITIAL_TABLE_SIZE_UPDATE_IS_ABOVE_LOW_WATER_MARK:
+      return {
+          false,
+          {static_cast<uint64_t>(
+              QUIC_HPACK_INITIAL_TABLE_SIZE_UPDATE_IS_ABOVE_LOW_WATER_MARK)}};
+    case QUIC_HPACK_TABLE_SIZE_UPDATE_IS_ABOVE_ACKNOWLEDGED_SETTING:
+      return {false,
+              {static_cast<uint64_t>(
+                  QUIC_HPACK_TABLE_SIZE_UPDATE_IS_ABOVE_ACKNOWLEDGED_SETTING)}};
+    case QUIC_HPACK_TRUNCATED_BLOCK:
+      return {false, {static_cast<uint64_t>(QUIC_HPACK_TRUNCATED_BLOCK)}};
+    case QUIC_HPACK_FRAGMENT_TOO_LONG:
+      return {false, {static_cast<uint64_t>(QUIC_HPACK_FRAGMENT_TOO_LONG)}};
+    case QUIC_HPACK_COMPRESSED_HEADER_SIZE_EXCEEDS_LIMIT:
+      return {false,
+              {static_cast<uint64_t>(
+                  QUIC_HPACK_COMPRESSED_HEADER_SIZE_EXCEEDS_LIMIT)}};
     case QUIC_LAST_ERROR:
       return {false, {static_cast<uint64_t>(QUIC_LAST_ERROR)}};
   }
@@ -450,8 +562,8 @@ std::string QuicIetfFrameTypeString(QuicIetfFrameType t) {
     RETURN_STRING_LITERAL(IETF_MAX_STREAM_DATA);
     RETURN_STRING_LITERAL(IETF_MAX_STREAMS_BIDIRECTIONAL);
     RETURN_STRING_LITERAL(IETF_MAX_STREAMS_UNIDIRECTIONAL);
-    RETURN_STRING_LITERAL(IETF_BLOCKED);
-    RETURN_STRING_LITERAL(IETF_STREAM_BLOCKED);
+    RETURN_STRING_LITERAL(IETF_DATA_BLOCKED);
+    RETURN_STRING_LITERAL(IETF_STREAM_DATA_BLOCKED);
     RETURN_STRING_LITERAL(IETF_STREAMS_BLOCKED_BIDIRECTIONAL);
     RETURN_STRING_LITERAL(IETF_STREAMS_BLOCKED_UNIDIRECTIONAL);
     RETURN_STRING_LITERAL(IETF_NEW_CONNECTION_ID);
@@ -465,7 +577,7 @@ std::string QuicIetfFrameTypeString(QuicIetfFrameType t) {
     RETURN_STRING_LITERAL(IETF_EXTENSION_MESSAGE_NO_LENGTH_V99);
     RETURN_STRING_LITERAL(IETF_EXTENSION_MESSAGE_V99);
     default:
-      return QuicStrCat("Private value (", t, ")");
+      return quiche::QuicheStrCat("Private value (", t, ")");
   }
 }
 std::ostream& operator<<(std::ostream& os, const QuicIetfFrameType& c) {
@@ -489,7 +601,8 @@ std::string TransmissionTypeToString(TransmissionType transmission_type) {
       if (transmission_type == LAST_TRANSMISSION_TYPE + 1) {
         return "INVALID_TRANSMISSION_TYPE";
       }
-      return QuicStrCat("Unknown(", static_cast<int>(transmission_type), ")");
+      return quiche::QuicheStrCat("Unknown(",
+                                  static_cast<int>(transmission_type), ")");
       break;
   }
 }
@@ -500,7 +613,7 @@ std::string PacketHeaderFormatToString(PacketHeaderFormat format) {
     RETURN_STRING_LITERAL(IETF_QUIC_SHORT_HEADER_PACKET);
     RETURN_STRING_LITERAL(GOOGLE_QUIC_PACKET);
     default:
-      return QuicStrCat("Unknown (", static_cast<int>(format), ")");
+      return quiche::QuicheStrCat("Unknown (", static_cast<int>(format), ")");
   }
 }
 
@@ -513,7 +626,7 @@ std::string QuicLongHeaderTypeToString(QuicLongHeaderType type) {
     RETURN_STRING_LITERAL(RETRY);
     RETURN_STRING_LITERAL(INVALID_PACKET_TYPE);
     default:
-      return QuicStrCat("Unknown (", static_cast<int>(type), ")");
+      return quiche::QuicheStrCat("Unknown (", static_cast<int>(type), ")");
   }
 }
 
@@ -526,17 +639,19 @@ std::string MessageStatusToString(MessageStatus message_status) {
     RETURN_STRING_LITERAL(MESSAGE_STATUS_TOO_LARGE);
     RETURN_STRING_LITERAL(MESSAGE_STATUS_INTERNAL_ERROR);
     default:
-      return QuicStrCat("Unknown(", static_cast<int>(message_status), ")");
+      return quiche::QuicheStrCat("Unknown(", static_cast<int>(message_status),
+                                  ")");
       break;
   }
 }
 
 std::string MessageResultToString(MessageResult message_result) {
   if (message_result.status != MESSAGE_STATUS_SUCCESS) {
-    return QuicStrCat("{", MessageStatusToString(message_result.status), "}");
+    return quiche::QuicheStrCat(
+        "{", MessageStatusToString(message_result.status), "}");
   }
-  return QuicStrCat("{MESSAGE_STATUS_SUCCESS,id=", message_result.message_id,
-                    "}");
+  return quiche::QuicheStrCat(
+      "{MESSAGE_STATUS_SUCCESS,id=", message_result.message_id, "}");
 }
 
 std::ostream& operator<<(std::ostream& os, const MessageResult& mr) {
@@ -550,7 +665,8 @@ std::string PacketNumberSpaceToString(PacketNumberSpace packet_number_space) {
     RETURN_STRING_LITERAL(HANDSHAKE_DATA);
     RETURN_STRING_LITERAL(APPLICATION_DATA);
     default:
-      return QuicStrCat("Unknown(", static_cast<int>(packet_number_space), ")");
+      return quiche::QuicheStrCat("Unknown(",
+                                  static_cast<int>(packet_number_space), ")");
       break;
   }
 }
@@ -562,7 +678,7 @@ std::string SerializedPacketFateToString(SerializedPacketFate fate) {
     RETURN_STRING_LITERAL(SEND_TO_WRITER);
     RETURN_STRING_LITERAL(FAILED_TO_WRITE_COALESCED_PACKET);
     default:
-      return QuicStrCat("Unknown(", static_cast<int>(fate), ")");
+      return quiche::QuicheStrCat("Unknown(", static_cast<int>(fate), ")");
   }
 }
 
@@ -573,7 +689,7 @@ std::string EncryptionLevelToString(EncryptionLevel level) {
     RETURN_STRING_LITERAL(ENCRYPTION_ZERO_RTT);
     RETURN_STRING_LITERAL(ENCRYPTION_FORWARD_SECURE);
     default:
-      return QuicStrCat("Unknown(", static_cast<int>(level), ")");
+      return quiche::QuicheStrCat("Unknown(", static_cast<int>(level), ")");
       break;
   }
 }
@@ -584,12 +700,33 @@ std::string QuicConnectionCloseTypeString(QuicConnectionCloseType type) {
     RETURN_STRING_LITERAL(IETF_QUIC_TRANSPORT_CONNECTION_CLOSE);
     RETURN_STRING_LITERAL(IETF_QUIC_APPLICATION_CONNECTION_CLOSE);
     default:
-      return QuicStrCat("Unknown(", static_cast<int>(type), ")");
+      return quiche::QuicheStrCat("Unknown(", static_cast<int>(type), ")");
       break;
   }
 }
+
 std::ostream& operator<<(std::ostream& os, const QuicConnectionCloseType type) {
   os << QuicConnectionCloseTypeString(type);
+  return os;
+}
+
+std::string AddressChangeTypeToString(AddressChangeType type) {
+  using IntType = typename std::underlying_type<AddressChangeType>::type;
+  switch (type) {
+    RETURN_STRING_LITERAL(NO_CHANGE);
+    RETURN_STRING_LITERAL(PORT_CHANGE);
+    RETURN_STRING_LITERAL(IPV4_SUBNET_CHANGE);
+    RETURN_STRING_LITERAL(IPV4_TO_IPV4_CHANGE);
+    RETURN_STRING_LITERAL(IPV4_TO_IPV6_CHANGE);
+    RETURN_STRING_LITERAL(IPV6_TO_IPV4_CHANGE);
+    RETURN_STRING_LITERAL(IPV6_TO_IPV6_CHANGE);
+    default:
+      return quiche::QuicheStrCat("Unknown(", static_cast<IntType>(type), ")");
+  }
+}
+
+std::ostream& operator<<(std::ostream& os, AddressChangeType type) {
+  os << AddressChangeTypeToString(type);
   return os;
 }
 

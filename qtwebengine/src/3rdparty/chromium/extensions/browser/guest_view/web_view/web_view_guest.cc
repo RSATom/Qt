@@ -371,7 +371,7 @@ void WebViewGuest::CreateWebContents(const base::DictionaryValue& create_params,
     // Create the SiteInstance in a new BrowsingInstance, which will ensure
     // that webview tags are also not allowed to send messages across
     // different partitions.
-    guest_site_instance = content::SiteInstance::CreateForURL(
+    guest_site_instance = content::SiteInstance::CreateForGuest(
         owner_render_process_host->GetBrowserContext(), guest_site);
   }
   WebContents::CreateParams params(
@@ -566,24 +566,6 @@ void WebViewGuest::WillDestroy() {
     GetOpener()->pending_new_windows_.erase(this);
 }
 
-bool WebViewGuest::DidAddMessageToConsole(
-    WebContents* source,
-    blink::mojom::ConsoleMessageLevel log_level,
-    const base::string16& message,
-    int32_t line_no,
-    const base::string16& source_id) {
-  auto args = std::make_unique<base::DictionaryValue>();
-  // Log levels are from base/logging.h: LogSeverity.
-  args->SetInteger(webview::kLevel,
-                   blink::ConsoleMessageLevelToLogSeverity(log_level));
-  args->SetString(webview::kMessage, message);
-  args->SetInteger(webview::kLine, line_no);
-  args->SetString(webview::kSourceId, source_id);
-  DispatchEventToView(std::make_unique<GuestViewEvent>(
-      webview::kEventConsoleMessage, std::move(args)));
-  return false;
-}
-
 void WebViewGuest::CloseContents(WebContents* source) {
   auto args = std::make_unique<base::DictionaryValue>();
   DispatchEventToView(
@@ -740,7 +722,8 @@ void WebViewGuest::SetUserAgentOverride(
   if (is_overriding_user_agent_) {
     base::RecordAction(UserMetricsAction("WebView.Guest.OverrideUA"));
   }
-  web_contents()->SetUserAgentOverride(user_agent_override, false);
+  web_contents()->SetUserAgentOverride(
+      blink::UserAgentOverride::UserAgentOnly(user_agent_override), false);
 }
 
 void WebViewGuest::Stop() {
@@ -966,12 +949,13 @@ void WebViewGuest::RenderProcessGone(base::TerminationStatus status) {
       std::make_unique<GuestViewEvent>(webview::kEventExit, std::move(args)));
 }
 
-void WebViewGuest::UserAgentOverrideSet(const std::string& user_agent) {
+void WebViewGuest::UserAgentOverrideSet(
+    const blink::UserAgentOverride& ua_override) {
   content::NavigationController& controller = web_contents()->GetController();
   content::NavigationEntry* entry = controller.GetVisibleEntry();
   if (!entry)
     return;
-  entry->SetIsOverridingUserAgent(!user_agent.empty());
+  entry->SetIsOverridingUserAgent(!ua_override.ua_string_override.empty());
   web_contents()->GetController().Reload(content::ReloadType::NORMAL, false);
 }
 
@@ -991,6 +975,22 @@ void WebViewGuest::OnAudioStateChanged(bool audible) {
   args->Set(webview::kAudible, std::make_unique<base::Value>(audible));
   DispatchEventToView(std::make_unique<GuestViewEvent>(
       webview::kEventAudioStateChanged, std::move(args)));
+}
+
+void WebViewGuest::OnDidAddMessageToConsole(
+    blink::mojom::ConsoleMessageLevel log_level,
+    const base::string16& message,
+    int32_t line_no,
+    const base::string16& source_id) {
+  auto args = std::make_unique<base::DictionaryValue>();
+  // Log levels are from base/logging.h: LogSeverity.
+  args->SetInteger(webview::kLevel,
+                   blink::ConsoleMessageLevelToLogSeverity(log_level));
+  args->SetString(webview::kMessage, message);
+  args->SetInteger(webview::kLine, line_no);
+  args->SetString(webview::kSourceId, source_id);
+  DispatchEventToView(std::make_unique<GuestViewEvent>(
+      webview::kEventConsoleMessage, std::move(args)));
 }
 
 void WebViewGuest::ReportFrameNameChange(const std::string& name) {
@@ -1055,14 +1055,6 @@ void WebViewGuest::CanDownload(const GURL& url,
                                            std::move(callback));
 }
 
-void WebViewGuest::RequestPointerLockPermission(
-    bool user_gesture,
-    bool last_unlocked_by_target,
-    base::OnceCallback<void(bool)> callback) {
-  web_view_permission_helper_->RequestPointerLockPermission(
-      user_gesture, last_unlocked_by_target, std::move(callback));
-}
-
 void WebViewGuest::SignalWhenReady(base::OnceClosure callback) {
   auto* manager = WebViewContentScriptManager::Get(browser_context());
   manager->SignalOnScriptsLoaded(std::move(callback));
@@ -1120,7 +1112,8 @@ bool WebViewGuest::HandleKeyboardShortcuts(
   // mouse if necessary.
   if ((event.windows_key_code == ui::VKEY_ESCAPE) &&
       !(event.GetModifiers() & blink::WebInputEvent::kInputModifiers)) {
-    return web_contents()->GotResponseToLockMouseRequest(false);
+    return web_contents()->GotResponseToLockMouseRequest(
+        blink::mojom::PointerLockResult::kUserRejected);
   }
 
 #if defined(OS_MACOSX)
@@ -1448,10 +1441,10 @@ bool WebViewGuest::IsFullscreenForTabOrPending(
 void WebViewGuest::RequestToLockMouse(WebContents* web_contents,
                                       bool user_gesture,
                                       bool last_unlocked_by_target) {
-  RequestPointerLockPermission(
+  web_view_permission_helper_->RequestPointerLockPermission(
       user_gesture, last_unlocked_by_target,
       base::Bind(
-          base::IgnoreResult(&WebContents::GotResponseToLockMouseRequest),
+          base::IgnoreResult(&WebContents::GotLockMousePermissionResponse),
           base::Unretained(web_contents)));
 }
 

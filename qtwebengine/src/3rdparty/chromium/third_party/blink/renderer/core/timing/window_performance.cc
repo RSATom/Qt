@@ -158,14 +158,19 @@ WindowPerformance::WindowPerformance(LocalDOMWindow* window)
     : Performance(
           ToTimeOrigin(window),
           window->document()->GetTaskRunner(TaskType::kPerformanceTimeline)),
-      DOMWindowClient(window) {}
+      DOMWindowClient(window) {
+  DCHECK(GetFrame());
+  DCHECK(GetFrame()->GetPerformanceMonitor());
+  GetFrame()->GetPerformanceMonitor()->Subscribe(
+      PerformanceMonitor::kLongTask, kLongTaskObserverThreshold, this);
+}
 
 WindowPerformance::~WindowPerformance() = default;
 
 ExecutionContext* WindowPerformance::GetExecutionContext() const {
   if (!GetFrame())
     return nullptr;
-  return GetFrame()->GetDocument();
+  return GetFrame()->GetDocument()->ToExecutionContext();
 }
 
 PerformanceTiming* WindowPerformance::timing() const {
@@ -204,36 +209,22 @@ WindowPerformance::CreateNavigationTimingInstance() {
   ResourceTimingInfo* info = document_loader->GetNavigationTimingInfo();
   if (!info)
     return nullptr;
-  WebVector<WebServerTimingInfo> server_timing =
+  HeapVector<Member<PerformanceServerTiming>> server_timing =
       PerformanceServerTiming::ParseServerTiming(*info);
-  if (!server_timing.empty())
+  if (!server_timing.IsEmpty())
     document_loader->CountUse(WebFeature::kPerformanceServerTiming);
 
   return MakeGarbageCollected<PerformanceNavigationTiming>(
-      GetFrame(), info, time_origin_, server_timing);
-}
-
-void WindowPerformance::UpdateLongTaskInstrumentation() {
-  if (!GetFrame() || !GetFrame()->GetDocument())
-    return;
-
-  if (HasObserverFor(PerformanceEntry::kLongTask)) {
-    UseCounter::Count(GetFrame()->GetDocument(), WebFeature::kLongTaskObserver);
-    GetFrame()->GetPerformanceMonitor()->Subscribe(
-        PerformanceMonitor::kLongTask, kLongTaskObserverThreshold, this);
-  } else {
-    GetFrame()->GetPerformanceMonitor()->UnsubscribeAll(this);
-  }
+      GetFrame(), info, time_origin_, std::move(server_timing));
 }
 
 void WindowPerformance::BuildJSONValue(V8ObjectBuilder& builder) const {
   Performance::BuildJSONValue(builder);
-  builder.Add("timing", timing()->toJSONForBinding(builder.GetScriptState()));
-  builder.Add("navigation",
-              navigation()->toJSONForBinding(builder.GetScriptState()));
+  builder.Add("timing", timing());
+  builder.Add("navigation", navigation());
 }
 
-void WindowPerformance::Trace(blink::Visitor* visitor) {
+void WindowPerformance::Trace(Visitor* visitor) {
   visitor->Trace(event_timings_);
   visitor->Trace(first_pointer_down_event_timing_);
   visitor->Trace(navigation_);
@@ -268,7 +259,7 @@ std::pair<AtomicString, DOMWindow*> WindowPerformance::SanitizedAttribution(
     return std::make_pair(kAmbiguousAttribution, nullptr);
   }
 
-  Document* document = DynamicTo<Document>(task_context);
+  Document* document = Document::DynamicFrom(task_context);
   if (!document || !document->GetFrame()) {
     // Unable to attribute as no script was involved.
     DEFINE_STATIC_LOCAL(const AtomicString, kUnknownAttribution, ("unknown"));
@@ -367,7 +358,7 @@ void WindowPerformance::RegisterEventTiming(const AtomicString& event_type,
   }
 }
 
-void WindowPerformance::ReportEventTimings(WebWidgetClient::SwapResult result,
+void WindowPerformance::ReportEventTimings(WebSwapResult result,
                                            base::TimeTicks timestamp) {
   DOMHighResTimeStamp end_time = MonotonicTimeToDOMHighResTimeStamp(timestamp);
   bool event_timing_enabled =

@@ -23,6 +23,7 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/rand_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -214,6 +215,10 @@ int UDPSocketPosix::Open(AddressFamily address_family) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK_EQ(socket_, kInvalidSocket);
 
+  auto owned_socket_count = TryAcquireGlobalUDPSocketCount();
+  if (owned_socket_count.empty())
+    return ERR_INSUFFICIENT_RESOURCES;
+
   addr_family_ = ConvertAddressFamily(address_family);
   socket_ = CreatePlatformSocket(addr_family_, SOCK_DGRAM, 0);
   if (socket_ == kInvalidSocket)
@@ -230,6 +235,8 @@ int UDPSocketPosix::Open(AddressFamily address_family) {
   }
   if (tag_ != SocketTag())
     tag_.Apply(socket_);
+
+  owned_socket_count_ = std::move(owned_socket_count);
   return OK;
 }
 
@@ -290,6 +297,8 @@ void UDPSocketPosix::ReceivedActivityMonitor::NetworkActivityMonitorIncrement(
 
 void UDPSocketPosix::Close() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+
+  owned_socket_count_.Reset();
 
   if (socket_ == kInvalidSocket)
     return;
@@ -1328,10 +1337,8 @@ void UDPSocketPosix::FlushPending() {
 // some tests it seemed like following the advice just broke in other
 // ways.
 base::SequencedTaskRunner* UDPSocketPosix::GetTaskRunner() {
-  if (task_runner_ == nullptr) {
-    task_runner_ =
-        CreateSequencedTaskRunner(base::TaskTraits(base::ThreadPool()));
-  }
+  if (task_runner_ == nullptr)
+    task_runner_ = base::ThreadPool::CreateSequencedTaskRunner({});
   return task_runner_.get();
 }
 

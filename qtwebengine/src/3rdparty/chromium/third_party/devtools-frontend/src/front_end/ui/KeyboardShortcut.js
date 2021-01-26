@@ -27,10 +27,23 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Host from '../host/host.js';
+
 /**
  * @unrestricted
  */
-export default class KeyboardShortcut {
+export class KeyboardShortcut {
+  /**
+   * @param {!Descriptor} descriptor
+   * @param {string} action
+   * @param {!Type=} type
+   */
+  constructor(descriptor, action, type) {
+    this.descriptor = descriptor;
+    this.action = action;
+    this.type = type || Type.UserShortcut;
+  }
+
   /**
    * Creates a number encoding keyCode in the lower 8 bits and modifiers mask in the higher 8 bits.
    * It is useful for matching pressed keys.
@@ -85,7 +98,7 @@ export default class KeyboardShortcut {
    * @return {boolean}
    */
   static eventHasCtrlOrMeta(event) {
-    return Host.isMac() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+    return Host.Platform.isMac() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   }
 
   /**
@@ -97,9 +110,9 @@ export default class KeyboardShortcut {
   }
 
   /**
-   * @param {string|!UI.KeyboardShortcut.Key} key
+   * @param {string|!Key} key
    * @param {number=} modifiers
-   * @return {!KeyboardShortcut.Descriptor}
+   * @return {!Descriptor}
    */
   static makeDescriptor(key, modifiers) {
     return {
@@ -110,7 +123,7 @@ export default class KeyboardShortcut {
 
   /**
    * @param {string} shortcut
-   * @return {?KeyboardShortcut.Descriptor}
+   * @return {?Descriptor}
    */
   static makeDescriptorFromBindingShortcut(shortcut) {
     const parts = shortcut.split(/\+(?!$)/);
@@ -139,7 +152,7 @@ export default class KeyboardShortcut {
   }
 
   /**
-   * @param {string|!UI.KeyboardShortcut.Key} key
+   * @param {string|!Key} key
    * @param {number=} modifiers
    * @return {string}
    */
@@ -148,7 +161,7 @@ export default class KeyboardShortcut {
   }
 
   /**
-   * @param {string|!UI.KeyboardShortcut.Key} key
+   * @param {string|!Key} key
    * @return {string}
    */
   static _keyName(key) {
@@ -158,7 +171,7 @@ export default class KeyboardShortcut {
     if (typeof key.name === 'string') {
       return key.name;
     }
-    return key.name[Host.platform()] || key.name.other || '';
+    return key.name[Host.Platform.platform()] || key.name.other || '';
   }
 
   /**
@@ -183,7 +196,7 @@ export default class KeyboardShortcut {
    * @return {string}
    */
   static _modifiersToString(modifiers) {
-    const isMac = Host.isMac();
+    const isMac = Host.Platform.isMac();
     const m = Modifiers;
     const modifierNames = new Map([
       [m.Ctrl, isMac ? 'Ctrl\u2004' : 'Ctrl\u200A+\u200A'], [m.Alt, isMac ? '\u2325\u2004' : 'Alt\u200A+\u200A'],
@@ -213,15 +226,15 @@ export const Modifiers = {
   Meta: 8,  // Command key on Mac, Win key on other platforms.
   get CtrlOrMeta() {
     // "default" command/ctrl key for platform, Command on Mac, Ctrl on other platforms
-    return Host.isMac() ? this.Meta : this.Ctrl;
+    return Host.Platform.isMac() ? this.Meta : this.Ctrl;
   },
   get ShiftOrOption() {
     // Option on Mac, Shift on other platforms
-    return Host.isMac() ? this.Alt : this.Shift;
+    return Host.Platform.isMac() ? this.Alt : this.Shift;
   }
 };
 
-/** @type {!Object.<string, !UI.KeyboardShortcut.Key>} */
+/** @type {!Object.<string, !Key>} */
 export const Keys = {
   Backspace: {code: 8, name: '\u21a4'},
   Tab: {code: 9, name: {mac: '\u21e5', other: 'Tab'}},
@@ -274,8 +287,16 @@ export const Keys = {
   SingleQuote: {code: 222, name: '\''},
   get CtrlOrMeta() {
     // "default" command/ctrl key for platform, Command on Mac, Ctrl on other platforms
-    return Host.isMac() ? this.Meta : this.Ctrl;
+    return Host.Platform.isMac() ? this.Meta : this.Ctrl;
   },
+};
+
+/** @enum {symbol} */
+export const Type = {
+  UserShortcut: Symbol('UserShortcut'),
+  DefaultShortcut: Symbol('DefaultShortcut'),
+  DisabledDefault: Symbol('DisabledDefault'),
+  UnsetShortcut: Symbol('UnsetShortcut'),
 };
 
 export const KeyBindings = {};
@@ -290,26 +311,8 @@ for (const key in Keys) {
 }
 })();
 
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.KeyboardShortcut = KeyboardShortcut;
-
-/**
- * Constants for encoding modifier key set as a bit mask.
- * @see #_makeKeyFromCodeAndModifiers
- */
-UI.KeyboardShortcut.Modifiers = Modifiers;
-
-/** @type {!Object.<string, !UI.KeyboardShortcut.Key>} */
-UI.KeyboardShortcut.Keys = Keys;
-
 /** @typedef {!{code: number, name: (string|!Object.<string, string>)}} */
-UI.KeyboardShortcut.Key;
+export let Key;
 
 /** @typedef {!{key: number, name: string}} */
-UI.KeyboardShortcut.Descriptor;
+export let Descriptor;

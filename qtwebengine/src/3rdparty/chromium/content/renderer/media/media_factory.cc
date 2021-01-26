@@ -21,6 +21,7 @@
 #include "content/renderer/media/audio/audio_device_factory.h"
 #include "content/renderer/media/batching_media_log.h"
 #include "content/renderer/media/inspector_media_event_handler.h"
+#include "content/renderer/media/power_status_helper_impl.h"
 #include "content/renderer/media/render_media_event_handler.h"
 #include "content/renderer/media/renderer_webmediaplayer_delegate.h"
 #include "content/renderer/render_frame_impl.h"
@@ -42,10 +43,13 @@
 #include "media/renderers/default_renderer_factory.h"
 #include "media/video/gpu_video_accelerator_factories.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/device/public/mojom/battery_monitor.mojom.h"
 #include "services/service_manager/public/cpp/connect.h"
 #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_element_source_utils.h"
+#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_surface_layer_bridge.h"
 #include "third_party/blink/public/platform/web_video_frame_submitter.h"
 #include "third_party/blink/public/web/blink.h"
@@ -141,6 +145,11 @@ void PostContextProviderToCallback(
       base::BindOnce([](scoped_refptr<viz::RasterContextProvider>
                             unwanted_context_provider) {},
                      unwanted_context_provider));
+}
+
+void LogRoughness(int size, base::TimeDelta duration, double roughness) {
+  double fps = size / duration.InSecondsF();
+  DVLOG(1) << "Video playback roughness: " << roughness << " FPS: " << fps;
 }
 
 }  // namespace
@@ -260,7 +269,7 @@ std::unique_ptr<blink::WebVideoFrameSubmitter> MediaFactory::CreateSubmitter(
         base::BindRepeating(
             &PostContextProviderToCallback,
             RenderThreadImpl::current()->GetCompositorMainThreadTaskRunner()),
-        settings, use_sync_primitives);
+        base::BindRepeating(LogRoughness), settings, use_sync_primitives);
   }
 
   DCHECK(*video_frame_compositor_task_runner);
@@ -339,11 +348,10 @@ blink::WebMediaPlayer* MediaFactory::CreateMediaPlayer(
       std::move(event_handler));
 
   base::WeakPtr<media::MediaObserver> media_observer;
-
   auto factory_selector = CreateRendererFactorySelector(
       media_log.get(), use_media_player_renderer,
       render_frame_->GetRenderFrameMediaPlaybackOptions()
-          .is_mojo_renderer_enabled,
+          .is_mojo_renderer_enabled(),
       GetDecoderFactory(),
       std::make_unique<media::RemotePlaybackClientWrapperImpl>(client),
       &media_observer);
@@ -363,6 +371,26 @@ blink::WebMediaPlayer* MediaFactory::CreateMediaPlayer(
   mojo::PendingRemote<media::mojom::MediaMetricsProvider> metrics_provider;
   interface_broker_->GetInterface(
       metrics_provider.InitWithNewPipeAndPassReceiver());
+
+  std::unique_ptr<media::PowerStatusHelper> power_status_helper;
+  if (base::FeatureList::IsEnabled(media::kMediaPowerExperiment)) {
+    // The battery monitor is only available through the blink provider.
+    // TODO(liberato): Should we expose this via |remote_interfaces_|?
+    scoped_refptr<blink::ThreadSafeBrowserInterfaceBrokerProxy>
+        remote_interfaces =
+            blink::Platform::Current()->GetBrowserInterfaceBroker();
+    auto battery_monitor_cb = base::BindRepeating(
+        [](scoped_refptr<blink::ThreadSafeBrowserInterfaceBrokerProxy>
+               remote_interfaces) {
+          mojo::PendingRemote<device::mojom::BatteryMonitor> battery_monitor;
+          remote_interfaces->GetInterface(
+              battery_monitor.InitWithNewPipeAndPassReceiver());
+          return battery_monitor;
+        },
+        remote_interfaces);
+    power_status_helper =
+        std::make_unique<PowerStatusHelperImpl>(std::move(battery_monitor_cb));
+  }
 
   scoped_refptr<base::SingleThreadTaskRunner>
       video_frame_compositor_task_runner;
@@ -405,7 +433,10 @@ blink::WebMediaPlayer* MediaFactory::CreateMediaPlayer(
           render_frame_->GetRenderFrameMediaPlaybackOptions()
               .is_background_video_playback_enabled,
           render_frame_->GetRenderFrameMediaPlaybackOptions()
-              .is_background_video_track_optimization_supported));
+              .is_background_video_track_optimization_supported,
+          render_frame_->GetRenderFrameMediaPlaybackOptions()
+              .is_remoting_renderer_enabled(),
+          std::move(power_status_helper)));
 
   std::unique_ptr<media::VideoFrameCompositor> vfc =
       std::make_unique<media::VideoFrameCompositor>(
@@ -528,7 +559,8 @@ MediaFactory::CreateRendererFactorySelector(
         std::make_unique<media::DefaultRendererFactory>(
             media_log, decoder_factory,
             base::BindRepeating(&RenderThreadImpl::GetGpuFactories,
-                                base::Unretained(render_thread))));
+                                base::Unretained(render_thread)),
+            render_frame_->CreateSpeechRecognitionClient()));
   }
 
 #if BUILDFLAG(ENABLE_MEDIA_REMOTING)

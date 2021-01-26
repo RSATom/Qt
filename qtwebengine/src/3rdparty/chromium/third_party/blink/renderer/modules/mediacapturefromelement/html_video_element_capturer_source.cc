@@ -116,8 +116,10 @@ void HtmlVideoElementCapturerSource::sendNewFrame() {
   TRACE_EVENT0("media", "HtmlVideoElementCapturerSource::sendNewFrame");
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  if (!web_media_player_ || new_frame_callback_.is_null())
+  if (!web_media_player_ || new_frame_callback_.is_null() ||
+      web_media_player_->WouldTaintOrigin()) {
     return;
+  }
 
   const base::TimeTicks current_time = base::TimeTicks::Now();
   if (start_capture_time_.is_null())
@@ -160,9 +162,11 @@ void HtmlVideoElementCapturerSource::sendNewFrame() {
       natural_size_, gfx::Rect(natural_size_), natural_size_,
       current_time - start_capture_time_);
 
-  const uint32_t source_pixel_format =
-      (kN32_SkColorType == kRGBA_8888_SkColorType) ? libyuv::FOURCC_ABGR
-                                                   : libyuv::FOURCC_ARGB;
+#if SK_PMCOLOR_BYTE_ORDER(R, G, B, A)
+  const uint32_t source_pixel_format = libyuv::FOURCC_ABGR;
+#else
+  const uint32_t source_pixel_format = libyuv::FOURCC_ARGB;
+#endif
 
   if (frame &&
       libyuv::ConvertToI420(

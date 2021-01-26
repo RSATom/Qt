@@ -2,60 +2,90 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// TODO(1011259): switch to true.
-let external_devtools_frontend = true;
-let node_modules_path = external_devtools_frontend
-    ? ''
-    : '../../../../third_party/devtools-node-modules/third_party/node_modules/';
+// @ts-nocheck - we only want TS checking our source files, not JS config like this
+
+// true by default
+const COVERAGE_ENABLED = !process.env['NOCOVERAGE'];
+const TEXT_COVERAGE_ENABLED = COVERAGE_ENABLED && !process.env['NO_TEXT_COVERAGE'];
+
+// false by default
+const DEBUG_ENABLED = !!process.env['DEBUG'];
+
+const instrumenterPreprocessors =
+    (DEBUG_ENABLED || COVERAGE_ENABLED === false) ? [] : ['karma-coverage-istanbul-instrumenter'];
+
+const coverageKarmaPlugins = COVERAGE_ENABLED ?
+    [require('karma-coverage-istanbul-instrumenter'), require('karma-coverage-istanbul-reporter')] :
+    [];
+
+const browsers = DEBUG_ENABLED ? ['Chrome'] : ['ChromeHeadless'];
+
+const enabledKarmaReporters = COVERAGE_ENABLED ? ['dots', 'coverage-istanbul'] : ['dots'];
+
+const commonIstanbulReporters = ['html', 'json-summary'];
+const istanbulReportOutputs = TEXT_COVERAGE_ENABLED ? ['text', ...commonIstanbulReporters] : commonIstanbulReporters;
 
 module.exports = function(config) {
   const options = {
     basePath: '',
 
     files: [
-      {pattern: 'front_end/**/*.js', included: false, served: true}, {pattern: 'test/unittests/**/*.ts', type: 'module'}
+      {pattern: 'front_end/**/*.js', included: false, served: true},
+      {pattern: 'test/unittests/front_end/**/*.ts', type: 'module'},
+      {pattern: 'front_end/**/*.svg', included: false, served: true},
+      {pattern: 'front_end/**/*.png', included: false, served: true},
     ],
 
-    reporters: ['dots', 'coverage-istanbul'],
+    reporters: enabledKarmaReporters,
 
     preprocessors: {
-      './test/unittests/**/*.ts': ['karma-typescript'],
-      './front_end/common/*.js': ['karma-coverage-istanbul-instrumenter'],
-      './front_end/workspace/*.js': ['karma-coverage-istanbul-instrumenter'],
-      './front_end/ui/*.js': ['karma-coverage-istanbul-instrumenter']
+      './test/unittests/front_end/**/*.ts': ['karma-typescript'],
+      './front_end/common/*.js': instrumenterPreprocessors,
+      './front_end/formatter_worker/*.js': instrumenterPreprocessors,
+      './front_end/inline_editor/*.js': instrumenterPreprocessors,
+      './front_end/persistence/*.js': instrumenterPreprocessors,
+      './front_end/platform/*.js': instrumenterPreprocessors,
+      './front_end/protocol_client/*.js': instrumenterPreprocessors,
+      './front_end/sdk/*.js': instrumenterPreprocessors,
+      './front_end/text_utils/*.js': instrumenterPreprocessors,
+      './front_end/ui/**/*.js': instrumenterPreprocessors,
+      './front_end/workspace/*.js': instrumenterPreprocessors,
     },
 
-    browsers: ['ChromeHeadless'],
+    browsers,
 
     frameworks: ['mocha', 'chai', 'karma-typescript'],
 
     karmaTypescriptConfig: {
+      tsconfig: './tsconfig.base.json',
       compilerOptions: {
-        target: 'esnext',
-        module: 'esnext',
-        typeRoots: external_devtools_frontend ? undefined : [node_modules_path + '@types'],
-        lib: ['esnext', 'dom']
+        checkJs: false,
+        baseUrl: '.',
       },
       coverageOptions: {instrumentation: false},
-      bundlerOptions: {resolve: {directories: [node_modules_path]}},
-      exclude: ['scripts']
+      include: {mode: 'replace', values: ['test/unittests/front_end/**/*.ts']},
     },
 
     proxies: {
-      '/front_end': '/base/front_end',
+      '/Images': '/base/front_end/Images',
     },
 
     plugins: [
-      'karma-chrome-launcher', 'karma-mocha', 'karma-chai', 'karma-typescript',
-      require(node_modules_path + 'karma-coverage-istanbul-instrumenter'),
-      require(node_modules_path + 'karma-coverage-istanbul-reporter')
+      require('karma-chrome-launcher'),
+      require('karma-mocha'),
+      require('karma-chai'),
+      require('karma-typescript'),
+      ...coverageKarmaPlugins,
     ],
 
     coverageIstanbulInstrumenter: {esModules: true},
 
-    coverageIstanbulReporter: {reports: ['text', 'html'], dir: 'karma-coverage'},
+    coverageIstanbulReporter: {
+      reports: istanbulReportOutputs,
+      dir: 'karma-coverage',
+    },
 
-    singleRun: true
+    singleRun: !DEBUG_ENABLED
   };
 
   config.set(options);

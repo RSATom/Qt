@@ -39,6 +39,8 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "net/base/proxy_server.h"
+#include "net/dns/public/resolve_error_info.h"
+#include "services/network/public/cpp/blocked_by_response_reason.h"
 #include "services/network/public/cpp/origin_policy.h"
 
 #if defined(OS_ANDROID)
@@ -56,6 +58,7 @@ struct FrameHostMsg_DidCommitProvisionalLoad_Params;
 namespace content {
 
 class AppCacheNavigationHandle;
+class CrossOriginEmbedderPolicyReporter;
 class WebBundleHandleTracker;
 class WebBundleNavigationInfo;
 class FrameNavigationEntry;
@@ -64,7 +67,7 @@ class NavigationURLLoader;
 class NavigationUIData;
 class NavigatorDelegate;
 class PrefetchedSignedExchangeCache;
-class ServiceWorkerNavigationHandle;
+class ServiceWorkerMainResourceHandle;
 class SiteInstanceImpl;
 struct SubresourceLoaderParams;
 
@@ -233,6 +236,7 @@ class CONTENT_EXPORT NavigationRequest
   net::HttpResponseInfo::ConnectionInfo GetConnectionInfo() override;
   const base::Optional<net::SSLInfo>& GetSSLInfo() override;
   const base::Optional<net::AuthChallengeInfo>& GetAuthChallengeInfo() override;
+  net::ResolveErrorInfo GetResolveErrorInfo() override;
   net::NetworkIsolationKey GetNetworkIsolationKey() override;
   void RegisterThrottleForTesting(
       std::unique_ptr<NavigationThrottle> navigation_throttle) override;
@@ -255,7 +259,6 @@ class CONTENT_EXPORT NavigationRequest
   const base::Optional<url::Origin>& GetInitiatorOrigin() override;
   bool IsSameProcess() override;
   int GetNavigationEntryOffset() override;
-  bool FromDownloadCrossOriginRedirect() override;
   void RegisterSubresourceOverride(
       mojom::TransferrableURLLoaderPtr transferrable_loader) override;
   GlobalFrameRoutingId GetPreviousRenderFrameHostId() override;
@@ -365,6 +368,12 @@ class CONTENT_EXPORT NavigationRequest
   // due to another navigation committing in the meantime.
   void ResetForCrossDocumentRestart();
 
+  // If the navigation redirects cross-process or otherwise is forced to use a
+  // different SiteInstance than anticipated (e.g., for switching between error
+  // states), then reset any sensitive state that shouldn't carry over to the
+  // new process.
+  void ResetStateForSiteInstanceChange();
+
   // Lazily initializes and returns the mojo::NavigationClient interface used
   // for commit. Only used with PerNavigationMojoInterface enabled.
   mojom::NavigationClient* GetCommitNavigationClient();
@@ -448,8 +457,7 @@ class CONTENT_EXPORT NavigationRequest
   // navigation in a subframe. This allows a browser-initiated NavigationRequest
   // to be canceled by the renderer.
   void SetNavigationClient(
-      mojo::PendingAssociatedRemote<mojom::NavigationClient> navigation_client,
-      int32_t associated_site_instance_id);
+      mojo::PendingAssociatedRemote<mojom::NavigationClient> navigation_client);
 
   // Whether the new document created by this navigation will be loaded from a
   // MHTML document. In this case, the navigation will commit in the main frame
@@ -457,6 +465,10 @@ class CONTENT_EXPORT NavigationRequest
   bool IsForMhtmlSubframe() const;
 
   std::unique_ptr<AppCacheNavigationHandle> TakeAppCacheHandle();
+
+  AppCacheNavigationHandle* appcache_handle() const {
+    return appcache_handle_.get();
+  }
 
   void set_complete_callback_for_testing(
       ThrottleChecksFinishedCallback callback) {
@@ -496,6 +508,10 @@ class CONTENT_EXPORT NavigationRequest
     return begin_params_->request_context_type;
   }
 
+  network::mojom::RequestDestination request_destination() const {
+    return begin_params_->request_destination;
+  }
+
   blink::WebMixedContentContextType mixed_content_context_type() const {
     return begin_params_->mixed_content_context_type;
   }
@@ -516,6 +532,35 @@ class CONTENT_EXPORT NavigationRequest
 
   std::unique_ptr<PeakGpuMemoryTracker> TakePeakGpuMemoryTracker();
 
+  // Returns true for navigation responses to be rendered in a renderer process.
+  // This excludes:
+  //  - 204/205 navigation responses.
+  //  - downloads.
+  //
+  // Must not be called before having received the response.
+  bool response_should_be_rendered() const {
+    DCHECK_GE(state_, WILL_PROCESS_RESPONSE);
+    return response_should_be_rendered_;
+  }
+
+  const network::mojom::ClientSecurityStatePtr& client_security_state() const {
+    return client_security_state_;
+  }
+  network::mojom::ClientSecurityStatePtr TakeClientSecurityState();
+
+  bool require_coop_browsing_instance_swap() const {
+    return require_coop_browsing_instance_swap_;
+  }
+
+  void set_require_coop_browsing_instance_swap() {
+    require_coop_browsing_instance_swap_ = true;
+  }
+  CrossOriginEmbedderPolicyReporter* coep_reporter() {
+    return coep_reporter_.get();
+  }
+
+  std::unique_ptr<CrossOriginEmbedderPolicyReporter> TakeCoepReporter();
+
  private:
   friend class NavigationRequestTest;
 
@@ -534,6 +579,13 @@ class CONTENT_EXPORT NavigationRequest
       mojo::PendingRemote<blink::mojom::NavigationInitiator>
           navigation_initiator,
       RenderFrameHostImpl* rfh_restored_from_back_forward_cache);
+
+  // Checks if the OriginPolicy in a NavigationRequest's response contains a
+  // request to isolate the url's origin, and if so registers it with the global
+  // origin isolation map.
+  void CheckForOriginPolicyIsolationOptIn(
+      const GURL& url,
+      const network::mojom::URLResponseHead* response);
 
   // NavigationURLLoaderDelegate implementation.
   void OnRequestRedirected(
@@ -588,22 +640,24 @@ class CONTENT_EXPORT NavigationRequest
   // Checks if the specified CSP context's relevant CSP directive
   // allows the navigation. This is called to perform the frame-src
   // and navigate-to checks.
-  bool IsAllowedByCSPDirective(CSPContext* context,
-                               CSPDirective::Name directive,
-                               bool has_followed_redirect,
-                               bool url_upgraded_after_redirect,
-                               bool is_response_check,
-                               CSPContext::CheckCSPDisposition disposition);
+  bool IsAllowedByCSPDirective(
+      network::CSPContext* context,
+      network::mojom::CSPDirectiveName directive,
+      bool has_followed_redirect,
+      bool url_upgraded_after_redirect,
+      bool is_response_check,
+      network::CSPContext::CheckCSPDisposition disposition);
 
   // Checks if CSP allows the navigation. This will check the frame-src and
   // navigate-to directives.
   // Returns net::OK if the checks pass, and net::ERR_ABORTED or
   // net::ERR_BLOCKED_BY_CLIENT depending on which checks fail.
-  net::Error CheckCSPDirectives(RenderFrameHostImpl* parent,
-                                bool has_followed_redirect,
-                                bool url_upgraded_after_redirect,
-                                bool is_response_check,
-                                CSPContext::CheckCSPDisposition disposition);
+  net::Error CheckCSPDirectives(
+      RenderFrameHostImpl* parent,
+      bool has_followed_redirect,
+      bool url_upgraded_after_redirect,
+      bool is_response_check,
+      network::CSPContext::CheckCSPDisposition disposition);
 
   // Check whether a request should be allowed to continue or should be blocked
   // because it violates a CSP. This method can have two side effects:
@@ -809,10 +863,6 @@ class CONTENT_EXPORT NavigationRequest
     return std::move(modified_request_headers_);
   }
 
-  // Helper functions to trace the start and end of |navigation_handle_|.
-  void TraceNavigationStart();
-  void TraceNavigationEnd();
-
   // Returns true if the contents of |common_params_| requires
   // |source_site_instance_| to be set. This is used to ensure that data:
   // URLs with valid initiator origins always have |source_site_instance_| set
@@ -828,6 +878,12 @@ class CONTENT_EXPORT NavigationRequest
 
   // See RestartBackForwardCachedNavigation.
   void RestartBackForwardCachedNavigationImpl();
+
+  void ForceEnableOriginTrials(const std::vector<std::string>& trials) override;
+
+  void CreateCoepReporter(StoragePartition* storage_partition);
+
+  base::Optional<network::BlockedByResponseReason> IsBlockedByCorp();
 
   FrameTreeNode* frame_tree_node_;
 
@@ -881,6 +937,7 @@ class CONTENT_EXPORT NavigationRequest
   bool is_view_source_;
   int bindings_;
   int nav_entry_id_ = 0;
+  bool entry_overrides_ua_ = false;
 
   scoped_refptr<SiteInstanceImpl> starting_site_instance_;
 
@@ -918,6 +975,13 @@ class CONTENT_EXPORT NavigationRequest
   // checks are performed by the NavigationHandle.
   bool has_stale_copy_in_cache_;
   net::Error net_error_ = net::OK;
+  // Detailed host resolution error information. The error code in
+  // |resolve_error_info_.error| should be consistent with (but not necessarily
+  // the same as) |net_error_|. In the case of a host resolution error, for
+  // example, |net_error_| should be ERR_NAME_NOT_RESOLVED while
+  // |resolve_error_info_.error| may give a more detailed error such as
+  // ERR_DNS_TIMED_OUT.
+  net::ResolveErrorInfo resolve_error_info_;
 
   // Identifies in which RenderProcessHost this navigation is expected to
   // commit.
@@ -944,9 +1008,7 @@ class CONTENT_EXPORT NavigationRequest
   // The NavigationClient interface for that requested this navigation in the
   // case of a renderer initiated navigation. It is expected to be bound until
   // this navigation commits or is canceled.
-  // Only valid when PerNavigationMojoInterface is enabled.
   mojo::AssociatedRemote<mojom::NavigationClient> request_navigation_client_;
-  base::Optional<int32_t> associated_site_instance_id_;
 
   // The NavigationClient interface used to commit the navigation. For now, this
   // is only used for same-site renderer-initiated navigation.
@@ -1060,7 +1122,7 @@ class CONTENT_EXPORT NavigationRequest
 
   // Manages the lifetime of a pre-created ServiceWorkerProviderHost until a
   // corresponding provider is created in the renderer.
-  std::unique_ptr<ServiceWorkerNavigationHandle> service_worker_handle_;
+  std::unique_ptr<ServiceWorkerMainResourceHandle> service_worker_handle_;
 
   // Timer for detecting an unexpectedly long time to commit a navigation.
   base::OneShotTimer commit_timeout_timer_;
@@ -1116,7 +1178,27 @@ class CONTENT_EXPORT NavigationRequest
   // evicted.
   bool restarting_back_forward_cached_navigation_ = false;
 
+  // Holds a set of values needed to enforce several WebPlatform security APIs
+  // at the network request level.
+  network::mojom::ClientSecurityStatePtr client_security_state_;
+
+  std::unique_ptr<CrossOriginEmbedderPolicyReporter> coep_reporter_;
+
   std::unique_ptr<PeakGpuMemoryTracker> loading_mem_tracker_ = nullptr;
+
+  // Set to true whenever we the Cross-Origin-Opener-Policy spec requires us to
+  // do a "BrowsingContext group" swap:
+  // https://gist.github.com/annevk/6f2dd8c79c77123f39797f6bdac43f3e
+  // This forces a new BrowsingInstance to be used for the RenderFrameHost the
+  // navigation will commit in. If other pages had JavaScript references to the
+  // Window object for the frame (via window.opener, window.open(), et cetera),
+  // those references will be broken; window.name will also be reset to an empty
+  // string.
+  // TODO(ahemery): COOP requires that any page during the redirect chain
+  // having an incompatible COOP triggers a BrowsingInstance swap. Even if the
+  // end document could be put in the same BrowsingInstance as the starting
+  // one. Implement the behavior.
+  bool require_coop_browsing_instance_swap_ = false;
 
   base::WeakPtrFactory<NavigationRequest> weak_factory_{this};
 

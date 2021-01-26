@@ -6,7 +6,7 @@
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_EMBEDDER_SKIA_OUTPUT_DEVICE_DAWN_H_
 
 #include <dawn/dawn_wsi.h>
-#include <dawn/dawncpp.h>
+#include <dawn/webgpu.h>
 #include <dawn_native/DawnNative.h>
 
 #include "components/viz/service/display_embedder/skia_output_device.h"
@@ -24,6 +24,8 @@ class SkiaOutputDeviceDawn : public SkiaOutputDevice {
   SkiaOutputDeviceDawn(
       DawnContextProvider* context_provider,
       gfx::AcceleratedWidget widget,
+      gfx::SurfaceOrigin origin,
+      gpu::MemoryTracker* memory_tracker,
       DidSwapBufferCompleteCallback did_swap_buffer_complete_callback);
   ~SkiaOutputDeviceDawn() override;
 
@@ -31,12 +33,13 @@ class SkiaOutputDeviceDawn : public SkiaOutputDevice {
   bool Reshape(const gfx::Size& size,
                float device_scale_factor,
                const gfx::ColorSpace& color_space,
-               bool has_alpha,
+               gfx::BufferFormat format,
                gfx::OverlayTransform transform) override;
   void SwapBuffers(BufferPresentedCallback feedback,
                    std::vector<ui::LatencyInfo> latency_info) override;
-  SkSurface* BeginPaint() override;
-  void EndPaint(const GrBackendSemaphore& semaphore) override;
+  SkSurface* BeginPaint(
+      std::vector<GrBackendSemaphore>* end_semaphores) override;
+  void EndPaint() override;
 
  private:
   // Create a platform-specific swapchain implementation.
@@ -45,8 +48,8 @@ class SkiaOutputDeviceDawn : public SkiaOutputDevice {
   DawnContextProvider* const context_provider_;
   gfx::AcceleratedWidget widget_;
   DawnSwapChainImplementation swap_chain_implementation_;
-  dawn::SwapChain swap_chain_;
-  dawn::Texture texture_;
+  wgpu::SwapChain swap_chain_;
+  wgpu::Texture texture_;
   sk_sp<SkSurface> sk_surface_;
 
   gfx::Size size_;

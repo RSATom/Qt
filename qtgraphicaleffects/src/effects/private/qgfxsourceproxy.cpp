@@ -63,8 +63,18 @@ void QGfxSourceProxy::setInput(QQuickItem *input)
 {
     if (m_input == input)
         return;
+
+    if (m_input != nullptr)
+        disconnect(m_input, nullptr, this, nullptr);
     m_input = input;
     polish();
+    if (m_input != nullptr) {
+        if (QQuickImage *image = qobject_cast<QQuickImage *>(m_input)) {
+            connect(image, &QQuickImage::sourceSizeChanged, this, &QGfxSourceProxy::repolish);
+            connect(image, &QQuickImage::fillModeChanged, this, &QGfxSourceProxy::repolish);
+        }
+        connect(m_input, &QQuickItem::childrenChanged, this, &QGfxSourceProxy::repolish);
+    }
     emit inputChanged();
 }
 
@@ -104,6 +114,11 @@ void QGfxSourceProxy::useProxy()
     m_proxy->setSourceItem(m_input);
     m_proxy->setSmooth(m_interpolation != NearestInterpolation);
     setOutput(m_proxy);
+}
+
+void QGfxSourceProxy::repolish()
+{
+    polish();
 }
 
 QObject *QGfxSourceProxy::findLayer(QQuickItem *item)
@@ -166,7 +181,7 @@ void QGfxSourceProxy::updatePolish()
             if (shaderSource->sourceRect() == m_sourceRect || m_sourceRect.isEmpty())
                 direct = true;
 
-        } else if (!padded && ((image && image->fillMode() == QQuickImage::Stretch)
+        } else if (!padded && ((image && image->fillMode() == QQuickImage::Stretch && !image->sourceSize().isNull())
                                 || (!image && m_input->isTextureProvider())
                               )
                   ) {

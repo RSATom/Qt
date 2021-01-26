@@ -227,8 +227,8 @@ static void lpc_prediction(int32_t *error_buffer, uint32_t *buffer_out,
                 val  = d - pred[j];
                 sign = sign_only(val) * error_sign;
                 lpc_coefs[j] -= sign;
-                val *= sign;
-                error_val -= (val >> lpc_quant) * (j + 1);
+                val *= (unsigned)sign;
+                error_val -= (val >> lpc_quant) * (j + 1U);
             }
         }
     }

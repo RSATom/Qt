@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "build/build_config.h"
-#include "core/fpdfapi/cmaps/cmap_int.h"
+#include "core/fpdfapi/cmaps/fpdf_cmaps.h"
 #include "core/fpdfapi/font/cfx_cttgsubtable.h"
 #include "core/fpdfapi/font/cpdf_cid2unicodemap.h"
 #include "core/fpdfapi/font/cpdf_cmap.h"
@@ -360,7 +360,8 @@ bool CPDF_CIDFont::Load() {
   } else if (CPDF_Stream* pStream = pEncoding->AsStream()) {
     auto pAcc = pdfium::MakeRetain<CPDF_StreamAcc>(pStream);
     pAcc->LoadAllDataFiltered();
-    m_pCMap = pdfium::MakeRetain<CPDF_CMap>(pAcc->GetSpan());
+    pdfium::span<const uint8_t> span = pAcc->GetSpan();
+    m_pCMap = pdfium::MakeRetain<CPDF_CMap>(span);
   } else {
     return false;
   }

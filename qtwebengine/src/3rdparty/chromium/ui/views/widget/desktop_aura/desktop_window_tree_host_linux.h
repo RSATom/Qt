@@ -5,6 +5,11 @@
 #ifndef UI_VIEWS_WIDGET_DESKTOP_AURA_DESKTOP_WINDOW_TREE_HOST_LINUX_H_
 #define UI_VIEWS_WIDGET_DESKTOP_AURA_DESKTOP_WINDOW_TREE_HOST_LINUX_H_
 
+#include <list>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/aura/scoped_window_targeter.h"
@@ -55,10 +60,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   // internal list of open windows.
   static void CleanUpWindowList(void (*func)(aura::Window* window));
 
-  // This must be called before the window is created, because the visual cannot
-  // be changed after. Useful for X11. Not in use for Wayland.
-  void SetPendingXVisualId(int x_visual_id);
-
   // Returns the current bounds in terms of the X11 Root Window including the
   // borders provided by the window manager (if any). Not in use for Wayland.
   gfx::Rect GetXRootWindowOuterBounds() const;
@@ -88,7 +89,11 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget) override;
   void OnActivationChanged(bool active) override;
 
+  ui::X11Extension* GetX11Extension();
+  const ui::X11Extension* GetX11Extension() const;
+
  private:
+  friend class DesktopWindowTreeHostX11Test;
   FRIEND_TEST_ALL_PREFIXES(DesktopWindowTreeHostLinuxTest, HitTest);
 
   // Overridden from display::DisplayObserver via aura::WindowTreeHost:
@@ -107,19 +112,15 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   void DestroyNonClientEventFilter();
 
   // X11ExtensionDelegate overrides:
-  void OnXWindowMapped() override;
-  void OnXWindowUnmapped() override;
   void GetWindowMask(const gfx::Size& size, SkPath* window_mask) override;
   void OnLostMouseGrab() override;
 #if BUILDFLAG(USE_ATK)
   bool OnAtkKeyEvent(AtkKeyEventStruct* atk_key_event) override;
 #endif
+  bool IsOverrideRedirect() const override;
 
   // Enables event listening after closing |dialog|.
   void EnableEventListening();
-
-  ui::X11Extension* GetX11Extension();
-  const ui::X11Extension* GetX11Extension() const;
 
   // See comment for variable open_windows_.
   static std::list<gfx::AcceleratedWidget>& open_windows();
@@ -128,11 +129,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostLinux
   // A posthandler for events intended for non client area. Handles events if no
   // other consumer handled them.
   std::unique_ptr<WindowEventFilterLinux> non_client_window_event_filter_;
-
-  // X11 may set set a visual id for the system tray icon before the host is
-  // initialized. This value will be passed down to PlatformWindow during
-  // initialization of the host.
-  base::Optional<int> pending_x_visual_id_;
 
   std::unique_ptr<CompositorObserver> compositor_observer_;
 

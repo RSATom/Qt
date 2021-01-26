@@ -26,9 +26,8 @@ namespace dawn_native { namespace vulkan {
 
     struct CommandRecordingContext;
     class Device;
-    struct ExternalImageDescriptor;
 
-    VkFormat VulkanImageFormat(wgpu::TextureFormat format);
+    VkFormat VulkanImageFormat(const Device* device, wgpu::TextureFormat format);
     VkImageUsageFlags VulkanImageUsage(wgpu::TextureUsage usage, const Format& format);
     VkSampleCountFlagBits VulkanSampleCount(uint32_t sampleCount);
 

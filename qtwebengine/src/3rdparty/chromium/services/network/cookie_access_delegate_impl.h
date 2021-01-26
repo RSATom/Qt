@@ -36,10 +36,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CookieAccessDelegateImpl
       const net::CanonicalCookie& cookie) const override;
   bool ShouldIgnoreSameSiteRestrictions(
       const GURL& url,
-      const GURL& site_for_cookies) const override;
+      const net::SiteForCookies& site_for_cookies) const override;
   void AllowedByFilter(
       const GURL& url,
-      const GURL& site_for_cookies,
+      const net::SiteForCookies& site_for_cookies,
       base::OnceCallback<void(bool)> callback) const override;
 
  private:

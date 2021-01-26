@@ -181,7 +181,6 @@ class TestExporterTest(LoggingTestCase):
             # removed it from.
             'get_pr_branch',
             'merge_pr',
-            'delete_remote_branch',
             # 5. #458479
             'pr_for_chromium_commit',
             'get_pr_branch',
@@ -198,22 +197,44 @@ class TestExporterTest(LoggingTestCase):
         test_exporter.wpt_github = MockWPTGitHub(pull_requests=[])
         test_exporter.get_exportable_commits = lambda: ([], [])
         test_exporter.gerrit = MockGerritAPI()
-        test_exporter.gerrit.exportable_open_cls = [MockGerritCL(
-            data={
-                'change_id': 'I001',
-                'subject': 'subject',
-                '_number': 1234,
-                'current_revision': '1',
-                'has_review_started': True,
-                'revisions': {
-                    '1': {'commit_with_footers': 'a commit with footers'}
+        test_exporter.gerrit.exportable_open_cls = [
+            MockGerritCL(
+                data={
+                    'change_id': 'I001',
+                    'subject': 'subject',
+                    '_number': 1234,
+                    'current_revision': '1',
+                    'has_review_started': True,
+                    'revisions': {
+                        '1': {
+                            'commit_with_footers': 'a commit with footers'
+                        }
+                    },
+                    'owner': {
+                        'email': 'test@chromium.org'
+                    },
                 },
-                'owner': {'email': 'test@chromium.org'},
-            },
-            api=test_exporter.gerrit,
-            chromium_commit=MockChromiumCommit(self.host, subject='subject',
-                                               body='fake body <faketag1>, <faketag2>', change_id='I001')
-        )]
+                api=test_exporter.gerrit,
+                chromium_commit=MockChromiumCommit(self.host, subject='subject', body='fake body <html>', change_id='I001')),
+            MockGerritCL(
+                data={
+                    'change_id': 'I002',
+                    'subject': 'subject',
+                    '_number': 1235,
+                    'current_revision': '1',
+                    'has_review_started': True,
+                    'revisions': {
+                        '1': {
+                            'commit_with_footers': 'a commit with footers'
+                        }
+                    },
+                    'owner': {
+                        'email': 'test@chromium.org'
+                    },
+                },
+                api=test_exporter.gerrit,
+                chromium_commit=MockChromiumCommit(self.host, subject='subject', body='body', change_id=None)),
+        ]
         test_exporter.main(['--credentials-json', '/tmp/credentials.json'])
 
         self.assertEqual(test_exporter.wpt_github.calls, [
@@ -221,12 +242,18 @@ class TestExporterTest(LoggingTestCase):
             'create_pr',
             'add_label "chromium-export"',
             'add_label "do not merge yet"',
+            'pr_with_change_id',
+            'create_pr',
+            'add_label "chromium-export"',
+            'add_label "do not merge yet"',
         ])
         self.assertEqual(test_exporter.wpt_github.pull_requests_created, [
-            ('chromium-export-cl-1234',
-             'subject',
-             'fake body \\<faketag1>, \\<faketag2>\n\nChange-Id: I001\nReviewed-on: '
-             'https://chromium-review.googlesource.com/1234\nWPT-Export-Revision: 1'),
+            ('chromium-export-cl-1234', 'subject', 'fake body \\<html>\n\nChange-Id: I001\nReviewed-on: '
+             'https://chromium-review.googlesource.com/1234\n'
+             'WPT-Export-Revision: 1'),
+            ('chromium-export-cl-1235', 'subject', 'body\nChange-Id: I002\nReviewed-on: '
+             'https://chromium-review.googlesource.com/1235\n'
+             'WPT-Export-Revision: 1'),
         ])
         self.assertEqual(test_exporter.wpt_github.pull_requests_merged, [])
 
@@ -348,7 +375,6 @@ class TestExporterTest(LoggingTestCase):
             'pr_for_chromium_commit',
             'get_pr_branch',
             'merge_pr',
-            'delete_remote_branch',
         ])
         self.assertEqual(test_exporter.wpt_github.pull_requests_created, [])
         self.assertEqual(test_exporter.wpt_github.pull_requests_merged, [1234])

@@ -184,6 +184,8 @@ private slots:
     void sqliteVirtualTable();
     void mysql_timeType_data() { generic_data("QMYSQL"); }
     void mysql_timeType();
+    void ibase_executeBlock_data() { generic_data("QIBASE"); }
+    void ibase_executeBlock();
 
     void task_217003_data() { generic_data(); }
     void task_217003();
@@ -258,6 +260,9 @@ private slots:
 
     void dateTime_data();
     void dateTime();
+
+    void ibaseArray_data() { generic_data("QIBASE"); }
+    void ibaseArray();
 
 private:
     // returns all database connections
@@ -2251,6 +2256,16 @@ void tst_QSqlQuery::prepare_bind_exec()
             QCOMPARE(q.boundValues()[q.result()->boundValueName(0)].toInt(), 7);
             QCOMPARE(q.boundValues()[q.result()->boundValueName(1)].toString(), utf8str);
         }
+
+        // Test binding more placeholders than the query contains placeholders
+        q.addBindValue(8);
+        q.addBindValue(9);
+        q.addBindValue(10);
+        QCOMPARE(q.boundValues().size(), 3);
+        QCOMPARE(q.boundValues()[q.result()->boundValueName(0)].toInt(), 8);
+        QCOMPARE(q.boundValues()[q.result()->boundValueName(1)].toInt(), 9);
+        QCOMPARE(q.boundValues()[q.result()->boundValueName(2)].toInt(), 10);
+        QFAIL_SQL(q, exec());
 
         QVERIFY_SQL( q, exec( "SELECT * FROM " + qtest_prepare + " order by id" ) );
 
@@ -4731,6 +4746,52 @@ void tst_QSqlQuery::mysql_timeType()
         QVERIFY(qry.next());
         QCOMPARE(qry.value(0).toTime(), time);
     }
+}
+
+void tst_QSqlQuery::ibaseArray()
+{
+    QFETCH(QString, dbName);
+    QSqlDatabase db = QSqlDatabase::database(dbName);
+    CHECK_DATABASE(db);
+
+    const auto arrayTable = qTableName("ibasearray", __FILE__, db);
+    tst_Databases::safeDropTable(db, arrayTable);
+    QSqlQuery qry(db);
+    QVERIFY_SQL(qry, exec("create table " + arrayTable + " (intData int[0:4], longData bigint[5], "
+                          "charData varchar(255)[5])"));
+    QVERIFY_SQL(qry, prepare("insert into " + arrayTable + " (intData, longData, charData) "
+                             "values(?, ?, ?)"));
+    const auto intArray = QVariant{QVariantList{1, 2, 3, 4711, 815}};
+    const auto charArray = QVariant{QVariantList{"AAA", "BBB", "CCC", "DDD", "EEE"}};
+    qry.bindValue(0, intArray);
+    qry.bindValue(1, intArray);
+    qry.bindValue(2, charArray);
+    QVERIFY_SQL(qry, exec());
+    QVERIFY_SQL(qry, exec("select * from " + arrayTable));
+    QVERIFY(qry.next());
+    QCOMPARE(qry.value(0).toList(), intArray.toList());
+    QCOMPARE(qry.value(1).toList(), intArray.toList());
+    QCOMPARE(qry.value(2).toList(), charArray.toList());
+}
+
+void tst_QSqlQuery::ibase_executeBlock()
+{
+    QFETCH(QString, dbName);
+    QSqlDatabase db = QSqlDatabase::database(dbName);
+    CHECK_DATABASE(db);
+    QSqlQuery qry(db);
+    QVERIFY_SQL(qry, prepare("execute block (x double precision = ?, y double precision = ?) "
+                             "returns (total double precision) "
+                             "as "
+                             "begin "
+                             "total = :x + :y; "
+                             "suspend; "
+                             "end"));
+    qry.bindValue(0, 2);
+    qry.bindValue(1, 2);
+    QVERIFY_SQL(qry, exec());
+    QVERIFY(qry.next());
+    QCOMPARE(qry.value(0).toInt(), 4);
 }
 
 QTEST_MAIN( tst_QSqlQuery )

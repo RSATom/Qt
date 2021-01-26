@@ -126,7 +126,6 @@ CONTENT_EXPORT extern const char kEnableNetworkInformationDownlinkMax[];
 CONTENT_EXPORT extern const char kDisableNv12DxgiVideo[];
 CONTENT_EXPORT extern const char kEnablePluginPlaceholderTesting[];
 CONTENT_EXPORT extern const char kEnablePreciseMemoryInfo[];
-CONTENT_EXPORT extern const char kEnablePrintBrowser[];
 CONTENT_EXPORT extern const char kEnableRGBA4444Textures[];
 CONTENT_EXPORT extern const char kEnableServiceBinaryLauncher[];
 extern const char kEnableSkiaBenchmarking[];
@@ -141,7 +140,6 @@ CONTENT_EXPORT extern const char kEnableUserMediaScreenCapturing[];
 CONTENT_EXPORT extern const char kEnableUseZoomForDSF[];
 CONTENT_EXPORT extern const char kEnableViewport[];
 CONTENT_EXPORT extern const char kEnableVtune[];
-CONTENT_EXPORT extern const char kEnableWebAuthTestingAPI[];
 CONTENT_EXPORT extern const char kEnableWebGL2ComputeContext[];
 CONTENT_EXPORT extern const char kEnableWebGLDraftExtensions[];
 CONTENT_EXPORT extern const char kEnableWebGLImageChromium[];
@@ -150,7 +148,6 @@ CONTENT_EXPORT extern const char kEnableZeroCopy[];
 CONTENT_EXPORT extern const char kFieldTrialHandle[];
 CONTENT_EXPORT extern const char kFileUrlPathAlias[];
 CONTENT_EXPORT extern const char kForceDisplayList2dCanvas[];
-CONTENT_EXPORT extern const char kForceGpuRasterization[];
 CONTENT_EXPORT extern const char kDisableOopRasterization[];
 CONTENT_EXPORT extern const char kEnableOopRasterization[];
 CONTENT_EXPORT extern const char kEnableOopRasterizationDDL[];
@@ -241,6 +238,9 @@ CONTENT_EXPORT extern const char kWaitForDebuggerChildren[];
 extern const char kWebglAntialiasingMode[];
 extern const char kWebglMSAASampleCount[];
 
+CONTENT_EXPORT extern const char kWebOtpBackend[];
+CONTENT_EXPORT extern const char kWebOtpBackendSmsVerification[];
+CONTENT_EXPORT extern const char kWebOtpBackendUserConsent[];
 #if BUILDFLAG(ENABLE_WEBRTC)
 CONTENT_EXPORT extern const char kDisableWebRtcEncryption[];
 CONTENT_EXPORT extern const char kDisableWebRtcHWDecoding[];
@@ -261,6 +261,16 @@ CONTENT_EXPORT extern const char kWebRtcStunProbeTrialParameter[];
 // https://crbug.com/817446
 CONTENT_EXPORT extern const char kWebRtcLocalEventLogging[];
 CONTENT_EXPORT extern const char kWebComponentsV0Enabled[];
+CONTENT_EXPORT extern const char kUseLegacyFormControls[];
+CONTENT_EXPORT extern const char kDisableScrollToTextFragment[];
+
+CONTENT_EXPORT extern const char kWebXrForceRuntime[];
+CONTENT_EXPORT extern const char kWebXrRuntimeNone[];
+CONTENT_EXPORT extern const char kWebXrRuntimeOrientationSensors[];
+CONTENT_EXPORT extern const char kWebXrRuntimeOculus[];
+CONTENT_EXPORT extern const char kWebXrRuntimeOpenVr[];
+CONTENT_EXPORT extern const char kWebXrRuntimeOpenXr[];
+CONTENT_EXPORT extern const char kWebXrRuntimeWMR[];
 
 #if defined(OS_ANDROID)
 CONTENT_EXPORT extern const char kDisableMediaSessionAPI[];

@@ -9,6 +9,7 @@
 #define SkPathPriv_DEFINED
 
 #include "include/core/SkPath.h"
+#include "include/private/SkIDChangeListener.h"
 
 static_assert(0 == static_cast<int>(SkPathFillType::kWinding), "fill_type_mismatch");
 static_assert(1 == static_cast<int>(SkPathFillType::kEvenOdd), "fill_type_mismatch");
@@ -22,6 +23,8 @@ public:
 #else
     static const int kPathRefGenIDBitCnt = 32;
 #endif
+
+    static constexpr SkScalar kW0PlaneDistance = 0.05f;
 
     enum FirstDirection : int {
         kCW_FirstDirection,         // == SkPathDirection::kCW
@@ -91,8 +94,7 @@ public:
         return false;
     }
 
-    static void AddGenIDChangeListener(const SkPath& path,
-                                       sk_sp<SkPathRef::GenIDChangeListener> listener) {
+    static void AddGenIDChangeListener(const SkPath& path, sk_sp<SkIDChangeListener> listener) {
         path.fPathRef->addGenIDChangeListener(std::move(listener));
     }
 
@@ -316,6 +318,23 @@ public:
     static SkPathFillType ConvertToNonInverseFillType(SkPathFillType fill) {
         return (SkPathFillType)(static_cast<int>(fill) & 1);
     }
+
+    /**
+     *  If needed (to not blow-up under a perspective matrix), clip the path, returning the
+     *  answer in "result", and return true.
+     *
+     *  Note result might be empty (if the path was completely clipped out).
+     *
+     *  If no clipping is needed, returns false and "result" is left unchanged.
+     */
+    static bool PerspectiveClip(const SkPath& src, const SkMatrix&, SkPath* result);
+
+    /**
+     * Gets the number of GenIDChangeListeners. If another thread has access to this path then
+     * this may be stale before return and only indicates that the count was the return value
+     * at some point during the execution of the function.
+     */
+    static int GenIDChangeListenersCount(const SkPath&);
 };
 
 // Lightweight variant of SkPath::Iter that only returns segments (e.g. lines/conics).
@@ -418,6 +437,128 @@ public:
             }
         }
     }
+};
+
+// Parses out each contour in a path. Example usage:
+//
+//   SkTPathContourParser parser;
+//   while (parser.parseNextContour()) {
+//       for (int i = 0; i < parser.countVerbs(); ++i) {
+//           switch (parser.atVerb(i)) {
+//               ...
+//           }
+//       }
+//   }
+//
+// TSubclass must inherit from "SkTPathContourParser<TSubclass>", and must contain two methods:
+//
+//      // Called on each implicit or explicit moveTo.
+//      void resetGeometry(const SkPoint& startPoint);
+//
+//      // Called on each lineTo, quadTo, conicTo, and cubicTo.
+//      void geometryTo(SkPathVerb, const SkPoint& endpoint);
+//
+// If no special tracking of endpoints is required, then use SkPathContourParser below.
+template<typename TSubclass> class SkTPathContourParser {
+public:
+    SkTPathContourParser(const SkPath& path)
+            : fPath(path)
+            , fVerbs(SkPathPriv::VerbData(fPath))
+            , fNumRemainingVerbs(fPath.countVerbs())
+            , fPoints(SkPathPriv::PointData(fPath)) {}
+
+    // Returns the number of verbs in the current contour, plus 1 so we can inject kDone at the end.
+    int countVerbs() const { return fVerbsIdx + 1; }
+
+    // Returns the ith non-move verb in the current contour.
+    SkPathVerb atVerb(int i) const {
+        SkASSERT(i >= 0 && i <= fVerbsIdx);
+        SkPathVerb verb = (i < fVerbsIdx) ? (SkPathVerb)fVerbs[i] : SkPathVerb::kDone;
+        SkASSERT(SkPathVerb::kMove != verb);
+        return verb;
+    }
+
+    // Returns the current contour's starting point.
+    SkPoint startPoint() const { return fStartPoint; }
+
+    // Returns the ith point in the current contour, not including the start point. (i.e., index 0
+    // is the first point immediately following the start point from the path's point array.)
+    const SkPoint& atPoint(int i) const {
+        SkASSERT(i >= 0 && i < fPtsIdx);
+        return fPoints[i];
+    }
+
+    // Advances the internal state to the next contour in the path. Returns false if there are no
+    // more contours.
+    //
+    //   SkTPathContourParser parser;
+    //   while (parser.parseNextContour()) {
+    //       ...
+    //   }
+    bool parseNextContour() {
+        this->advance();
+        fStartPoint = {0, 0};
+        static_cast<TSubclass*>(this)->resetGeometry(fStartPoint);
+
+        bool hasGeometry = false;
+
+        while (fVerbsIdx < fNumRemainingVerbs) {
+            switch (uint8_t verb = fVerbs[fVerbsIdx]) {
+                case SkPath::kMove_Verb:
+                    if (!hasGeometry) {
+                        fStartPoint = fPoints[fPtsIdx];
+                        static_cast<TSubclass*>(this)->resetGeometry(fStartPoint);
+                        ++fVerbsIdx;
+                        ++fPtsIdx;
+                        this->advance();
+                        continue;
+                    }
+                    return true;
+
+                static_assert(SkPath::kLine_Verb  == 1, ""); case 1:
+                static_assert(SkPath::kQuad_Verb  == 2, ""); case 2:
+                static_assert(SkPath::kConic_Verb == 3, ""); case 3:
+                static_assert(SkPath::kCubic_Verb == 4, ""); case 4:
+                    static constexpr int kPtsAdvance[] = {0, 1, 2, 2, 3};
+                    fPtsIdx += kPtsAdvance[verb];
+                    static_cast<TSubclass*>(this)->geometryTo((SkPathVerb)verb,
+                                                              fPoints[fPtsIdx - 1]);
+                    hasGeometry = true;
+                    break;
+            }
+            ++fVerbsIdx;
+        }
+
+        return hasGeometry;
+    }
+
+private:
+    void advance() {
+        fVerbs += fVerbsIdx;
+        fNumRemainingVerbs -= fVerbsIdx;
+        fVerbsIdx = 0;
+        fPoints += fPtsIdx;
+        fPtsIdx = 0;
+    }
+
+    const SkPath& fPath;
+
+    const uint8_t* fVerbs;
+    int fNumRemainingVerbs = 0;
+    int fVerbsIdx = 0;
+
+    const SkPoint* fPoints;
+    SkPoint fStartPoint;
+    int fPtsIdx = 0;
+};
+
+class SkPathContourParser : public SkTPathContourParser<SkPathContourParser> {
+public:
+    SkPathContourParser(const SkPath& path) : SkTPathContourParser(path) {}
+    // Called on each implicit or explicit moveTo.
+    void resetGeometry(const SkPoint& startPoint) { /* No-op */ }
+    // Called on each lineTo, quadTo, conicTo, and cubicTo.
+    void geometryTo(SkPathVerb, const SkPoint& endpoint) { /* No-op */ }
 };
 
 #endif

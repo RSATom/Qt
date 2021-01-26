@@ -555,7 +555,9 @@ void MainWindow::setupActions()
     tmp->setMenuRole(QAction::QuitRole);
 
     menu = menuBar()->addMenu(tr("&Edit"));
+#if QT_CONFIG(clipboard)
     menu->addAction(globalActions->copyAction());
+#endif
     menu->addAction(globalActions->findAction());
 
     QAction *findNextAction = menu->addAction(tr("Find &Next"),
@@ -609,12 +611,12 @@ void MainWindow::setupActions()
     tmp = menu->addAction(tr("Next Page"),
             openPages, &OpenPagesManager::nextPage);
     tmp->setShortcuts(QList<QKeySequence>() << QKeySequence(tr("Ctrl+Alt+Right"))
-        << QKeySequence(Qt::CTRL + Qt::Key_PageDown));
+        << QKeySequence(Qt::CTRL | Qt::Key_PageDown));
 
     tmp = menu->addAction(tr("Previous Page"),
             openPages, &OpenPagesManager::previousPage);
     tmp->setShortcuts(QList<QKeySequence>() << QKeySequence(tr("Ctrl+Alt+Left"))
-        << QKeySequence(Qt::CTRL + Qt::Key_PageUp));
+        << QKeySequence(Qt::CTRL | Qt::Key_PageUp));
 
     const Qt::Modifier modifier =
 #ifdef Q_OS_MAC
@@ -623,10 +625,10 @@ void MainWindow::setupActions()
             Qt::CTRL;
 #endif
 
-    QShortcut *sct = new QShortcut(QKeySequence(modifier + Qt::Key_Tab), this);
+    QShortcut *sct = new QShortcut(QKeySequence(modifier | Qt::Key_Tab), this);
     connect(sct, &QShortcut::activated,
             openPages, &OpenPagesManager::nextPageWithSwitcher);
-    sct = new QShortcut(QKeySequence(modifier + Qt::SHIFT + Qt::Key_Tab), this);
+    sct = new QShortcut(QKeySequence(modifier | Qt::SHIFT | Qt::Key_Tab), this);
     connect(sct, &QShortcut::activated,
             openPages, &OpenPagesManager::previousPageWithSwitcher);
 
@@ -649,7 +651,9 @@ void MainWindow::setupActions()
     navigationBar->addAction(globalActions->homeAction());
     navigationBar->addAction(m_syncAction);
     navigationBar->addSeparator();
+#if QT_CONFIG(clipboard)
     navigationBar->addAction(globalActions->copyAction());
+#endif
     navigationBar->addAction(globalActions->printAction());
     navigationBar->addAction(globalActions->findAction());
     navigationBar->addSeparator();
@@ -667,8 +671,10 @@ void MainWindow::setupActions()
 #endif
 
     // content viewer connections
+#if QT_CONFIG(clipboard)
     connect(m_centralWidget, &CentralWidget::copyAvailable,
             globalActions, &GlobalActions::setCopyAvailable);
+#endif
     connect(m_centralWidget, &CentralWidget::currentViewerChanged,
             globalActions, &GlobalActions::updateActions);
     connect(m_centralWidget, &CentralWidget::forwardAvailable,

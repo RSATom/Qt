@@ -2,12 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as ProtocolClient from '../protocol_client/protocol_client.js';
+
+import {OverlayModel} from './OverlayModel.js';
+import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+
 /**
  * @implements {Protocol.PageDispatcher}
  */
-export default class ScreenCaptureModel extends SDK.SDKModel {
+export class ScreenCaptureModel extends SDKModel {
   /**
-   * @param {!SDK.Target} target
+   * @param {!Target} target
    */
   constructor(target) {
     super(target);
@@ -47,9 +52,9 @@ export default class ScreenCaptureModel extends SDK.SDKModel {
    * @return {!Promise<?string>}
    */
   async captureScreenshot(format, quality, clip) {
-    await SDK.OverlayModel.muteHighlight();
+    await OverlayModel.muteHighlight();
     const result = await this._agent.captureScreenshot(format, quality, clip, true);
-    await SDK.OverlayModel.unmuteHighlight();
+    await OverlayModel.unmuteHighlight();
     return result;
   }
 
@@ -58,7 +63,7 @@ export default class ScreenCaptureModel extends SDK.SDKModel {
    */
   async fetchLayoutMetrics() {
     const response = await this._agent.invoke_getLayoutMetrics({});
-    if (response[Protocol.Error]) {
+    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
       return null;
     }
     return {
@@ -255,13 +260,4 @@ export default class ScreenCaptureModel extends SDK.SDKModel {
   }
 }
 
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.ScreenCaptureModel = ScreenCaptureModel;
-
-SDK.SDKModel.register(SDK.ScreenCaptureModel, SDK.Target.Capability.ScreenCapture, false);
+SDKModel.register(ScreenCaptureModel, Capability.ScreenCapture, false);

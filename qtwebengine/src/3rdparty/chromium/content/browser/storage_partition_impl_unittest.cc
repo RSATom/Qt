@@ -1,9 +1,15 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+﻿// Copyright 2013 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
 #include <stdint.h>
+
+#include <map>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
@@ -22,7 +28,6 @@
 #include "components/services/storage/public/cpp/constants.h"
 #include "content/browser/code_cache/generated_code_cache.h"
 #include "content/browser/code_cache/generated_code_cache_context.h"
-#include "content/browser/dom_storage/local_storage_context_mojo.h"
 #include "content/browser/gpu/shader_cache_factory.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -32,7 +37,6 @@
 #include "content/public/common/content_features.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
-#include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_utils.h"
 #include "net/base/test_completion_callback.h"
 #include "net/cookies/canonical_cookie.h"
@@ -55,6 +59,7 @@
 #include "storage/browser/file_system/file_system_operation_context.h"
 #include "storage/browser/file_system/isolated_context.h"
 #include "storage/common/file_system/file_system_util.h"
+#include "url/origin.h"
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
 
 using net::CanonicalCookie;
@@ -68,26 +73,10 @@ const int kDefaultClientId = 42;
 const char kCacheKey[] = "key";
 const char kCacheValue[] = "cached value";
 
-const char kTestOrigin1[] = "http://host1:1/";
-const char kTestOrigin2[] = "http://host2:1/";
-const char kTestOrigin3[] = "http://host3:1/";
-const char kTestOriginDevTools[] = "devtools://abcdefghijklmnopqrstuvw/";
-const char kTestURL[] = "http://host4/script.js";
-const char kFilterURLForCodeCache[] = "http://host5/script.js";
-
 #if BUILDFLAG(ENABLE_PLUGINS)
 const char kWidevineCdmPluginId[] = "application_x-ppapi-widevine-cdm";
 const char kClearKeyCdmPluginId[] = "application_x-ppapi-clearkey-cdm";
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
-
-// TODO(crbug.com/889590): Use helper for url::Origin creation from string.
-const url::Origin kOrigin1 = url::Origin::Create(GURL(kTestOrigin1));
-const url::Origin kOrigin2 = url::Origin::Create(GURL(kTestOrigin2));
-const url::Origin kOrigin3 = url::Origin::Create(GURL(kTestOrigin3));
-const url::Origin kOriginDevTools =
-    url::Origin::Create(GURL(kTestOriginDevTools));
-const GURL kResourceURL(kTestURL);
-const GURL kFilterResourceURLForCodeCache(kFilterURLForCodeCache);
 
 const blink::mojom::StorageType kTemporary =
     blink::mojom::StorageType::kTemporary;
@@ -105,7 +94,7 @@ const uint32_t kAllQuotaRemoveMask =
 class AwaitCompletionHelper {
  public:
   AwaitCompletionHelper() : start_(false), already_quit_(false) {}
-  virtual ~AwaitCompletionHelper() {}
+  virtual ~AwaitCompletionHelper() = default;
 
   void BlockUntilNotified() {
     if (!already_quit_) {
@@ -144,23 +133,23 @@ class RemoveCookieTester {
       : get_cookie_success_(false), storage_partition_(storage_partition) {}
 
   // Returns true, if the given cookie exists in the cookie store.
-  bool ContainsCookie() {
+  bool ContainsCookie(const url::Origin& origin) {
     get_cookie_success_ = false;
     storage_partition_->GetCookieManagerForBrowserProcess()->GetCookieList(
-        kOrigin1.GetURL(), net::CookieOptions::MakeAllInclusive(),
+        origin.GetURL(), net::CookieOptions::MakeAllInclusive(),
         base::BindOnce(&RemoveCookieTester::GetCookieListCallback,
                        base::Unretained(this)));
     await_completion_.BlockUntilNotified();
     return get_cookie_success_;
   }
 
-  void AddCookie() {
+  void AddCookie(const url::Origin& origin) {
     CanonicalCookie::CookieInclusionStatus status;
-    std::unique_ptr<net::CanonicalCookie> cc(net::CanonicalCookie::Create(
-        kOrigin1.GetURL(), "A=1", base::Time::Now(),
-        base::nullopt /* server_time */, &status));
+    std::unique_ptr<net::CanonicalCookie> cc(
+        net::CanonicalCookie::Create(origin.GetURL(), "A=1", base::Time::Now(),
+                                     base::nullopt /* server_time */, &status));
     storage_partition_->GetCookieManagerForBrowserProcess()->SetCanonicalCookie(
-        *cc, kOrigin1.scheme(), net::CookieOptions::MakeAllInclusive(),
+        *cc, origin.scheme(), net::CookieOptions::MakeAllInclusive(),
         base::BindOnce(&RemoveCookieTester::SetCookieCallback,
                        base::Unretained(this)));
     await_completion_.BlockUntilNotified();
@@ -221,7 +210,9 @@ class RemoveLocalStorageTester {
     return false;
   }
 
-  void AddDOMStorageTestData() {
+  void AddDOMStorageTestData(const url::Origin& origin1,
+                             const url::Origin& origin2,
+                             const url::Origin& origin3) {
     // NOTE: Tests which call this method depend on implementation details of
     // how exactly the Local Storage subsystem stores persistent data.
 
@@ -243,7 +234,7 @@ class RemoveLocalStorageTester {
     database->database().PostTaskWithThisObject(
         FROM_HERE,
         base::BindLambdaForTesting([&](const storage::DomStorageDatabase& db) {
-          PopulateDatabase(db);
+          PopulateDatabase(db, origin1, origin2, origin3);
           populate_loop.Quit();
         }));
     populate_loop.Run();
@@ -251,9 +242,16 @@ class RemoveLocalStorageTester {
     // Ensure that this database is fully closed before returning.
     database.reset();
     task_environment_->RunUntilIdle();
+
+    EXPECT_TRUE(DOMStorageExistsForOrigin(origin1));
+    EXPECT_TRUE(DOMStorageExistsForOrigin(origin2));
+    EXPECT_TRUE(DOMStorageExistsForOrigin(origin3));
   }
 
-  static void PopulateDatabase(const storage::DomStorageDatabase& db) {
+  static void PopulateDatabase(const storage::DomStorageDatabase& db,
+                               const url::Origin& origin1,
+                               const url::Origin& origin2,
+                               const url::Origin& origin3) {
     storage::LocalStorageOriginMetaData data;
     std::map<std::vector<uint8_t>, std::vector<uint8_t>> entries;
 
@@ -261,26 +259,26 @@ class RemoveLocalStorageTester {
     data.set_last_modified(now.ToInternalValue());
     data.set_size_bytes(16);
     ASSERT_TRUE(
-        db.Put(CreateMetaDataKey(kOrigin1),
+        db.Put(CreateMetaDataKey(origin1),
                base::as_bytes(base::make_span(data.SerializeAsString())))
             .ok());
-    ASSERT_TRUE(db.Put(CreateDataKey(kOrigin1), {}).ok());
+    ASSERT_TRUE(db.Put(CreateDataKey(origin1), {}).ok());
 
     base::Time one_day_ago = now - base::TimeDelta::FromDays(1);
     data.set_last_modified(one_day_ago.ToInternalValue());
     ASSERT_TRUE(
-        db.Put(CreateMetaDataKey(kOrigin2),
+        db.Put(CreateMetaDataKey(origin2),
                base::as_bytes(base::make_span((data.SerializeAsString()))))
             .ok());
-    ASSERT_TRUE(db.Put(CreateDataKey(kOrigin2), {}).ok());
+    ASSERT_TRUE(db.Put(CreateDataKey(origin2), {}).ok());
 
     base::Time sixty_days_ago = now - base::TimeDelta::FromDays(60);
     data.set_last_modified(sixty_days_ago.ToInternalValue());
     ASSERT_TRUE(
-        db.Put(CreateMetaDataKey(kOrigin3),
+        db.Put(CreateMetaDataKey(origin3),
                base::as_bytes(base::make_span(data.SerializeAsString())))
             .ok());
-    ASSERT_TRUE(db.Put(CreateDataKey(kOrigin3), {}).ok());
+    ASSERT_TRUE(db.Put(CreateDataKey(origin3), {}).ok());
   }
 
  private:
@@ -406,28 +404,26 @@ class RemovePluginPrivateDataTester {
       : filesystem_context_(filesystem_context) {}
 
   // Add some files to the PluginPrivateFileSystem. They are created as follows:
-  //   kOrigin1 - ClearKey - 1 file - timestamp 10 days ago
-  //   kOrigin2 - Widevine - 2 files - timestamps now and 60 days ago
-  void AddPluginPrivateTestData() {
+  //   url1 - ClearKey - 1 file - timestamp 10 days ago
+  //   url2 - Widevine - 2 files - timestamps now and 60 days ago
+  void AddPluginPrivateTestData(const GURL& url1, const GURL& url2) {
     base::Time now = base::Time::Now();
     base::Time ten_days_ago = now - base::TimeDelta::FromDays(10);
     base::Time sixty_days_ago = now - base::TimeDelta::FromDays(60);
 
     // Create a PluginPrivateFileSystem for ClearKey and add a single file
     // with a timestamp of 1 day ago.
-    std::string clearkey_fsid =
-        CreateFileSystem(kClearKeyCdmPluginId, kOrigin1.GetURL());
-    clearkey_file_ = CreateFile(kOrigin1.GetURL(), clearkey_fsid, "foo");
+    std::string clearkey_fsid = CreateFileSystem(kClearKeyCdmPluginId, url1);
+    clearkey_file_ = CreateFile(url1, clearkey_fsid, "foo");
     SetFileTimestamp(clearkey_file_, ten_days_ago);
 
     // Create a second PluginPrivateFileSystem for Widevine and add two files
     // with different times.
-    std::string widevine_fsid =
-        CreateFileSystem(kWidevineCdmPluginId, kOrigin2.GetURL());
+    std::string widevine_fsid = CreateFileSystem(kWidevineCdmPluginId, url2);
     storage::FileSystemURL widevine_file1 =
-        CreateFile(kOrigin2.GetURL(), widevine_fsid, "bar1");
+        CreateFile(url2, widevine_fsid, "bar1");
     storage::FileSystemURL widevine_file2 =
-        CreateFile(kOrigin2.GetURL(), widevine_fsid, "bar2");
+        CreateFile(url2, widevine_fsid, "bar2");
     SetFileTimestamp(widevine_file1, now);
     SetFileTimestamp(widevine_file2, sixty_days_ago);
   }
@@ -461,8 +457,8 @@ class RemovePluginPrivateDataTester {
                                ppapi::kPluginPrivateRootName, base::FilePath());
     EXPECT_TRUE(storage::ValidateIsolatedFileSystemId(fsid));
     filesystem_context_->OpenPluginPrivateFileSystem(
-        origin, storage::kFileSystemTypePluginPrivate, fsid, plugin_name,
-        storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
+        url::Origin::Create(origin), storage::kFileSystemTypePluginPrivate,
+        fsid, plugin_name, storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
         base::BindOnce(&RemovePluginPrivateDataTester::OnFileSystemOpened,
                        base::Unretained(this), &await_completion));
     await_completion.BlockUntilNotified();
@@ -564,10 +560,10 @@ class RemovePluginPrivateDataTester {
     storage::FileSystemQuotaUtil* quota_util = backend->GetQuotaUtil();
 
     // Determine the set of origins used.
-    std::set<GURL> origins;
+    std::set<url::Origin> origins;
     quota_util->GetOriginsForTypeOnFileTaskRunner(
         storage::kFileSystemTypePluginPrivate, &origins);
-    *data_exists_for_origin = origins.find(origin.GetURL()) != origins.end();
+    *data_exists_for_origin = origins.find(origin) != origins.end();
 
     // AwaitCompletionHelper and MessageLoop don't work on a
     // SequencedTaskRunner, so post a task on the IO thread.
@@ -607,9 +603,10 @@ bool DoesOriginMatchForBothProtectedAndUnprotectedWeb(
 }
 
 bool DoesOriginMatchUnprotected(
+    const url::Origin& desired_origin,
     const url::Origin& origin,
     storage::SpecialStoragePolicy* special_storage_policy) {
-  return origin.scheme() != kOriginDevTools.scheme();
+  return origin.scheme() != desired_origin.scheme();
 }
 
 void ClearQuotaData(content::StoragePartition* partition,
@@ -702,10 +699,8 @@ void ClearCodeCache(content::StoragePartition* partition,
                              run_loop->QuitClosure());
 }
 
-bool FilterURL(const GURL& url) {
-  if (url == kFilterResourceURLForCodeCache)
-    return true;
-  return false;
+bool FilterURL(const GURL& filter_url, const GURL& url) {
+  return url == filter_url;
 }
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -734,9 +729,9 @@ class StoragePartitionImplTest : public testing::Test {
       : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP),
         browser_context_(new TestBrowserContext()) {}
 
-  MockQuotaManager* GetMockManager() {
+  storage::MockQuotaManager* GetMockManager() {
     if (!quota_manager_.get()) {
-      quota_manager_ = new MockQuotaManager(
+      quota_manager_ = base::MakeRefCounted<storage::MockQuotaManager>(
           browser_context_->IsOffTheRecord(), browser_context_->GetPath(),
           base::CreateSingleThreadTaskRunner({BrowserThread::IO}).get(),
           browser_context_->GetSpecialStoragePolicy());
@@ -753,7 +748,7 @@ class StoragePartitionImplTest : public testing::Test {
  private:
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestBrowserContext> browser_context_;
-  scoped_refptr<MockQuotaManager> quota_manager_;
+  scoped_refptr<storage::MockQuotaManager> quota_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(StoragePartitionImplTest);
 };
@@ -837,42 +832,54 @@ TEST_F(StoragePartitionImplTest, QuotaClientMaskGeneration) {
             StoragePartitionImpl::GenerateQuotaClientMask(kAllQuotaRemoveMask));
 }
 
-void PopulateTestQuotaManagedPersistentData(MockQuotaManager* manager) {
-  manager->AddOrigin(kOrigin2, kPersistent, kClientFile, base::Time());
-  manager->AddOrigin(kOrigin3, kPersistent, kClientFile,
+void PopulateTestQuotaManagedPersistentData(storage::MockQuotaManager* manager,
+                                            const url::Origin& origin1,
+                                            const url::Origin& origin2) {
+  manager->AddOrigin(origin1, kPersistent, kClientFile, base::Time());
+  manager->AddOrigin(origin2, kPersistent, kClientFile,
                      base::Time::Now() - base::TimeDelta::FromDays(1));
 
-  EXPECT_FALSE(manager->OriginHasData(kOrigin1, kPersistent, kClientFile));
-  EXPECT_TRUE(manager->OriginHasData(kOrigin2, kPersistent, kClientFile));
-  EXPECT_TRUE(manager->OriginHasData(kOrigin3, kPersistent, kClientFile));
+  EXPECT_TRUE(manager->OriginHasData(origin1, kPersistent, kClientFile));
+  EXPECT_TRUE(manager->OriginHasData(origin2, kPersistent, kClientFile));
 }
 
-void PopulateTestQuotaManagedTemporaryData(MockQuotaManager* manager) {
-  manager->AddOrigin(kOrigin1, kTemporary, kClientFile, base::Time::Now());
-  manager->AddOrigin(kOrigin3, kTemporary, kClientFile,
+void PopulateTestQuotaManagedTemporaryData(storage::MockQuotaManager* manager,
+                                           const url::Origin& origin1,
+                                           const url::Origin& origin2) {
+  manager->AddOrigin(origin1, kTemporary, kClientFile, base::Time::Now());
+  manager->AddOrigin(origin2, kTemporary, kClientFile,
                      base::Time::Now() - base::TimeDelta::FromDays(1));
 
-  EXPECT_TRUE(manager->OriginHasData(kOrigin1, kTemporary, kClientFile));
-  EXPECT_FALSE(manager->OriginHasData(kOrigin2, kTemporary, kClientFile));
-  EXPECT_TRUE(manager->OriginHasData(kOrigin3, kTemporary, kClientFile));
+  EXPECT_TRUE(manager->OriginHasData(origin1, kTemporary, kClientFile));
+  EXPECT_TRUE(manager->OriginHasData(origin2, kTemporary, kClientFile));
 }
 
-void PopulateTestQuotaManagedData(MockQuotaManager* manager) {
-  // Set up kOrigin1 with a temporary quota, kOrigin2 with a persistent
-  // quota, and kOrigin3 with both. kOrigin1 is modified now, kOrigin2
-  // is modified at the beginning of time, and kOrigin3 is modified one day
-  // ago.
-  PopulateTestQuotaManagedPersistentData(manager);
-  PopulateTestQuotaManagedTemporaryData(manager);
+void PopulateTestQuotaManagedData(storage::MockQuotaManager* manager,
+                                  const url::Origin& origin1,
+                                  const url::Origin& origin2,
+                                  const url::Origin& origin3) {
+  // Set up origin1 with a temporary quota, origin2 with a persistent quota, and
+  // origin3 with both. origin1 is modified now, origin2 is modified at the
+  // beginning of time, and origin3 is modified one day ago.
+  PopulateTestQuotaManagedTemporaryData(manager, origin1, origin3);
+  PopulateTestQuotaManagedPersistentData(manager, origin2, origin3);
+  EXPECT_FALSE(manager->OriginHasData(origin1, kPersistent, kClientFile));
+  EXPECT_FALSE(manager->OriginHasData(origin2, kTemporary, kClientFile));
 }
 
-void PopulateTestQuotaManagedNonBrowsingData(MockQuotaManager* manager) {
-  manager->AddOrigin(kOriginDevTools, kTemporary, kClientFile, base::Time());
-  manager->AddOrigin(kOriginDevTools, kPersistent, kClientFile, base::Time());
+void PopulateTestQuotaManagedNonBrowsingData(
+    const url::Origin& origin,
+    storage::MockQuotaManager* manager) {
+  manager->AddOrigin(origin, kTemporary, kClientFile, base::Time());
+  manager->AddOrigin(origin, kPersistent, kClientFile, base::Time());
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverBoth) {
-  PopulateTestQuotaManagedData(GetMockManager());
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
+  PopulateTestQuotaManagedData(GetMockManager(), kOrigin1, kOrigin2, kOrigin3);
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -898,7 +905,10 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverBoth) {
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverOnlyTemporary) {
-  PopulateTestQuotaManagedTemporaryData(GetMockManager());
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+
+  PopulateTestQuotaManagedTemporaryData(GetMockManager(), kOrigin1, kOrigin2);
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -914,17 +924,16 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverOnlyTemporary) {
   EXPECT_FALSE(
       GetMockManager()->OriginHasData(kOrigin2, kTemporary, kClientFile));
   EXPECT_FALSE(
-      GetMockManager()->OriginHasData(kOrigin3, kTemporary, kClientFile));
-  EXPECT_FALSE(
       GetMockManager()->OriginHasData(kOrigin1, kPersistent, kClientFile));
   EXPECT_FALSE(
       GetMockManager()->OriginHasData(kOrigin2, kPersistent, kClientFile));
-  EXPECT_FALSE(
-      GetMockManager()->OriginHasData(kOrigin3, kPersistent, kClientFile));
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverOnlyPersistent) {
-  PopulateTestQuotaManagedPersistentData(GetMockManager());
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+
+  PopulateTestQuotaManagedPersistentData(GetMockManager(), kOrigin1, kOrigin2);
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -940,16 +949,16 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverOnlyPersistent) {
   EXPECT_FALSE(
       GetMockManager()->OriginHasData(kOrigin2, kTemporary, kClientFile));
   EXPECT_FALSE(
-      GetMockManager()->OriginHasData(kOrigin3, kTemporary, kClientFile));
-  EXPECT_FALSE(
       GetMockManager()->OriginHasData(kOrigin1, kPersistent, kClientFile));
   EXPECT_FALSE(
       GetMockManager()->OriginHasData(kOrigin2, kPersistent, kClientFile));
-  EXPECT_FALSE(
-      GetMockManager()->OriginHasData(kOrigin3, kPersistent, kClientFile));
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverNeither) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
   partition->OverrideQuotaManagerForTesting(GetMockManager());
@@ -974,7 +983,11 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverNeither) {
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverSpecificOrigin) {
-  PopulateTestQuotaManagedData(GetMockManager());
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
+  PopulateTestQuotaManagedData(GetMockManager(), kOrigin1, kOrigin2, kOrigin3);
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -1001,7 +1014,11 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForeverSpecificOrigin) {
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForLastHour) {
-  PopulateTestQuotaManagedData(GetMockManager());
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
+  PopulateTestQuotaManagedData(GetMockManager(), kOrigin1, kOrigin2, kOrigin3);
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -1030,7 +1047,11 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForLastHour) {
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForLastWeek) {
-  PopulateTestQuotaManagedData(GetMockManager());
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
+  PopulateTestQuotaManagedData(GetMockManager(), kOrigin1, kOrigin2, kOrigin3);
 
   base::RunLoop run_loop;
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
@@ -1058,12 +1079,15 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedDataForLastWeek) {
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedUnprotectedOrigins) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
   // Protect kOrigin1.
-  scoped_refptr<MockSpecialStoragePolicy> mock_policy =
-      new MockSpecialStoragePolicy;
+  auto mock_policy = base::MakeRefCounted<storage::MockSpecialStoragePolicy>();
   mock_policy->AddProtected(kOrigin1.GetURL());
 
-  PopulateTestQuotaManagedData(GetMockManager());
+  PopulateTestQuotaManagedData(GetMockManager(), kOrigin1, kOrigin2, kOrigin3);
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -1093,12 +1117,15 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedUnprotectedOrigins) {
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedProtectedOrigins) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
   // Protect kOrigin1.
-  scoped_refptr<MockSpecialStoragePolicy> mock_policy =
-      new MockSpecialStoragePolicy;
+  auto mock_policy = base::MakeRefCounted<storage::MockSpecialStoragePolicy>();
   mock_policy->AddProtected(kOrigin1.GetURL());
 
-  PopulateTestQuotaManagedData(GetMockManager());
+  PopulateTestQuotaManagedData(GetMockManager(), kOrigin1, kOrigin2, kOrigin3);
 
   // Try to remove kOrigin1. Expect success.
   base::RunLoop run_loop;
@@ -1129,7 +1156,10 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedProtectedOrigins) {
 }
 
 TEST_F(StoragePartitionImplTest, RemoveQuotaManagedIgnoreDevTools) {
-  PopulateTestQuotaManagedNonBrowsingData(GetMockManager());
+  const url::Origin kOrigin =
+      url::Origin::Create(GURL("devtools://abcdefghijklmnopqrstuvw/"));
+
+  PopulateTestQuotaManagedNonBrowsingData(kOrigin, GetMockManager());
 
   base::RunLoop run_loop;
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
@@ -1138,24 +1168,26 @@ TEST_F(StoragePartitionImplTest, RemoveQuotaManagedIgnoreDevTools) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::BindOnce(&ClearQuotaDataWithOriginMatcher, partition,
-                     base::BindRepeating(&DoesOriginMatchUnprotected),
+                     base::BindRepeating(&DoesOriginMatchUnprotected, kOrigin),
                      base::Time(), &run_loop));
   run_loop.Run();
 
   // Check that devtools data isn't removed.
-  EXPECT_TRUE(GetMockManager()->OriginHasData(kOriginDevTools, kTemporary,
-                                              kClientFile));
-  EXPECT_TRUE(GetMockManager()->OriginHasData(kOriginDevTools, kPersistent,
-                                              kClientFile));
+  EXPECT_TRUE(
+      GetMockManager()->OriginHasData(kOrigin, kTemporary, kClientFile));
+  EXPECT_TRUE(
+      GetMockManager()->OriginHasData(kOrigin, kPersistent, kClientFile));
 }
 
 TEST_F(StoragePartitionImplTest, RemoveCookieForever) {
+  const url::Origin kOrigin = url::Origin::Create(GURL("http://host1:1/"));
+
   StoragePartition* partition =
       BrowserContext::GetDefaultStoragePartition(browser_context());
 
   RemoveCookieTester tester(partition);
-  tester.AddCookie();
-  ASSERT_TRUE(tester.ContainsCookie());
+  tester.AddCookie(kOrigin);
+  ASSERT_TRUE(tester.ContainsCookie(kOrigin));
 
   base::RunLoop run_loop;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
@@ -1163,16 +1195,18 @@ TEST_F(StoragePartitionImplTest, RemoveCookieForever) {
                                 base::Time::Max(), &run_loop));
   run_loop.Run();
 
-  EXPECT_FALSE(tester.ContainsCookie());
+  EXPECT_FALSE(tester.ContainsCookie(kOrigin));
 }
 
 TEST_F(StoragePartitionImplTest, RemoveCookieLastHour) {
+  const url::Origin kOrigin = url::Origin::Create(GURL("http://host1:1/"));
+
   StoragePartition* partition =
       BrowserContext::GetDefaultStoragePartition(browser_context());
 
   RemoveCookieTester tester(partition);
-  tester.AddCookie();
-  ASSERT_TRUE(tester.ContainsCookie());
+  tester.AddCookie(kOrigin);
+  ASSERT_TRUE(tester.ContainsCookie(kOrigin));
 
   base::Time an_hour_ago = base::Time::Now() - base::TimeDelta::FromHours(1);
 
@@ -1182,37 +1216,39 @@ TEST_F(StoragePartitionImplTest, RemoveCookieLastHour) {
                                 base::Time::Max(), &run_loop));
   run_loop.Run();
 
-  EXPECT_FALSE(tester.ContainsCookie());
+  EXPECT_FALSE(tester.ContainsCookie(kOrigin));
 }
 
 TEST_F(StoragePartitionImplTest, RemoveCookieWithDeleteInfo) {
+  const url::Origin kOrigin = url::Origin::Create(GURL("http://host1:1/"));
+
   StoragePartition* partition =
       BrowserContext::GetDefaultStoragePartition(browser_context());
 
   RemoveCookieTester tester(partition);
-  tester.AddCookie();
-  ASSERT_TRUE(tester.ContainsCookie());
+  tester.AddCookie(kOrigin);
+  ASSERT_TRUE(tester.ContainsCookie(kOrigin));
 
   base::RunLoop run_loop2;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(&ClearCookiesMatchingInfo, partition,
                                 CookieDeletionFilter::New(), &run_loop2));
   run_loop2.RunUntilIdle();
-  EXPECT_FALSE(tester.ContainsCookie());
+  EXPECT_FALSE(tester.ContainsCookie(kOrigin));
 }
 
 TEST_F(StoragePartitionImplTest, RemoveUnprotectedLocalStorageForever) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
   // Protect kOrigin1.
-  scoped_refptr<MockSpecialStoragePolicy> mock_policy =
-      new MockSpecialStoragePolicy;
+  auto mock_policy = base::MakeRefCounted<storage::MockSpecialStoragePolicy>();
   mock_policy->AddProtected(kOrigin1.GetURL());
 
   RemoveLocalStorageTester tester(task_environment(), browser_context());
 
-  tester.AddDOMStorageTestData();
-  EXPECT_TRUE(tester.DOMStorageExistsForOrigin(kOrigin1));
-  EXPECT_TRUE(tester.DOMStorageExistsForOrigin(kOrigin2));
-  EXPECT_TRUE(tester.DOMStorageExistsForOrigin(kOrigin3));
+  tester.AddDOMStorageTestData(kOrigin1, kOrigin2, kOrigin3);
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -1237,17 +1273,17 @@ TEST_F(StoragePartitionImplTest, RemoveUnprotectedLocalStorageForever) {
 }
 
 TEST_F(StoragePartitionImplTest, RemoveProtectedLocalStorageForever) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
   // Protect kOrigin1.
-  scoped_refptr<MockSpecialStoragePolicy> mock_policy =
-      new MockSpecialStoragePolicy;
+  auto mock_policy = base::MakeRefCounted<storage::MockSpecialStoragePolicy>();
   mock_policy->AddProtected(kOrigin1.GetURL());
 
   RemoveLocalStorageTester tester(task_environment(), browser_context());
 
-  tester.AddDOMStorageTestData();
-  EXPECT_TRUE(tester.DOMStorageExistsForOrigin(kOrigin1));
-  EXPECT_TRUE(tester.DOMStorageExistsForOrigin(kOrigin2));
-  EXPECT_TRUE(tester.DOMStorageExistsForOrigin(kOrigin3));
+  tester.AddDOMStorageTestData(kOrigin1, kOrigin2, kOrigin3);
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -1276,12 +1312,13 @@ TEST_F(StoragePartitionImplTest, RemoveProtectedLocalStorageForever) {
 }
 
 TEST_F(StoragePartitionImplTest, RemoveLocalStorageForLastWeek) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+  const url::Origin kOrigin3 = url::Origin::Create(GURL("http://host3:1/"));
+
   RemoveLocalStorageTester tester(task_environment(), browser_context());
 
-  tester.AddDOMStorageTestData();
-  EXPECT_TRUE(tester.DOMStorageExistsForOrigin(kOrigin1));
-  EXPECT_TRUE(tester.DOMStorageExistsForOrigin(kOrigin2));
-  EXPECT_TRUE(tester.DOMStorageExistsForOrigin(kOrigin3));
+  tester.AddDOMStorageTestData(kOrigin1, kOrigin2, kOrigin3);
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -1309,6 +1346,8 @@ TEST_F(StoragePartitionImplTest, RemoveLocalStorageForLastWeek) {
 }
 
 TEST_F(StoragePartitionImplTest, ClearCodeCache) {
+  const GURL kResourceURL("http://host4/script.js");
+
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
   // Ensure code cache is initialized.
@@ -1317,7 +1356,7 @@ TEST_F(StoragePartitionImplTest, ClearCodeCache) {
 
   RemoveCodeCacheTester tester(partition->GetGeneratedCodeCacheContext());
 
-  GURL origin = GURL(kTestOrigin1);
+  GURL origin = GURL("http://host1:1/");
   std::string data("SomeData");
   tester.AddEntry(RemoveCodeCacheTester::kJs, kResourceURL, origin, data);
   EXPECT_TRUE(
@@ -1340,6 +1379,9 @@ TEST_F(StoragePartitionImplTest, ClearCodeCache) {
 }
 
 TEST_F(StoragePartitionImplTest, ClearCodeCacheSpecificURL) {
+  const GURL kResourceURL("http://host4/script.js");
+  const GURL kFilterResourceURLForCodeCache("http://host5/script.js");
+
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
   // Ensure code cache is initialized.
@@ -1348,7 +1390,7 @@ TEST_F(StoragePartitionImplTest, ClearCodeCacheSpecificURL) {
 
   RemoveCodeCacheTester tester(partition->GetGeneratedCodeCacheContext());
 
-  GURL origin = GURL(kTestOrigin1);
+  GURL origin = GURL("http://host1:1/");
   std::string data("SomeData");
   tester.AddEntry(RemoveCodeCacheTester::kJs, kResourceURL, origin, data);
   tester.AddEntry(RemoveCodeCacheTester::kJs, kFilterResourceURLForCodeCache,
@@ -1362,8 +1404,10 @@ TEST_F(StoragePartitionImplTest, ClearCodeCacheSpecificURL) {
   base::RunLoop run_loop;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::BindOnce(&ClearCodeCache, partition, base::Time(), base::Time(),
-                     base::BindRepeating(&FilterURL), &run_loop));
+      base::BindOnce(
+          &ClearCodeCache, partition, base::Time(), base::Time(),
+          base::BindRepeating(&FilterURL, kFilterResourceURLForCodeCache),
+          &run_loop));
   run_loop.Run();
 
   EXPECT_TRUE(
@@ -1377,6 +1421,9 @@ TEST_F(StoragePartitionImplTest, ClearCodeCacheSpecificURL) {
 }
 
 TEST_F(StoragePartitionImplTest, ClearCodeCacheDateRange) {
+  const GURL kResourceURL("http://host4/script.js");
+  const GURL kFilterResourceURLForCodeCache("http://host5/script.js");
+
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
   // Ensure code cache is initialized.
@@ -1390,7 +1437,7 @@ TEST_F(StoragePartitionImplTest, ClearCodeCacheDateRange) {
   base::Time begin_time = current_time - base::TimeDelta::FromHours(2);
   base::Time in_range_time = current_time - base::TimeDelta::FromHours(1);
 
-  GURL origin = GURL(kTestOrigin1);
+  GURL origin = GURL("http://host1:1/");
   std::string data("SomeData");
   tester.AddEntry(RemoveCodeCacheTester::kJs, kResourceURL, origin, data);
   EXPECT_TRUE(
@@ -1410,8 +1457,10 @@ TEST_F(StoragePartitionImplTest, ClearCodeCacheDateRange) {
   base::RunLoop run_loop;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::BindOnce(&ClearCodeCache, partition, begin_time, current_time,
-                     base::BindRepeating(&FilterURL), &run_loop));
+      base::BindOnce(
+          &ClearCodeCache, partition, begin_time, current_time,
+          base::BindRepeating(&FilterURL, kFilterResourceURLForCodeCache),
+          &run_loop));
   run_loop.Run();
 
   EXPECT_TRUE(
@@ -1425,9 +1474,7 @@ TEST_F(StoragePartitionImplTest, ClearCodeCacheDateRange) {
 }
 
 TEST_F(StoragePartitionImplTest, ClearWasmCodeCache) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(blink::features::kWasmCodeCache);
-  ASSERT_TRUE(base::FeatureList::IsEnabled(blink::features::kWasmCodeCache));
+  const GURL kResourceURL("http://host4/script.js");
 
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
@@ -1437,7 +1484,7 @@ TEST_F(StoragePartitionImplTest, ClearWasmCodeCache) {
 
   RemoveCodeCacheTester tester(partition->GetGeneratedCodeCacheContext());
 
-  GURL origin = GURL(kTestOrigin1);
+  GURL origin = GURL("http://host1:1/");
   std::string data("SomeData.wasm");
   tester.AddEntry(RemoveCodeCacheTester::kWebAssembly, kResourceURL, origin,
                   data);
@@ -1480,11 +1527,14 @@ TEST_F(StoragePartitionImplTest, ClearCodeCacheIncognito) {
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 TEST_F(StoragePartitionImplTest, RemovePluginPrivateDataForever) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
 
   RemovePluginPrivateDataTester tester(partition->GetFileSystemContext());
-  tester.AddPluginPrivateTestData();
+  tester.AddPluginPrivateTestData(kOrigin1.GetURL(), kOrigin2.GetURL());
   EXPECT_TRUE(tester.DataExistsForOrigin(kOrigin1));
   EXPECT_TRUE(tester.DataExistsForOrigin(kOrigin2));
 
@@ -1499,12 +1549,15 @@ TEST_F(StoragePartitionImplTest, RemovePluginPrivateDataForever) {
 }
 
 TEST_F(StoragePartitionImplTest, RemovePluginPrivateDataLastWeek) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
   base::Time a_week_ago = base::Time::Now() - base::TimeDelta::FromDays(7);
 
   RemovePluginPrivateDataTester tester(partition->GetFileSystemContext());
-  tester.AddPluginPrivateTestData();
+  tester.AddPluginPrivateTestData(kOrigin1.GetURL(), kOrigin2.GetURL());
   EXPECT_TRUE(tester.DataExistsForOrigin(kOrigin1));
   EXPECT_TRUE(tester.DataExistsForOrigin(kOrigin2));
 
@@ -1522,11 +1575,14 @@ TEST_F(StoragePartitionImplTest, RemovePluginPrivateDataLastWeek) {
 }
 
 TEST_F(StoragePartitionImplTest, RemovePluginPrivateDataForOrigin) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
 
   RemovePluginPrivateDataTester tester(partition->GetFileSystemContext());
-  tester.AddPluginPrivateTestData();
+  tester.AddPluginPrivateTestData(kOrigin1.GetURL(), kOrigin2.GetURL());
   EXPECT_TRUE(tester.DataExistsForOrigin(kOrigin1));
   EXPECT_TRUE(tester.DataExistsForOrigin(kOrigin2));
 
@@ -1543,11 +1599,14 @@ TEST_F(StoragePartitionImplTest, RemovePluginPrivateDataForOrigin) {
 }
 
 TEST_F(StoragePartitionImplTest, RemovePluginPrivateDataAfterDeletion) {
+  const url::Origin kOrigin1 = url::Origin::Create(GURL("http://host1:1/"));
+  const url::Origin kOrigin2 = url::Origin::Create(GURL("http://host2:1/"));
+
   StoragePartitionImpl* partition = static_cast<StoragePartitionImpl*>(
       BrowserContext::GetDefaultStoragePartition(browser_context()));
 
   RemovePluginPrivateDataTester tester(partition->GetFileSystemContext());
-  tester.AddPluginPrivateTestData();
+  tester.AddPluginPrivateTestData(kOrigin1.GetURL(), kOrigin2.GetURL());
   EXPECT_TRUE(tester.DataExistsForOrigin(kOrigin1));
   EXPECT_TRUE(tester.DataExistsForOrigin(kOrigin2));
 

@@ -4,6 +4,9 @@
     "scripts": [],
     "modules": [
         "platform.js",
-        "utilities.js"
+        "utilities.js",
+        "string-utilities.js",
+        "number-utilities.js",
+        "array-utilities.js"
     ]
 }

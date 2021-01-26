@@ -10,7 +10,7 @@
  **************************************************************************************************/
 #include "GrTwoPointConicalGradientLayout.h"
 
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
@@ -176,7 +176,7 @@ std::unique_ptr<GrFragmentProcessor> GrTwoPointConicalGradientLayout::TestCreate
             radius2 += offset;
         }
     } else if (type == static_cast<int>(Type::kStrip)) {
-        radius1 = SkTMax(radius1, .1f);  // Make sure that the radius is non-zero
+        radius1 = std::max(radius1, .1f);  // Make sure that the radius is non-zero
         radius2 = radius1;
         // Make sure that the centers are different
         if (SkScalarNearlyZero(SkPoint::Distance(center1, center2))) {
@@ -222,7 +222,7 @@ std::unique_ptr<GrFragmentProcessor> GrTwoPointConicalGradientLayout::TestCreate
     GrTest::TestAsFPArgs asFPArgs(d);
     std::unique_ptr<GrFragmentProcessor> fp = as_SB(shader)->asFragmentProcessor(asFPArgs.args());
 
-    GrAlwaysAssert(fp);
+    SkASSERT_RELEASE(fp);
     return fp;
 }
 #endif
@@ -264,7 +264,7 @@ std::unique_ptr<GrFragmentProcessor> GrTwoPointConicalGradientLayout::Make(
     SkMatrix matrix;
 
     // Initialize the base matrix
-    if (!grad.totalLocalMatrix(args.fPreLocalMatrix, args.fPostLocalMatrix)->invert(&matrix)) {
+    if (!grad.totalLocalMatrix(args.fPreLocalMatrix)->invert(&matrix)) {
         return nullptr;
     }
 

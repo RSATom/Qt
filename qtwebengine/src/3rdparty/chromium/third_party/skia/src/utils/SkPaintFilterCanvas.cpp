@@ -115,38 +115,6 @@ void SkPaintFilterCanvas::onDrawPath(const SkPath& path, const SkPaint& paint) {
     }
 }
 
-void SkPaintFilterCanvas::onDrawBitmap(const SkBitmap& bm, SkScalar left, SkScalar top,
-                                       const SkPaint* paint) {
-    AutoPaintFilter apf(this, paint);
-    if (apf.shouldDraw()) {
-        this->SkNWayCanvas::onDrawBitmap(bm, left, top, &apf.paint());
-    }
-}
-
-void SkPaintFilterCanvas::onDrawBitmapRect(const SkBitmap& bm, const SkRect* src, const SkRect& dst,
-                                           const SkPaint* paint, SrcRectConstraint constraint) {
-    AutoPaintFilter apf(this, paint);
-    if (apf.shouldDraw()) {
-        this->SkNWayCanvas::onDrawBitmapRect(bm, src, dst, &apf.paint(), constraint);
-    }
-}
-
-void SkPaintFilterCanvas::onDrawBitmapNine(const SkBitmap& bm, const SkIRect& center,
-                                           const SkRect& dst, const SkPaint* paint) {
-    AutoPaintFilter apf(this, paint);
-    if (apf.shouldDraw()) {
-        this->SkNWayCanvas::onDrawBitmapNine(bm, center, dst, &apf.paint());
-    }
-}
-
-void SkPaintFilterCanvas::onDrawBitmapLattice(const SkBitmap& bitmap, const Lattice& lattice,
-                                              const SkRect& dst, const SkPaint* paint) {
-    AutoPaintFilter apf(this, paint);
-    if (apf.shouldDraw()) {
-        this->SkNWayCanvas::onDrawBitmapLattice(bitmap, lattice, dst, &apf.paint());
-    }
-}
-
 void SkPaintFilterCanvas::onDrawImage(const SkImage* image, SkScalar left, SkScalar top,
                                       const SkPaint* paint) {
     AutoPaintFilter apf(this, paint);
@@ -181,11 +149,10 @@ void SkPaintFilterCanvas::onDrawImageLattice(const SkImage* image, const Lattice
 }
 
 void SkPaintFilterCanvas::onDrawVerticesObject(const SkVertices* vertices,
-                                               const SkVertices::Bone bones[], int boneCount,
                                                SkBlendMode bmode, const SkPaint& paint) {
     AutoPaintFilter apf(this, paint);
     if (apf.shouldDraw()) {
-        this->SkNWayCanvas::onDrawVerticesObject(vertices, bones, boneCount, bmode, apf.paint());
+        this->SkNWayCanvas::onDrawVerticesObject(vertices, bmode, apf.paint());
     }
 }
 

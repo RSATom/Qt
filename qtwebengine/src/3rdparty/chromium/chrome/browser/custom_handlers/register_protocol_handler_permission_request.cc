@@ -27,8 +27,8 @@ RegisterProtocolHandlerPermissionRequest::
 RegisterProtocolHandlerPermissionRequest::
     ~RegisterProtocolHandlerPermissionRequest() = default;
 
-PermissionRequest::IconId RegisterProtocolHandlerPermissionRequest::GetIconId()
-    const {
+permissions::PermissionRequest::IconId
+RegisterProtocolHandlerPermissionRequest::GetIconId() const {
   return vector_icons::kProtocolHandlerIcon;
 }
 
@@ -71,7 +71,7 @@ void RegisterProtocolHandlerPermissionRequest::RequestFinished() {
   delete this;
 }
 
-PermissionRequestType
+permissions::PermissionRequestType
 RegisterProtocolHandlerPermissionRequest::GetPermissionRequestType() const {
-  return PermissionRequestType::REGISTER_PROTOCOL_HANDLER;
+  return permissions::PermissionRequestType::REGISTER_PROTOCOL_HANDLER;
 }

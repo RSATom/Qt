@@ -100,9 +100,7 @@ static_library("bundled_libxslt") {
     include_dirs = [ "mac" ]
   }
 
-  deps = [
-    "//third_party/libxml",
-  ]
+  deps = [ "//third_party/libxml" ]
 
   visibility = [ ":libxslt" ]
 }

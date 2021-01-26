@@ -894,7 +894,7 @@ TEST_F(BrowserAccessibilityManagerTest, BoundsForRangeBiDi) {
                 .ToString());
 }
 
-TEST_F(BrowserAccessibilityManagerTest, BoundsForRangeScrolledWindow) {
+TEST_F(BrowserAccessibilityManagerTest, DISABLED_BoundsForRangeScrolledWindow) {
   ui::AXNodeData root;
   root.id = 1;
   root.role = ax::mojom::Role::kRootWebArea;
@@ -1159,6 +1159,56 @@ TEST_F(BrowserAccessibilityManagerTest, TestNextPreviousInTreeOrder) {
   EXPECT_EQ(ax::mojom::TreeOrder::kAfter,
             BrowserAccessibilityManager::CompareNodes(*node2_accessible,
                                                       *root_accessible));
+}
+
+TEST_F(BrowserAccessibilityManagerTest, TestNextNonDescendantInTreeOrder) {
+  ui::AXNodeData root;
+  root.id = 1;
+  root.role = ax::mojom::Role::kRootWebArea;
+
+  ui::AXNodeData node2;
+  node2.id = 2;
+  root.child_ids.push_back(2);
+
+  ui::AXNodeData node3;
+  node3.id = 3;
+  root.child_ids.push_back(3);
+
+  ui::AXNodeData node4;
+  node4.id = 4;
+  node3.child_ids.push_back(4);
+
+  ui::AXNodeData node5;
+  node5.id = 5;
+  root.child_ids.push_back(5);
+
+  std::unique_ptr<BrowserAccessibilityManager> manager(
+      BrowserAccessibilityManager::Create(
+          MakeAXTreeUpdate(root, node2, node3, node4, node5),
+          test_browser_accessibility_delegate_.get(),
+          new CountedBrowserAccessibilityFactory()));
+
+  BrowserAccessibility* root_accessible = manager->GetRoot();
+  ASSERT_NE(nullptr, root_accessible);
+  ASSERT_EQ(3U, root_accessible->PlatformChildCount());
+  BrowserAccessibility* node2_accessible = root_accessible->PlatformGetChild(0);
+  ASSERT_NE(nullptr, node2_accessible);
+  BrowserAccessibility* node3_accessible = root_accessible->PlatformGetChild(1);
+  ASSERT_NE(nullptr, node3_accessible);
+  ASSERT_EQ(1U, node3_accessible->PlatformChildCount());
+  BrowserAccessibility* node4_accessible =
+      node3_accessible->PlatformGetChild(0);
+  ASSERT_NE(nullptr, node4_accessible);
+  BrowserAccessibility* node5_accessible = root_accessible->PlatformGetChild(2);
+  ASSERT_NE(nullptr, node5_accessible);
+
+  EXPECT_EQ(nullptr, manager->NextNonDescendantInTreeOrder(nullptr));
+  EXPECT_EQ(node2_accessible, manager->NextInTreeOrder(root_accessible));
+  EXPECT_EQ(node3_accessible,
+            manager->NextNonDescendantInTreeOrder(node2_accessible));
+  EXPECT_EQ(node5_accessible,
+            manager->NextNonDescendantInTreeOrder(node3_accessible));
+  EXPECT_EQ(nullptr, manager->NextNonDescendantInTreeOrder(node5_accessible));
 }
 
 TEST_F(BrowserAccessibilityManagerTest, TestNextPreviousTextOnlyObject) {
@@ -1727,4 +1777,81 @@ TEST_F(BrowserAccessibilityManagerTest, TreeUpdatesAreMergedWhenPossible) {
   // Remove the observer before the manager is destroyed.
   manager->ax_tree()->RemoveObserver(&observer);
 }
+
+TEST_F(BrowserAccessibilityManagerTest, TestHitTestScaled) {
+  // We're creating two linked trees, each of which has two nodes; first create
+  // the child tree's nodes & tree-update.
+  ui::AXNodeData child_root;
+  child_root.id = 1;
+  child_root.role = ax::mojom::Role::kRootWebArea;
+  child_root.SetName("child_root");
+  child_root.relative_bounds.bounds = gfx::RectF(0, 0, 100, 100);
+  child_root.child_ids = {2};
+
+  ui::AXNodeData child_child;
+  child_child.id = 2;
+  child_child.SetName("child_child");
+  child_child.relative_bounds.bounds = gfx::RectF(0, 0, 100, 100);
+
+  ui::AXTreeUpdate child_update = MakeAXTreeUpdate(child_root, child_child);
+
+  // Next, create the parent tree's nodes and tree-update, with kChildTreeId
+  // pointing to the child tree.
+  ui::AXNodeData parent_root;
+  parent_root.id = 1;
+  parent_root.role = ax::mojom::Role::kRootWebArea;
+  parent_root.SetName("parent_root");
+  parent_root.relative_bounds.bounds = gfx::RectF(0, 0, 200, 200);
+  parent_root.child_ids = {2, 3};
+
+  ui::AXNodeData parent_child;
+  parent_child.id = 2;
+  parent_child.SetName("parent_child");
+  parent_child.relative_bounds.bounds = gfx::RectF(0, 0, 100, 100);
+
+  ui::AXNodeData parent_childtree;
+  parent_childtree.id = 3;
+  parent_childtree.AddStringAttribute(
+      ax::mojom::StringAttribute::kChildTreeId,
+      child_update.tree_data.tree_id.ToString());
+  parent_childtree.SetName("parent_childtree");
+  parent_childtree.relative_bounds.bounds = gfx::RectF(100, 100, 100, 100);
+
+  ui::AXTreeUpdate parent_update =
+      MakeAXTreeUpdate(parent_root, parent_child, parent_childtree);
+
+  // Link the child tree to its parent.
+  child_update.tree_data.parent_tree_id = parent_update.tree_data.tree_id;
+
+  // Create the two managers.
+  std::unique_ptr<BrowserAccessibilityManager> parent_manager(
+      BrowserAccessibilityManager::Create(
+          parent_update, test_browser_accessibility_delegate_.get(),
+          new BrowserAccessibilityFactory()));
+
+  std::unique_ptr<BrowserAccessibilityManager> child_manager(
+      BrowserAccessibilityManager::Create(
+          child_update, test_browser_accessibility_delegate_.get(),
+          new BrowserAccessibilityFactory()));
+
+  // Verify that they're properly connected.
+  ASSERT_EQ(parent_manager.get(), child_manager->GetRootManager());
+
+  // Set scaling factor for testing to be 200%
+  parent_manager->UseCustomDeviceScaleFactorForTesting(2.0f);
+  child_manager->UseCustomDeviceScaleFactorForTesting(2.0f);
+
+  // Run the hit-test; we should get the same result regardless of whether we
+  // start from the parent_manager or the child_manager.
+  auto* hittest1 = parent_manager->CachingAsyncHitTest(gfx::Point(75, 75));
+  ASSERT_NE(nullptr, hittest1);
+  ASSERT_EQ("parent_child", hittest1->GetData().GetStringAttribute(
+                                ax::mojom::StringAttribute::kName));
+
+  auto* hittest2 = child_manager->CachingAsyncHitTest(gfx::Point(75, 75));
+  ASSERT_NE(nullptr, hittest2);
+  ASSERT_EQ("parent_child", hittest2->GetData().GetStringAttribute(
+                                ax::mojom::StringAttribute::kName));
+}
+
 }  // namespace content

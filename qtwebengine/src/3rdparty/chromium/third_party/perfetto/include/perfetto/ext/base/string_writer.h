@@ -18,9 +18,9 @@
 #define INCLUDE_PERFETTO_EXT_BASE_STRING_WRITER_H_
 
 #include <inttypes.h>
-#include <cmath>
-#include <stdlib.h>
 #include <string.h>
+#include <cmath>
+#include <cstdlib>
 #include <limits>
 
 #include "perfetto/base/logging.h"

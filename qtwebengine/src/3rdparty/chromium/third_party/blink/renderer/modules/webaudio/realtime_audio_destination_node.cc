@@ -52,8 +52,7 @@ RealtimeAudioDestinationHandler::RealtimeAudioDestinationHandler(
     base::Optional<float> sample_rate)
     : AudioDestinationHandler(node),
       latency_hint_(latency_hint),
-      sample_rate_(sample_rate),
-      allow_pulling_audio_graph_(false) {
+      sample_rate_(sample_rate) {
   // Node-specific default channel count and mixing rules.
   channel_count_ = 2;
   SetInternalChannelCountMode(kExplicit);
@@ -199,11 +198,16 @@ void RealtimeAudioDestinationHandler::Render(
   // takes time for the destination to stop, but we want to stop pulling before
   // the destination has actually stopped.
   {
-    MutexTryLocker try_locker(context->GetTearDownMutex());
-    if (try_locker.Locked() && IsPullingAudioGraphAllowed()) {
-      // Renders the graph by pulling all the inputs to this node. This will
-      // in turn pull on their inputs, all the way backwards through the graph.
-      AudioBus* rendered_bus = Input(0).Pull(destination_bus, number_of_frames);
+    // The entire block that relies on |IsPullingAudioGraphAllowed| needs
+    // locking to prevent pulling audio graph being disallowed (i.e. a
+    // destruction started) in the middle of processing.
+    MutexTryLocker try_locker(allow_pulling_audio_graph_mutex_);
+
+    if (IsPullingAudioGraphAllowed() && try_locker.Locked()) {
+      // Renders the graph by pulling all the inputs to this node. This will in
+      // turn pull on their inputs, all the way backwards through the graph.
+      scoped_refptr<AudioBus> rendered_bus =
+          Input(0).Pull(destination_bus, number_of_frames);
 
       DCHECK(rendered_bus);
       if (!rendered_bus) {
@@ -212,19 +216,20 @@ void RealtimeAudioDestinationHandler::Render(
         // output.
         destination_bus->Zero();
       } else if (rendered_bus != destination_bus) {
-        // In-place processing was not possible. Copy the rendererd result to
-        // the given |destination_bus| buffer.
+        // In-place processing was not possible. Copy the rendered result to the
+        // given |destination_bus| buffer.
         destination_bus->CopyFrom(*rendered_bus);
       }
     } else {
+      // Not allowed to pull on the graph or couldn't get the lock.
       destination_bus->Zero();
     }
-
-    // Processes "automatic" nodes that are not connected to anything. This can
-    // be done after copying because it does not affect the rendered result.
-    context->GetDeferredTaskHandler().ProcessAutomaticPullNodes(
-        number_of_frames);
   }
+
+  // Processes "automatic" nodes that are not connected to anything. This
+  // can be done after copying because it does not affect the rendered
+  // result.
+  context->GetDeferredTaskHandler().ProcessAutomaticPullNodes(number_of_frames);
 
   context->HandlePostRenderTasks();
 

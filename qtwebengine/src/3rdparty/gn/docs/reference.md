@@ -38,6 +38,8 @@
     *   [declare_args: Declare build arguments.](#func_declare_args)
     *   [defined: Returns whether an identifier is defined.](#func_defined)
     *   [exec_script: Synchronously run a script and return the output.](#func_exec_script)
+    *   [filter_exclude: Remove values that match a set of patterns.](#func_filter_exclude)
+    *   [filter_include: Remove values that do not match a set of patterns.](#func_filter_include)
     *   [foreach: Iterate over a list.](#func_foreach)
     *   [forward_variables_from: Copies variables from a different scope.](#func_forward_variables_from)
     *   [get_label_info: Get an attribute from a target's label.](#func_get_label_info)
@@ -55,7 +57,9 @@
     *   [set_defaults: Set default values for a target type.](#func_set_defaults)
     *   [set_sources_assignment_filter: Set a pattern to filter source files.](#func_set_sources_assignment_filter)
     *   [split_list: Splits a list into N different sub-lists.](#func_split_list)
+    *   [string_join: Concatenates a list of strings with a separator.](#func_string_join)
     *   [string_replace: Replaces substring in the given string.](#func_string_replace)
+    *   [string_split: Split string into a list of strings.](#func_string_split)
     *   [template: Define a template rule.](#func_template)
     *   [tool: Specify arguments to a toolchain tool.](#func_tool)
     *   [toolchain: Defines a toolchain.](#func_toolchain)
@@ -113,6 +117,8 @@
     *   [depfile: [string] File name for input dependencies for actions.](#var_depfile)
     *   [deps: [label list] Private linked dependencies.](#var_deps)
     *   [edition: [string] The rustc edition to use in compiliation.](#var_edition)
+    *   [framework_dirs: [directory list] Additional framework search directories.](#var_framework_dirs)
+    *   [frameworks: [name list] Name of frameworks that must be linked.](#var_frameworks)
     *   [friend: [label pattern list] Allow targets to include private headers.](#var_friend)
     *   [include_dirs: [directory list] Additional include directories.](#var_include_dirs)
     *   [inputs: [file list] Additional compile-time dependencies.](#var_inputs)
@@ -152,6 +158,7 @@
     *   [execution: Build graph and execution overview.](#execution)
     *   [grammar: Language and grammar for GN build files.](#grammar)
     *   [input_conversion: Processing input from exec_script and read_file.](#io_conversion)
+    *   [file_pattern: Matching more than one file.](#file_pattern)
     *   [label_pattern: Matching more than one label.](#label_pattern)
     *   [labels: About labels.](#labels)
     *   [metadata_collection: About metadata and its collection.](#metadata_collection)
@@ -484,6 +491,8 @@
   defines [--blame]
   depfile
   deps [--all] [--tree] (see below)
+  framework_dirs
+  frameworks
   include_dirs [--blame]
   inputs
   ldflags [--blame]
@@ -531,9 +540,9 @@
 ```
   --blame
       Used with any value specified on a config, this will name the config that
-      causes that target to get the flag. This doesn't currently work for libs
-      and lib_dirs because those are inherited and are more complicated to
-      figure out the blame (patches welcome).
+      causes that target to get the flag. This doesn't currently work for libs,
+      lib_dirs, frameworks and framework_dirs because those are inherited and
+      are more complicated to figure out the blame (patches welcome).
 ```
 
 #### **Configs**
@@ -730,6 +739,9 @@
   --workspace=<file_name>
       Override defaut workspace file name ("all"). The workspace file is
       written to the root build directory.
+
+  --ninja-executable=<string>
+      Can be used to specify the ninja executable to use when building.
 
   --ninja-extra-args=<string>
       This string is passed without any quoting to the ninja invocation
@@ -2179,6 +2191,42 @@
   # result.
   exec_script("//foo/bar/myscript.py")
 ```
+### <a name="func_filter_exclude"></a>**filter_exclude**: Remove values that match a set of patterns.
+
+```
+  filter_exclude(values, exclude_patterns)
+
+  The argument values must be a list of strings.
+
+  The argument exclude_patterns must be a list of file patterns (see
+  "gn help file_pattern"). Any elements in values matching at least one
+  of those patterns will be excluded.
+```
+
+#### **Examples**
+```
+  values = [ "foo.cc", "foo.h", "foo.proto" ]
+  result = filter_exclude(values, [ "*.proto" ])
+  # result will be [ "foo.cc", "foo.h" ]
+```
+### <a name="func_filter_include"></a>**filter_include**: Remove values that do not match a set of patterns.
+
+```
+  filter_include(values, include_patterns)
+
+  The argument values must be a list of strings.
+
+  The argument include_patterns must be a list of file patterns (see
+  "gn help file_pattern"). Only elements from values matching at least
+  one of the pattern will be included.
+```
+
+#### **Examples**
+```
+  values = [ "foo.cc", "foo.h", "foo.proto" ]
+  result = filter_include(values, [ "*.proto" ])
+  # result will be [ "foo.proto" ]
+```
 ### <a name="func_foreach"></a>**foreach**: Iterate over a list.
 
 ```
@@ -2892,42 +2940,9 @@
 
   If you want to bypass the filter and add a file even if it might be filtered
   out, call set_sources_assignment_filter([]) to clear the list of filters.
-  This will apply until the current scope exits
-```
+  This will apply until the current scope exits.
 
-#### **How to use patterns**
-
-```
-  File patterns are VERY limited regular expressions. They must match the
-  entire input string to be counted as a match. In regular expression parlance,
-  there is an implicit "^...$" surrounding your input. If you want to match a
-  substring, you need to use wildcards at the beginning and end.
-
-  There are only two special tokens understood by the pattern matcher.
-  Everything else is a literal.
-
-   - "*" Matches zero or more of any character. It does not depend on the
-     preceding character (in regular expression parlance it is equivalent to
-     ".*").
-
-   - "\b" Matches a path boundary. This will match the beginning or end of a
-     string, or a slash.
-```
-
-#### **Pattern examples**
-
-```
-  "*asdf*"
-      Matches a string containing "asdf" anywhere.
-
-  "asdf"
-      Matches only the exact string "asdf".
-
-  "*.cc"
-      Matches strings ending in the literal ".cc".
-
-  "\bwin/*"
-      Matches "win/foo" and "foo/win/bar.cc" but not "iwin/foo".
+  See "gn help file_pattern" for more information on file pattern.
 ```
 
 #### **Sources assignment example**
@@ -2962,6 +2977,22 @@
   Will print:
     [[1, 2], [3, 4], [5, 6]
 ```
+### <a name="func_string_join"></a>**string_join**: Concatenates a list of strings with a separator.
+
+```
+  result = string_join(separator, strings)
+
+  Concatenate a list of strings with intervening occurrences of separator.
+```
+
+#### **Examples**
+
+```
+    string_join("", ["a", "b", "c"])    --> "abc"
+    string_join("|", ["a", "b", "c"])   --> "a|b|c"
+    string_join(", ", ["a", "b", "c"])  --> "a, b, c"
+    string_join("s", ["", ""])          --> "s"
+```
 ### <a name="func_string_replace"></a>**string_replace**: Replaces substring in the given string.
 
 ```
@@ -2982,6 +3013,33 @@
 
   Will print:
     Hello, GN!
+```
+### <a name="func_string_split"></a>**string_split**: Split string into a list of strings.
+
+```
+  result = string_split(str[, sep])
+
+  Split string into all substrings separated by separator and returns a list
+  of the substrings between those separators.
+
+  If the separator argument is omitted, the split is by any whitespace, and
+  any leading/trailing whitespace is ignored; similar to Python's str.split().
+```
+
+#### **Examples without a separator (split on whitespace)**:
+
+```
+  string_split("")          --> []
+  string_split("a")         --> ["a"]
+  string_split(" aa  bb")   --> ["aa", "bb"]
+```
+
+#### **Examples with a separator (split on separators)**:
+
+```
+  string_split("", "|")           --> [""]
+  string_split("  a b  ", " ")    --> ["", "", "a", "b", "", ""]
+  string_split("aa+-bb+-c", "+-") --> ["aa", "bb", "c"]
 ```
 ### <a name="func_template"></a>**template**: Define a template rule.
 
@@ -3274,12 +3332,32 @@
         Valid for: Linker tools except "alink"
 
         These strings will be prepended to the libraries and library search
-        directories, respectively, because linkers differ on how specify them.
+        directories, respectively, because linkers differ on how to specify
+        them.
+
         If you specified:
           lib_switch = "-l"
           lib_dir_switch = "-L"
-        then the "{{libs}}" expansion for [ "freetype", "expat"] would be
-        "-lfreetype -lexpat".
+        then the "{{libs}}" expansion for
+          [ "freetype", "expat" ]
+        would be
+          "-lfreetype -lexpat".
+
+    framework_switch [string, optional, link tools only]
+    framework_dir_switch [string, optional, link tools only]
+        Valid for: Linker tools
+
+        These strings will be prepended to the frameworks and framework search
+        path directories, respectively, because linkers differ on how to specify
+        them.
+
+        If you specified:
+          framework_switch = "-framework "
+          framework_dir_switch = "-F"
+        then the "{{libs}}" expansion for
+          [ "UIKit.framework", "$root_out_dir/Foo.framework" ]
+        would be
+          "-framework UIKit -F. -framework Foo"
 
     outputs  [list of strings with substitutions]
         Valid for: Linker and compiler tools (required)
@@ -3549,6 +3627,12 @@
         These should generally be treated the same as libs by your tool.
 
         Example: "libfoo.so libbar.so"
+
+    {{frameworks}}
+        Shared libraries packaged as framework bundle. This is principally
+        used on Apple's platforms (macOS and iOS). All name must be ending
+        with ".framework" suffix; the suffix will be stripped when expanding
+        {{frameworks}} and each item will be preceded by "-framework".
 
   The static library ("alink") tool allows {{arflags}} plus the common tool
   substitutions.
@@ -5110,6 +5194,70 @@
   This indicates the compiler edition to use in compilition. Should be a value
   like "2015" or "2018", indiicating the appropriate value to pass to the
   `--edition=<>` flag in rustc.
+```
+### <a name="var_framework_dirs"></a>**framework_dirs**: [directory list] Additional framework search directories.
+
+```
+  A list of source directories.
+
+  The directories in this list will be added to the framework search path for
+  the files in the affected target.
+```
+
+#### **Ordering of flags and values**
+
+```
+  1. Those set on the current target (not in a config).
+  2. Those set on the "configs" on the target in order that the
+     configs appear in the list.
+  3. Those set on the "all_dependent_configs" on the target in order
+     that the configs appear in the list.
+  4. Those set on the "public_configs" on the target in order that
+     those configs appear in the list.
+  5. all_dependent_configs pulled from dependencies, in the order of
+     the "deps" list. This is done recursively. If a config appears
+     more than once, only the first occurence will be used.
+  6. public_configs pulled from dependencies, in the order of the
+     "deps" list. If a dependency is public, they will be applied
+     recursively.
+```
+
+#### **Example**
+
+```
+  framework_dirs = [ "src/include", "//third_party/foo" ]
+```
+### <a name="var_frameworks"></a>**frameworks**: [name list] Name of frameworks that must be linked.
+
+```
+  A list of framework names.
+
+  The frameworks named in that list will be linked with any dynamic link
+  type target.
+```
+
+#### **Ordering of flags and values**
+
+```
+  1. Those set on the current target (not in a config).
+  2. Those set on the "configs" on the target in order that the
+     configs appear in the list.
+  3. Those set on the "all_dependent_configs" on the target in order
+     that the configs appear in the list.
+  4. Those set on the "public_configs" on the target in order that
+     those configs appear in the list.
+  5. all_dependent_configs pulled from dependencies, in the order of
+     the "deps" list. This is done recursively. If a config appears
+     more than once, only the first occurence will be used.
+  6. public_configs pulled from dependencies, in the order of the
+     "deps" list. If a dependency is public, they will be applied
+     recursively.
+```
+
+#### **Example**
+
+```
+  frameworks = [ "Foundation.framework", "Foo.framework" ]
 ```
 ### <a name="var_friend"></a>**friend**: Allow targets to include private headers.
 
@@ -6726,6 +6874,40 @@
 
       Note that "trim value" is useless because the value parser skips
       whitespace anyway.
+```
+### <a name="file_pattern"></a>**File patterns**
+
+```
+  File patterns are VERY limited regular expressions. They must match the
+  entire input string to be counted as a match. In regular expression parlance,
+  there is an implicit "^...$" surrounding your input. If you want to match a
+  substring, you need to use wildcards at the beginning and end.
+
+  There are only two special tokens understood by the pattern matcher.
+  Everything else is a literal.
+
+   - "*" Matches zero or more of any character. It does not depend on the
+     preceding character (in regular expression parlance it is equivalent to
+     ".*").
+
+   - "\b" Matches a path boundary. This will match the beginning or end of a
+     string, or a slash.
+```
+
+#### **Pattern examples**
+
+```
+  "*asdf*"
+      Matches a string containing "asdf" anywhere.
+
+  "asdf"
+      Matches only the exact string "asdf".
+
+  "*.cc"
+      Matches strings ending in the literal ".cc".
+
+  "\bwin/*"
+      Matches "win/foo" and "foo/win/bar.cc" but not "iwin/foo".
 ```
 ### <a name="label_pattern"></a>**Label patterns**
 

@@ -74,7 +74,7 @@ public:
     // V71: Unify erode and dilate image filters
     // V72: SkColorFilter_Matrix domain (rgba vs. hsla)
     // V73: Use SkColor4f in per-edge AA quad API
-    // V75: SkVertices switched from unsafe use of SkReader32 to SkReadBuffer (like everything else)
+
     enum Version {
         kTileModeInBlurImageFilter_Version  = 56,
         kTileInfoInSweepGradient_Version    = 57,

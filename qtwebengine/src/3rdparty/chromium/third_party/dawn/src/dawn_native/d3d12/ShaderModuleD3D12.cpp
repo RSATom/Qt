@@ -41,7 +41,7 @@ namespace dawn_native { namespace d3d12 {
     MaybeError ShaderModule::Initialize(const ShaderModuleDescriptor* descriptor) {
         mSpirv.assign(descriptor->code, descriptor->code + descriptor->codeSize);
         if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-            shaderc_spvc::CompileOptions options;
+            shaderc_spvc::CompileOptions options = GetCompileOptions();
 
             options.SetHLSLShaderModel(51);
             // PointCoord and PointSize are not supported in HLSL
@@ -52,29 +52,25 @@ namespace dawn_native { namespace d3d12 {
             options.SetHLSLPointCoordCompat(true);
             options.SetHLSLPointSizeCompat(true);
 
-            shaderc_spvc_status status =
-                mSpvcContext.InitializeForHlsl(descriptor->code, descriptor->codeSize, options);
-            if (status != shaderc_spvc_status_success) {
-                return DAWN_VALIDATION_ERROR("Unable to initialize instance of spvc");
-            }
+            DAWN_TRY(CheckSpvcSuccess(
+                mSpvcContext.InitializeForHlsl(descriptor->code, descriptor->codeSize, options),
+                "Unable to initialize instance of spvc"));
 
-            spirv_cross::Compiler* compiler =
-                reinterpret_cast<spirv_cross::Compiler*>(mSpvcContext.GetCompiler());
-            ExtractSpirvInfo(*compiler);
+            spirv_cross::Compiler* compiler;
+            DAWN_TRY(CheckSpvcSuccess(mSpvcContext.GetCompiler(reinterpret_cast<void**>(&compiler)),
+                                      "Unable to get cross compiler"));
+            DAWN_TRY(ExtractSpirvInfo(*compiler));
         } else {
             spirv_cross::CompilerHLSL compiler(descriptor->code, descriptor->codeSize);
-            ExtractSpirvInfo(compiler);
+            DAWN_TRY(ExtractSpirvInfo(compiler));
         }
         return {};
     }
 
-    const std::string ShaderModule::GetHLSLSource(PipelineLayout* layout) {
+    ResultOrError<std::string> ShaderModule::GetHLSLSource(PipelineLayout* layout) {
         std::unique_ptr<spirv_cross::CompilerHLSL> compiler_impl;
         spirv_cross::CompilerHLSL* compiler;
-        if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-            compiler = reinterpret_cast<spirv_cross::CompilerHLSL*>(mSpvcContext.GetCompiler());
-            // TODO(rharrison): Check status & have some sort of meaningful error path
-        } else {
+        if (!GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
             // If these options are changed, the values in DawnSPIRVCrossHLSLFastFuzzer.cpp need to
             // be updated.
             spirv_cross::CompilerGLSL::Options options_glsl;
@@ -97,22 +93,34 @@ namespace dawn_native { namespace d3d12 {
 
         const ModuleBindingInfo& moduleBindingInfo = GetBindingInfo();
         for (uint32_t group : IterateBitSet(layout->GetBindGroupLayoutsMask())) {
-            const auto& bindingOffsets =
-                ToBackend(layout->GetBindGroupLayout(group))->GetBindingOffsets();
+            const BindGroupLayout* bgl = ToBackend(layout->GetBindGroupLayout(group));
+            const auto& bindingOffsets = bgl->GetBindingOffsets();
             const auto& groupBindingInfo = moduleBindingInfo[group];
-            for (uint32_t binding = 0; binding < groupBindingInfo.size(); ++binding) {
-                const BindingInfo& bindingInfo = groupBindingInfo[binding];
-                if (bindingInfo.used) {
-                    uint32_t bindingOffset = bindingOffsets[binding];
+            for (const auto& it : groupBindingInfo) {
+                const ShaderBindingInfo& bindingInfo = it.second;
+                BindingNumber bindingNumber = it.first;
+                BindingIndex bindingIndex = bgl->GetBindingIndex(bindingNumber);
+
+                uint32_t bindingOffset = bindingOffsets[bindingIndex];
+                if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
+                    DAWN_TRY(CheckSpvcSuccess(
+                        mSpvcContext.SetDecoration(bindingInfo.id, SHADERC_SPVC_DECORATION_BINDING,
+                                                   bindingOffset),
+                        "Unable to set decorating binding before generating HLSL shader w/ "
+                        "spvc"));
+                } else {
                     compiler->set_decoration(bindingInfo.id, spv::DecorationBinding, bindingOffset);
                 }
             }
         }
         if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
             shaderc_spvc::CompilationResult result;
-            mSpvcContext.CompileShader(&result);
-            // TODO(rharrison): Check status & have some sort of meaningful error path
-            return result.GetStringOutput();
+            DAWN_TRY(CheckSpvcSuccess(mSpvcContext.CompileShader(&result),
+                                      "Unable to generate HLSL shader w/ spvc"));
+            std::string result_string;
+            DAWN_TRY(CheckSpvcSuccess(result.GetStringOutput(&result_string),
+                                      "Unable to get HLSL shader text"));
+            return result_string;
         } else {
             return compiler->compile();
         }

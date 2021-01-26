@@ -32,8 +32,7 @@
 #define SK_TEXTURESAMPLERS_BUILTIN     10006
 #define SK_OUT_BUILTIN                 10007
 #define SK_LASTFRAGCOLOR_BUILTIN       10008
-#define SK_MAIN_X_BUILTIN              10009
-#define SK_MAIN_Y_BUILTIN              10010
+#define SK_MAIN_COORDS_BUILTIN         10009
 #define SK_WIDTH_BUILTIN               10011
 #define SK_HEIGHT_BUILTIN              10012
 #define SK_FRAGCOORD_BUILTIN              15
@@ -50,6 +49,7 @@ namespace SkSL {
 class ByteCode;
 class ExternalValue;
 class IRGenerator;
+struct PipelineStageArgs;
 
 /**
  * Main compiler entry point. This is a traditional compiler design which first parses the .sksl
@@ -76,8 +76,7 @@ public:
         enum class Kind {
             kInput,
             kOutput,
-            kCoordX,
-            kCoordY,
+            kCoords,
             kUniform,
             kChildProcessor,
             kFunctionName
@@ -91,8 +90,8 @@ public:
                 , fIndex(index) {}
 
         Kind fKind;
-
         int fIndex;
+        String fCoords;
     };
 
 #if !defined(SKSL_STANDALONE) && SK_SUPPORT_GPU
@@ -136,6 +135,8 @@ public:
 
     bool toGLSL(Program& program, String* out);
 
+    bool toHLSL(Program& program, String* out);
+
     bool toMetal(Program& program, OutputStream& out);
 
     bool toMetal(Program& program, String* out);
@@ -147,9 +148,7 @@ public:
     std::unique_ptr<ByteCode> toByteCode(Program& program);
 
 #if !defined(SKSL_STANDALONE) && SK_SUPPORT_GPU
-    bool toPipelineStage(const Program& program, String* out,
-                         std::vector<FormatArg>* outFormatArgs,
-                         std::vector<GLSLFunction>* outFunctions);
+    bool toPipelineStage(const Program& program, PipelineStageArgs* outArgs);
 #endif
 
     /**
@@ -216,8 +215,8 @@ private:
 
     Position position(int offset);
 
-    std::map<StringFragment, std::pair<std::unique_ptr<ProgramElement>, bool>> fGPUIntrinsics;
-    std::map<StringFragment, std::pair<std::unique_ptr<ProgramElement>, bool>> fInterpreterIntrinsics;
+    std::map<String, std::pair<std::unique_ptr<ProgramElement>, bool>> fGPUIntrinsics;
+    std::map<String, std::pair<std::unique_ptr<ProgramElement>, bool>> fInterpreterIntrinsics;
     std::unique_ptr<ASTFile> fGpuIncludeSource;
     std::shared_ptr<SymbolTable> fGpuSymbolTable;
     std::vector<std::unique_ptr<ProgramElement>> fVertexInclude;
@@ -228,6 +227,7 @@ private:
     std::shared_ptr<SymbolTable> fGeometrySymbolTable;
     std::vector<std::unique_ptr<ProgramElement>> fPipelineInclude;
     std::shared_ptr<SymbolTable> fPipelineSymbolTable;
+    std::unique_ptr<ASTFile> fInterpreterIncludeSource;
     std::vector<std::unique_ptr<ProgramElement>> fInterpreterInclude;
     std::shared_ptr<SymbolTable> fInterpreterSymbolTable;
 
@@ -240,6 +240,14 @@ private:
     int fErrorCount;
     String fErrorText;
 };
+
+#if !defined(SKSL_STANDALONE) && SK_SUPPORT_GPU
+struct PipelineStageArgs {
+    String fCode;
+    std::vector<Compiler::FormatArg>    fFormatArgs;
+    std::vector<Compiler::GLSLFunction> fFunctions;
+};
+#endif
 
 } // namespace
 

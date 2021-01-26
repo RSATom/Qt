@@ -18,8 +18,6 @@
 #include "content/browser/indexed_db/indexed_db_tracing.h"
 #include "content/browser/indexed_db/indexed_db_transaction.h"
 #include "content/browser/indexed_db/indexed_db_value.h"
-#include "content/public/browser/browser_task_traits.h"
-#include "content/public/browser/browser_thread.h"
 #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom.h"
 
 using blink::IndexedDBKey;
@@ -53,7 +51,9 @@ IndexedDBCursor::IndexedDBCursor(
     indexed_db::CursorType cursor_type,
     blink::mojom::IDBTaskType task_type,
     base::WeakPtr<IndexedDBTransaction> transaction)
-    : task_type_(task_type),
+    : origin_(
+          transaction->BackingStoreTransaction()->backing_store()->origin()),
+      task_type_(task_type),
       cursor_type_(cursor_type),
       transaction_(std::move(transaction)),
       cursor_(std::move(cursor)),
@@ -122,12 +122,13 @@ leveldb::Status IndexedDBCursor::CursorAdvanceOperation(
   }
 
   blink::mojom::IDBValuePtr mojo_value;
-  std::vector<IndexedDBBlobInfo> blob_info;
+  std::vector<IndexedDBExternalObject> external_objects;
   IndexedDBValue* value = Value();
   if (value) {
     mojo_value = IndexedDBValue::ConvertAndEraseValue(value);
-    blob_info.swap(value->blob_info);
-    dispatcher_host->CreateAllBlobs(blob_info, &mojo_value->blob_or_file_info);
+    external_objects.swap(value->external_objects);
+    dispatcher_host->CreateAllExternalObjects(origin_, external_objects,
+                                              &mojo_value->external_objects);
   } else {
     mojo_value = blink::mojom::IDBValue::New();
   }
@@ -181,9 +182,8 @@ leveldb::Status IndexedDBCursor::CursorContinueOperation(
   if (!dispatcher_host)
     return s;
 
-  if (!cursor_ ||
-      !cursor_->Continue(key.get(), primary_key.get(),
-                         IndexedDBBackingStore::Cursor::SEEK, &s)) {
+  if (!cursor_ || !cursor_->Continue(key.get(), primary_key.get(),
+                                     IndexedDBBackingStore::Cursor::SEEK, &s)) {
     cursor_.reset();
     if (s.ok()) {
       // This happens if we reach the end of the iterator and can't continue.
@@ -203,12 +203,13 @@ leveldb::Status IndexedDBCursor::CursorContinueOperation(
   }
 
   blink::mojom::IDBValuePtr mojo_value;
-  std::vector<IndexedDBBlobInfo> blob_info;
+  std::vector<IndexedDBExternalObject> external_objects;
   IndexedDBValue* value = Value();
   if (value) {
     mojo_value = IndexedDBValue::ConvertAndEraseValue(value);
-    blob_info.swap(value->blob_info);
-    dispatcher_host->CreateAllBlobs(blob_info, &mojo_value->blob_or_file_info);
+    external_objects.swap(value->external_objects);
+    dispatcher_host->CreateAllExternalObjects(origin_, external_objects,
+                                              &mojo_value->external_objects);
   } else {
     mojo_value = blink::mojom::IDBValue::New();
   }
@@ -333,8 +334,9 @@ leveldb::Status IndexedDBCursor::CursorPrefetchIterationOperation(
   for (size_t i = 0; i < found_values.size(); ++i) {
     mojo_values.push_back(
         IndexedDBValue::ConvertAndEraseValue(&found_values[i]));
-    dispatcher_host->CreateAllBlobs(found_values[i].blob_info,
-                                    &mojo_values[i]->blob_or_file_info);
+    dispatcher_host->CreateAllExternalObjects(
+        origin_, found_values[i].external_objects,
+        &mojo_values[i]->external_objects);
   }
 
   std::move(callback).Run(blink::mojom::IDBCursorResult::NewValues(

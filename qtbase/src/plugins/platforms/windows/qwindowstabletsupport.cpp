@@ -432,6 +432,11 @@ bool QWindowsTabletSupport::translateTabletProximityEvent(WPARAM /* wParam */, L
     if (m_currentDevice < 0) {
         m_currentDevice = m_devices.size();
         m_devices.push_back(tabletInit(uniqueId, cursorType));
+    } else {
+        // The user can switch pressure sensitivity level in the driver,which
+        // will make our saved values invalid (this option is provided by Wacom
+        // drivers for compatibility reasons, and it can be adjusted on the fly)
+        m_devices[m_currentDevice] = tabletInit(uniqueId, cursorType);
     }
 
     /**
@@ -519,7 +524,6 @@ bool QWindowsTabletSupport::translateTabletPacketEvent()
         return false;
 
     const int currentDevice = m_devices.at(m_currentDevice).currentDevice;
-    const int currentPointer = m_devices.at(m_currentDevice).currentPointerType;
     const qint64 uniqueId = m_devices.at(m_currentDevice).uniqueId;
 
     // The tablet can be used in 2 different modes (reflected in enum Mode),
@@ -550,6 +554,27 @@ bool QWindowsTabletSupport::translateTabletPacketEvent()
         const PACKET &packet = localPacketBuf[i];
 
         const int z = currentDevice == QTabletEvent::FourDMouse ? int(packet.pkZ) : 0;
+
+        const auto currentPointer = m_devices.at(m_currentDevice).currentPointerType;
+        const auto packetPointerType = pointerType(packet.pkCursor);
+
+        const Qt::MouseButtons buttons =
+            convertTabletButtons(packet.pkButtons, m_devices.at(m_currentDevice));
+
+        if (buttons == Qt::NoButton && packetPointerType != currentPointer) {
+
+            QWindowSystemInterface::handleTabletLeaveProximityEvent(packet.pkTime,
+                                                                    int(currentDevice),
+                                                                    int(currentPointer),
+                                                                    uniqueId);
+
+            m_devices[m_currentDevice].currentPointerType = packetPointerType;
+
+            QWindowSystemInterface::handleTabletEnterProximityEvent(packet.pkTime,
+                                                                    int(currentDevice),
+                                                                    int(packetPointerType),
+                                                                    uniqueId);
+        }
 
         QPointF globalPosF =
             m_devices.at(m_currentDevice).scaleCoordinates(packet.pkX, packet.pkY, virtualDesktopArea);
@@ -616,9 +641,6 @@ bool QWindowsTabletSupport::translateTabletPacketEvent()
                 << currentPointer << "P:" << pressureNew << "tilt:" << tiltX << ','
                 << tiltY << "tanP:" << tangentialPressure << "rotation:" << rotation;
         }
-
-        Qt::MouseButtons buttons =
-            convertTabletButtons(packet.pkButtons, m_devices.at(m_currentDevice));
 
         QWindowSystemInterface::handleTabletEvent(target, packet.pkTime, QPointF(localPos), globalPosF,
                                                   currentDevice, currentPointer,

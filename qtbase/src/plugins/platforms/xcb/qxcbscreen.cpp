@@ -131,6 +131,9 @@ QXcbVirtualDesktop::QXcbVirtualDesktop(QXcbConnection *connection, xcb_screen_t 
 QXcbVirtualDesktop::~QXcbVirtualDesktop()
 {
     delete m_xSettings;
+
+    for (auto cmap : qAsConst(m_visualColormaps))
+        xcb_free_colormap(xcb_connection(), cmap);
 }
 
 QDpi QXcbVirtualDesktop::dpi() const
@@ -493,6 +496,22 @@ quint8 QXcbVirtualDesktop::depthOfVisual(xcb_visualid_t visualid) const
     return *it;
 }
 
+xcb_colormap_t QXcbVirtualDesktop::colormapForVisual(xcb_visualid_t visualid) const
+{
+    auto it = m_visualColormaps.constFind(visualid);
+    if (it != m_visualColormaps.constEnd())
+        return *it;
+
+    auto cmap = xcb_generate_id(xcb_connection());
+    xcb_create_colormap(xcb_connection(),
+                        XCB_COLORMAP_ALLOC_NONE,
+                        cmap,
+                        screen()->root,
+                        visualid);
+    m_visualColormaps.insert(visualid, cmap);
+    return cmap;
+}
+
 QXcbScreen::QXcbScreen(QXcbConnection *connection, QXcbVirtualDesktop *virtualDesktop,
                        xcb_randr_output_t outputId, xcb_randr_get_output_info_reply_t *output,
                        const xcb_xinerama_screen_info_t *xineramaScreenInfo, int xineramaScreenIdx)
@@ -698,7 +717,12 @@ QDpi QXcbScreen::logicalDpi() const
     if (forcedDpi > 0)
         return QDpi(forcedDpi, forcedDpi);
 
-    return m_virtualDesktop->dpi();
+    // Fall back to physical virtual desktop DPI, but prevent
+    // using DPI values lower than 96. This ensuers that connecting
+    // to e.g. a TV works somewhat predictabilly.
+    QDpi virtualDesktopPhysicalDPi = m_virtualDesktop->dpi();
+    return QDpi(std::max(virtualDesktopPhysicalDPi.first, 96.0),
+                std::max(virtualDesktopPhysicalDPi.second, 96.0));
 }
 
 QPlatformCursor *QXcbScreen::cursor() const

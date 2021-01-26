@@ -119,7 +119,8 @@ void QMakeLinkWriter::Run() {
   UniqueVector<OutputFile> extra_object_files;
   UniqueVector<const Target*> linkable_deps;
   UniqueVector<const Target*> non_linkable_deps;
-  nwriter_->GetDeps(&extra_object_files, &linkable_deps, &non_linkable_deps);
+  UniqueVector<const Target*> framework_deps;
+  nwriter_->GetDeps(&extra_object_files, &linkable_deps, &non_linkable_deps, &framework_deps);
 
   std::set<const Target*> deps;
   deps.insert(target_);

@@ -23,11 +23,6 @@ luci.console_view(
             short_name = 'lnx',
         ),
         luci.console_view_entry(
-            builder = 'ci/chromeos-vm-code-coverage',
-            category = 'code_coverage',
-            short_name = 'vm',
-        ),
-        luci.console_view_entry(
             builder = 'ci/linux-chromeos-code-coverage',
             category = 'code_coverage',
             short_name = 'lcr',
@@ -57,9 +52,9 @@ luci.console_view(
             short_name = 'bld',
         ),
         luci.console_view_entry(
-            builder = 'ci/Mac10.14 Tests',
+            builder = 'ci/Mac10.15 Tests',
             category = 'mac',
-            short_name = '14',
+            short_name = '15',
         ),
         luci.console_view_entry(
             builder = 'ci/mac-hermetic-upgrade-rel',
@@ -146,11 +141,11 @@ luci.console_view(
             category = 'linux',
         ),
         luci.console_view_entry(
-            builder = 'ci/linux-bfcache-debug',
+            builder = 'ci/linux-bfcache-rel',
             category = 'linux',
         ),
         luci.console_view_entry(
-            builder = 'ci/linux-oor-cors-rel',
+            builder = 'ci/linux-blink-cors-rel',
             category = 'linux',
         ),
         luci.console_view_entry(
@@ -160,6 +155,28 @@ luci.console_view(
         luci.console_view_entry(
             builder = 'ci/linux-wpt-fyi-rel',
             category = 'linux',
+        ),
+        # Moved to the FYI console for being habitually flaky.
+        # https://crbug.com/1014673
+        luci.console_view_entry(
+            builder = 'ci/Leak Detection Linux',
+            category = 'linux',
+            short_name = 'lk',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Linux Ozone Tester (Headless)',
+            category = 'linux',
+            short_name = 'loh',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Linux Ozone Tester (Wayland)',
+            category = 'linux',
+            short_name = 'low',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Linux Ozone Tester (X11)',
+            category = 'linux',
+            short_name = 'lox',
         ),
         luci.console_view_entry(
             builder = 'ci/Mojo Android',
@@ -254,6 +271,21 @@ luci.console_view(
         luci.console_view_entry(
             builder = 'ci/win-celab-tester-rel',
             category = 'celab',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/linux-upload-perfetto',
+            category = 'perfetto',
+            short_name = 'lnx',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/mac-upload-perfetto',
+            category = 'perfetto',
+            short_name = 'mac',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-upload-perfetto',
+            category = 'perfetto',
+            short_name = 'win',
         ),
     ],
 )

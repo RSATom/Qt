@@ -167,6 +167,11 @@ bool QMimeBinaryProvider::isValid()
     return m_cacheFile != nullptr;
 }
 
+bool QMimeBinaryProvider::isInternalDatabase() const
+{
+    return false;
+}
+
 // Position of the "list offsets" values, at the beginning of the mime.cache file
 enum {
     PosAliasListOffset = 4,
@@ -536,6 +541,7 @@ void QMimeBinaryProvider::loadMimeTypePrivate(QMimeTypePrivate &data)
                     data.iconName = xml.attributes().value(QLatin1String("name")).toString();
                 } else if (tag == QLatin1String("glob-deleteall")) { // as written out by shared-mime-info >= 0.70
                     data.globPatterns.clear();
+                    mainPattern.clear();
                 } else if (tag == QLatin1String("glob")) { // as written out by shared-mime-info >= 0.70
                     const QString pattern = xml.attributes().value(QLatin1String("pattern")).toString();
                     if (mainPattern.isEmpty() && pattern.startsWith(QLatin1Char('*'))) {
@@ -689,6 +695,15 @@ bool QMimeXMLProvider::isValid()
     // If you change this method, adjust the logic in QMimeDatabasePrivate::loadProviders,
     // which assumes isValid==false is only possible in QMimeBinaryProvider.
     return true;
+}
+
+bool QMimeXMLProvider::isInternalDatabase() const
+{
+#if QT_CONFIG(mimetype_database)
+    return m_directory == internalMimeFileName();
+#else
+    return false;
+#endif
 }
 
 QMimeType QMimeXMLProvider::mimeTypeForName(const QString &name)

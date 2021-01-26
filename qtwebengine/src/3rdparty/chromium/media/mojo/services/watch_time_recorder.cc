@@ -8,6 +8,7 @@
 #include <cmath>
 
 #include "base/callback.h"
+#include "base/containers/flat_set.h"
 #include "base/hash/hash.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_piece.h"
@@ -49,6 +50,7 @@ enum class VideoDecoderName : int {
   kDav1d = 7,        // Dav1dVideoDecoder
   kFuchsia = 8,      // FuchsiaVideoDecoder
   kMediaPlayer = 9,  // MediaPlayer
+  kLibgav1 = 10,     // Gav1VideoDecoder
 };
 
 static AudioDecoderName ConvertAudioDecoderNameToEnum(const std::string& name) {
@@ -93,6 +95,8 @@ static VideoDecoderName ConvertVideoDecoderNameToEnum(const std::string& name) {
       return VideoDecoderName::kFuchsia;
     case 0x667dc202:
       return VideoDecoderName::kMediaPlayer;
+    case 0x0cd14d5b:
+      return VideoDecoderName::kLibgav1;
     default:
       DLOG_IF(WARNING, !name.empty())
           << "Unknown decoder name encountered; metrics need updating: "
@@ -277,6 +281,8 @@ void WatchTimeRecorder::UpdateSecondaryProperties(
     // capture changes in encryption schemes.
     if (last_record.secondary_properties->audio_codec == kUnknownAudioCodec ||
         last_record.secondary_properties->video_codec == kUnknownVideoCodec ||
+        last_record.secondary_properties->audio_codec_profile ==
+            AudioCodecProfile::kUnknown ||
         last_record.secondary_properties->video_codec_profile ==
             VIDEO_CODEC_PROFILE_UNKNOWN ||
         last_record.secondary_properties->audio_decoder_name.empty() ||
@@ -286,6 +292,11 @@ void WatchTimeRecorder::UpdateSecondaryProperties(
         temp_props->audio_codec = secondary_properties->audio_codec;
       if (last_record.secondary_properties->video_codec == kUnknownVideoCodec)
         temp_props->video_codec = secondary_properties->video_codec;
+      if (last_record.secondary_properties->audio_codec_profile ==
+          AudioCodecProfile::kUnknown) {
+        temp_props->audio_codec_profile =
+            secondary_properties->audio_codec_profile;
+      }
       if (last_record.secondary_properties->video_codec_profile ==
           VIDEO_CODEC_PROFILE_UNKNOWN) {
         temp_props->video_codec_profile =
@@ -408,6 +419,8 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
     }
   }
 
+  base::flat_set<AudioCodecProfile> aac_profiles;
+
   base::TimeDelta total_watch_time;
   for (auto& ukm_record : ukm_records_) {
     ukm::builders::Media_BasicPlayback builder(source_id_);
@@ -486,10 +499,15 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
     // See note in mojom::PlaybackProperties about why we have both of these.
     builder.SetAudioCodec(ukm_record.secondary_properties->audio_codec);
     builder.SetVideoCodec(ukm_record.secondary_properties->video_codec);
+    builder.SetAudioCodecProfile(static_cast<int64_t>(
+        ukm_record.secondary_properties->audio_codec_profile));
     builder.SetVideoCodecProfile(
         ukm_record.secondary_properties->video_codec_profile);
     builder.SetHasAudio(properties_->has_audio);
     builder.SetHasVideo(properties_->has_video);
+
+    if (ukm_record.secondary_properties->audio_codec == kCodecAAC)
+      aac_profiles.insert(ukm_record.secondary_properties->audio_codec_profile);
 
     // We convert decoder names to a hash and then translate that hash to a zero
     // valued enum to avoid burdening the rest of the decoder code base. This
@@ -529,6 +547,11 @@ void WatchTimeRecorder::RecordUkmPlaybackData() {
         ukm_record.secondary_properties->natural_size.height());
     builder.SetAutoplayInitiated(autoplay_initiated_.value_or(false));
     builder.Record(ukm_recorder);
+  }
+
+  if (!aac_profiles.empty()) {
+    for (auto profile : aac_profiles)
+      base::UmaHistogramEnumeration("Media.AudioCodecProfile.AAC", profile);
   }
 
   if (total_watch_time > base::TimeDelta()) {

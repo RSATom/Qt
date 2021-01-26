@@ -147,8 +147,9 @@ class BlockingTestRasterTaskImpl : public TestRasterTaskImpl {
 class RasterImplementationForOOPR
     : public gpu::raster::RasterImplementationGLES {
  public:
-  explicit RasterImplementationForOOPR(gpu::gles2::GLES2Interface* gl)
-      : gpu::raster::RasterImplementationGLES(gl) {}
+  explicit RasterImplementationForOOPR(gpu::gles2::GLES2Interface* gl,
+                                       gpu::ContextSupport* support)
+      : gpu::raster::RasterImplementationGLES(gl, support) {}
   ~RasterImplementationForOOPR() override = default;
 
   void GetQueryObjectui64vEXT(GLuint id,
@@ -377,11 +378,12 @@ class RasterBufferProviderTest
 
     if (GetParam() == RASTER_BUFFER_PROVIDER_TYPE_GPU_OOPR) {
       auto worker_gl_owned = std::make_unique<viz::TestGLES2Interface>();
-      auto worker_ri_owned =
-          std::make_unique<RasterImplementationForOOPR>(worker_gl_owned.get());
+      auto worker_support_owned = std::make_unique<viz::TestContextSupport>();
+      auto worker_ri_owned = std::make_unique<RasterImplementationForOOPR>(
+          worker_gl_owned.get(), worker_support_owned.get());
       worker_context_provider_ = base::MakeRefCounted<viz::TestContextProvider>(
-          std::make_unique<viz::TestContextSupport>(),
-          std::move(worker_gl_owned), std::move(worker_ri_owned),
+          std::move(worker_support_owned), std::move(worker_gl_owned),
+          std::move(worker_ri_owned), nullptr /* sii */,
           true /* support_locking */);
       worker_context_provider_->BindToCurrentThread();
     } else {
@@ -390,12 +392,12 @@ class RasterBufferProviderTest
     }
 
     layer_tree_frame_sink_ = FakeLayerTreeFrameSink::Create3d();
-    resource_provider_ = std::make_unique<viz::ClientResourceProvider>(true);
+    resource_provider_ = std::make_unique<viz::ClientResourceProvider>();
   }
 
   void CreateSoftwareResourceProvider() {
     layer_tree_frame_sink_ = FakeLayerTreeFrameSink::CreateSoftware();
-    resource_provider_ = std::make_unique<viz::ClientResourceProvider>(true);
+    resource_provider_ = std::make_unique<viz::ClientResourceProvider>();
   }
 
   void OnTimeout() {

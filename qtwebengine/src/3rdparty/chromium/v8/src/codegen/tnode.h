@@ -13,6 +13,8 @@ namespace internal {
 class HeapNumber;
 class BigInt;
 class Object;
+class Smi;
+class TaggedIndex;
 
 namespace compiler {
 
@@ -130,6 +132,10 @@ template <>
 struct MachineTypeOf<Smi> {
   static constexpr MachineType value = MachineType::TaggedSigned();
 };
+template <>
+struct MachineTypeOf<TaggedIndex> {
+  static constexpr MachineType value = MachineType::Pointer();
+};
 template <class HeapObjectSubtype>
 struct MachineTypeOf<HeapObjectSubtype,
                      typename std::enable_if<std::is_base_of<
@@ -149,6 +155,12 @@ constexpr MachineType MachineTypeOf<
 template <class Type, class Enable = void>
 struct MachineRepresentationOf {
   static const MachineRepresentation value = Type::kMachineRepresentation;
+};
+// If T defines kMachineType, then we take the machine representation from
+// there.
+template <class T>
+struct MachineRepresentationOf<T, base::void_t<decltype(T::kMachineType)>> {
+  static const MachineRepresentation value = T::kMachineType.representation();
 };
 template <class T>
 struct MachineRepresentationOf<

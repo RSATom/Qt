@@ -12,6 +12,8 @@
 #include "src/objects/instance-type.h"
 
 namespace v8 {
+class CFunctionInfo;
+
 namespace internal {
 
 class BytecodeArray;
@@ -490,7 +492,7 @@ class FeedbackCellRef : public HeapObjectRef {
   DEFINE_REF_CONSTRUCTOR(FeedbackCell, HeapObjectRef)
 
   Handle<FeedbackCell> object() const;
-
+  base::Optional<SharedFunctionInfoRef> shared_function_info() const;
   HeapObjectRef value() const;
 };
 
@@ -500,9 +502,11 @@ class FeedbackVectorRef : public HeapObjectRef {
 
   Handle<FeedbackVector> object() const;
 
+  SharedFunctionInfoRef shared_function_info() const;
   double invocation_count() const;
 
   void Serialize();
+  bool serialized() const;
   FeedbackCellRef GetClosureFeedbackCell(int index) const;
 };
 
@@ -625,7 +629,8 @@ class V8_EXPORT_PRIVATE MapRef : public HeapObjectRef {
   FieldIndex GetFieldIndexFor(InternalIndex descriptor_index) const;
   ObjectRef GetFieldType(InternalIndex descriptor_index) const;
   bool IsUnboxedDoubleField(InternalIndex descriptor_index) const;
-  ObjectRef GetStrongValue(InternalIndex descriptor_number) const;
+  base::Optional<ObjectRef> GetStrongValue(
+      InternalIndex descriptor_number) const;
 
   void SerializeRootMap();
   base::Optional<MapRef> FindRootMap() const;
@@ -658,6 +663,8 @@ class FunctionTemplateInfoRef : public HeapObjectRef {
 
   void SerializeCallCode();
   base::Optional<CallHandlerInfoRef> call_code() const;
+  Address c_function() const;
+  const CFunctionInfo* c_signature() const;
 
   HolderLookupResult LookupHolderOfExpectedType(
       MapRef receiver_map,

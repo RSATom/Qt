@@ -174,18 +174,19 @@ int av1_block_wavelet_energy_level(const AV1_COMP *cpi, MACROBLOCK *x,
                                    BLOCK_SIZE bs) {
   double energy, energy_midpoint;
   aom_clear_system_state();
-  energy_midpoint = (cpi->oxcf.pass == 2) ? cpi->twopass.frame_avg_haar_energy
-                                          : DEFAULT_E_MIDPOINT;
+  energy_midpoint = (is_stat_consumption_stage_twopass(cpi))
+                        ? cpi->twopass.frame_avg_haar_energy
+                        : DEFAULT_E_MIDPOINT;
   energy = av1_log_block_wavelet_energy(x, bs) - energy_midpoint;
   return clamp((int)round(energy), ENERGY_MIN, ENERGY_MAX);
 }
 
-int av1_compute_deltaq_from_energy_level(const AV1_COMP *const cpi,
-                                         int block_var_level) {
+int av1_compute_q_from_energy_level_deltaq_mode(const AV1_COMP *const cpi,
+                                                int block_var_level) {
   int rate_level;
   const AV1_COMMON *const cm = &cpi->common;
 
-  if (DELTAQ_MODULATION == 1) {
+  if (DELTA_Q_PERCEPTUAL_MODULATION == 1) {
     ENERGY_IN_BOUNDS(block_var_level);
     rate_level = SEGMENT_ID(block_var_level);
   } else {
@@ -198,5 +199,5 @@ int av1_compute_deltaq_from_energy_level(const AV1_COMP *const cpi,
   if ((cm->base_qindex != 0) && ((cm->base_qindex + qindex_delta) == 0)) {
     qindex_delta = -cm->base_qindex + 1;
   }
-  return qindex_delta;
+  return cm->base_qindex + qindex_delta;
 }

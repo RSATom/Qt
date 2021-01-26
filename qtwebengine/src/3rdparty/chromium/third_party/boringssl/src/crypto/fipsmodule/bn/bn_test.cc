@@ -73,6 +73,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <algorithm>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -91,6 +92,7 @@
 #include "../../test/abi_test.h"
 #include "../../test/file_test.h"
 #include "../../test/test_util.h"
+#include "../../test/wycheproof_util.h"
 
 
 static int HexToBIGNUM(bssl::UniquePtr<BIGNUM> *out, const char *in) {
@@ -1986,16 +1988,17 @@ TEST_F(BNTest, PrimeChecking) {
 
     ASSERT_TRUE(BN_set_word(p.get(), i));
     ASSERT_TRUE(BN_primality_test(
-        &is_probably_prime_1, p.get(), BN_prime_checks, ctx(),
+        &is_probably_prime_1, p.get(), BN_prime_checks_for_generation, ctx(),
         false /* do_trial_division */, nullptr /* callback */));
     EXPECT_EQ(is_prime ? 1 : 0, is_probably_prime_1);
     ASSERT_TRUE(BN_primality_test(
-        &is_probably_prime_2, p.get(), BN_prime_checks, ctx(),
+        &is_probably_prime_2, p.get(), BN_prime_checks_for_generation, ctx(),
         true /* do_trial_division */, nullptr /* callback */));
     EXPECT_EQ(is_prime ? 1 : 0, is_probably_prime_2);
     if (i > 3 && i % 2 == 1) {
       ASSERT_TRUE(BN_enhanced_miller_rabin_primality_test(
-          &result_3, p.get(), BN_prime_checks, ctx(), nullptr /* callback */));
+          &result_3, p.get(), BN_prime_checks_for_generation, ctx(),
+          nullptr /* callback */));
       EXPECT_EQ(is_prime, result_3 == bn_probably_prime);
     }
   }
@@ -2003,13 +2006,13 @@ TEST_F(BNTest, PrimeChecking) {
   // Negative numbers are not prime.
   ASSERT_TRUE(BN_set_word(p.get(), 7));
   BN_set_negative(p.get(), 1);
-  ASSERT_TRUE(BN_primality_test(&is_probably_prime_1, p.get(), BN_prime_checks,
-                                ctx(), false /* do_trial_division */,
-                                nullptr /* callback */));
+  ASSERT_TRUE(BN_primality_test(
+      &is_probably_prime_1, p.get(), BN_prime_checks_for_generation, ctx(),
+      false /* do_trial_division */, nullptr /* callback */));
   EXPECT_EQ(0, is_probably_prime_1);
-  ASSERT_TRUE(BN_primality_test(&is_probably_prime_2, p.get(), BN_prime_checks,
-                                ctx(), true /* do_trial_division */,
-                                nullptr /* callback */));
+  ASSERT_TRUE(BN_primality_test(
+      &is_probably_prime_2, p.get(), BN_prime_checks_for_generation, ctx(),
+      true /* do_trial_division */, nullptr /* callback */));
   EXPECT_EQ(0, is_probably_prime_2);
 
   static const char *kComposites[] = {
@@ -2068,17 +2071,18 @@ TEST_F(BNTest, PrimeChecking) {
     EXPECT_NE(0, DecimalToBIGNUM(&p, str));
 
     ASSERT_TRUE(BN_primality_test(
-        &is_probably_prime_1, p.get(), BN_prime_checks, ctx(),
+        &is_probably_prime_1, p.get(), BN_prime_checks_for_generation, ctx(),
         false /* do_trial_division */, nullptr /* callback */));
     EXPECT_EQ(0, is_probably_prime_1);
 
     ASSERT_TRUE(BN_primality_test(
-        &is_probably_prime_2, p.get(), BN_prime_checks, ctx(),
+        &is_probably_prime_2, p.get(), BN_prime_checks_for_generation, ctx(),
         true /* do_trial_division */, nullptr /* callback */));
     EXPECT_EQ(0, is_probably_prime_2);
 
     ASSERT_TRUE(BN_enhanced_miller_rabin_primality_test(
-        &result_3, p.get(), BN_prime_checks, ctx(), nullptr /* callback */));
+        &result_3, p.get(), BN_prime_checks_for_generation, ctx(),
+        nullptr /* callback */));
     EXPECT_EQ(bn_composite, result_3);
   }
 
@@ -2257,25 +2261,27 @@ TEST_F(BNTest, PrimeChecking) {
     EXPECT_NE(0, HexToBIGNUM(&p, str));
 
     ASSERT_TRUE(BN_primality_test(
-        &is_probably_prime_1, p.get(), BN_prime_checks, ctx(),
+        &is_probably_prime_1, p.get(), BN_prime_checks_for_generation, ctx(),
         false /* do_trial_division */, nullptr /* callback */));
     EXPECT_EQ(1, is_probably_prime_1);
 
     ASSERT_TRUE(BN_primality_test(
-        &is_probably_prime_2, p.get(), BN_prime_checks, ctx(),
+        &is_probably_prime_2, p.get(), BN_prime_checks_for_generation, ctx(),
         true /* do_trial_division */, nullptr /* callback */));
     EXPECT_EQ(1, is_probably_prime_2);
 
     ASSERT_TRUE(BN_enhanced_miller_rabin_primality_test(
-        &result_3, p.get(), BN_prime_checks, ctx(), nullptr /* callback */));
+        &result_3, p.get(), BN_prime_checks_for_generation, ctx(),
+        nullptr /* callback */));
     EXPECT_EQ(bn_probably_prime, result_3);
   }
 
   // BN_primality_test works with null |BN_CTX|.
   ASSERT_TRUE(BN_set_word(p.get(), 5));
-  ASSERT_TRUE(BN_primality_test(
-      &is_probably_prime_1, p.get(), BN_prime_checks, nullptr /* ctx */,
-      false /* do_trial_division */, nullptr /* callback */));
+  ASSERT_TRUE(
+      BN_primality_test(&is_probably_prime_1, p.get(),
+                        BN_prime_checks_for_generation, nullptr /* ctx */,
+                        false /* do_trial_division */, nullptr /* callback */));
   EXPECT_EQ(1, is_probably_prime_1);
 }
 
@@ -2302,6 +2308,44 @@ TEST_F(BNTest, MillerRabinIteration) {
         std::string result;
         ASSERT_TRUE(t->GetAttribute(&result, "Result"));
         EXPECT_EQ(result, possibly_prime ? "PossiblyPrime" : "Composite");
+      });
+}
+
+// These tests are very slow, so we disable them by default to avoid timing out
+// downstream consumers. They are enabled when running tests standalone via
+// all_tests.go.
+TEST_F(BNTest, DISABLED_WycheproofPrimality) {
+  FileTestGTest(
+      "third_party/wycheproof_testvectors/primality_test.txt",
+      [&](FileTest *t) {
+        WycheproofResult result;
+        ASSERT_TRUE(GetWycheproofResult(t, &result));
+        bssl::UniquePtr<BIGNUM> value = GetWycheproofBIGNUM(t, "value", false);
+        ASSERT_TRUE(value);
+
+        for (int checks :
+             {BN_prime_checks_for_validation, BN_prime_checks_for_generation}) {
+          SCOPED_TRACE(checks);
+          if (checks == BN_prime_checks_for_generation &&
+              std::find(result.flags.begin(), result.flags.end(),
+                        "WorstCaseMillerRabin") != result.flags.end()) {
+            // Skip the worst case Miller-Rabin cases.
+            // |BN_prime_checks_for_generation| relies on such values being rare
+            // when generating primes.
+            continue;
+          }
+
+          int is_probably_prime;
+          ASSERT_TRUE(BN_primality_test(&is_probably_prime, value.get(), checks,
+                                        ctx(),
+                                        /*do_trial_division=*/false, nullptr));
+          EXPECT_EQ(result.IsValid() ? 1 : 0, is_probably_prime);
+
+          ASSERT_TRUE(BN_primality_test(&is_probably_prime, value.get(), checks,
+                                        ctx(),
+                                        /*do_trial_division=*/true, nullptr));
+          EXPECT_EQ(result.IsValid() ? 1 : 0, is_probably_prime);
+        }
       });
 }
 

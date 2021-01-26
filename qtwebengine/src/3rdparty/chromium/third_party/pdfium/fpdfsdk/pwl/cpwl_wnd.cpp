@@ -89,9 +89,7 @@ class CPWL_MsgControl final : public Observable {
     }
   }
 
-  void ReleaseCapture() {
-    m_aMousePath.clear();
-  }
+  void ReleaseCapture() { m_aMousePath.clear(); }
 
   CPWL_Wnd* GetFocusedWindow() const { return m_pMainKeyboardWnd.Get(); }
 
@@ -316,10 +314,17 @@ PWL_IMPLEMENT_KEY_METHOD(OnChar)
 PWL_IMPLEMENT_MOUSE_METHOD(OnLButtonDblClk)
 PWL_IMPLEMENT_MOUSE_METHOD(OnLButtonDown)
 PWL_IMPLEMENT_MOUSE_METHOD(OnLButtonUp)
-PWL_IMPLEMENT_MOUSE_METHOD(OnRButtonDown)
-PWL_IMPLEMENT_MOUSE_METHOD(OnRButtonUp)
 PWL_IMPLEMENT_MOUSE_METHOD(OnMouseMove)
 #undef PWL_IMPLEMENT_MOUSE_METHOD
+
+// Unlike their FWL counterparts, PWL windows don't handle right clicks.
+bool CPWL_Wnd::OnRButtonDown(const CFX_PointF& point, uint32_t nFlag) {
+  return false;
+}
+
+bool CPWL_Wnd::OnRButtonUp(const CFX_PointF& point, uint32_t nFlag) {
+  return false;
+}
 
 WideString CPWL_Wnd::GetText() {
   return WideString();
@@ -622,17 +627,17 @@ bool CPWL_Wnd::IsCaptureMouse() const {
 
 bool CPWL_Wnd::IsWndCaptureMouse(const CPWL_Wnd* pWnd) const {
   CPWL_MsgControl* pCtrl = GetMsgControl();
-  return pCtrl ? pCtrl->IsWndCaptureMouse(pWnd) : false;
+  return pCtrl && pCtrl->IsWndCaptureMouse(pWnd);
 }
 
 bool CPWL_Wnd::IsWndCaptureKeyboard(const CPWL_Wnd* pWnd) const {
   CPWL_MsgControl* pCtrl = GetMsgControl();
-  return pCtrl ? pCtrl->IsWndCaptureKeyboard(pWnd) : false;
+  return pCtrl && pCtrl->IsWndCaptureKeyboard(pWnd);
 }
 
 bool CPWL_Wnd::IsFocused() const {
   CPWL_MsgControl* pCtrl = GetMsgControl();
-  return pCtrl ? pCtrl->IsMainCaptureKeyboard(this) : false;
+  return pCtrl && pCtrl->IsMainCaptureKeyboard(this);
 }
 
 CFX_FloatRect CPWL_Wnd::GetFocusRect() const {

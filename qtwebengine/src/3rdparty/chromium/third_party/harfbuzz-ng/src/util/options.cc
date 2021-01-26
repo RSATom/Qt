@@ -372,7 +372,7 @@ parse_unicodes (const char *name G_GNUC_UNUSED,
       {
 	g_string_free (gs, TRUE);
 	g_set_error (error, G_OPTION_ERROR, G_OPTION_ERROR_BAD_VALUE,
-  		   "Failed parsing Unicode values at: '%s'", s);
+		     "Failed parsing Unicode values at: '%s'", s);
 	return false;
       }
 
@@ -746,7 +746,7 @@ text_options_t::get_line (unsigned int *len)
       line = text;
       line_len = text_len;
     }
-    if (line_len == (unsigned int) -1)
+    if (line_len == UINT_MAX)
       line_len = strlen (line);
 
     if (!line_len) {

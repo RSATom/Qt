@@ -24,7 +24,15 @@ const esprimaTypes = {
 };
 
 const excludeFiles = ['Tests.js'];
-const excludeDirs = ['test_runner', 'Images', 'langpacks', 'node_modules', 'lighthouse'];
+const excludeDirs = [
+  'test_runner',
+  'Images',
+  'langpacks',
+  'node_modules',
+  'lighthouse/lighthouse',
+  'lighthouse_worker/lighthouse',
+  'front_end/third_party',
+];
 const cppSpecialCharactersMap = {
   '"': '\\"',
   '\\': '\\\\',
@@ -67,17 +75,23 @@ function isNodeCallOnObject(node, objectName, propertyName) {
       verifyCallExpressionCallee(node.callee, objectName, propertyName);
 }
 
+function isNodeCallOnNestedObject(node, outerObjectName, innerObjectName, property) {
+  return node !== undefined && node.type === esprimaTypes.CALL_EXPR &&
+      verifyNestedCallExpressionCallee(node.callee, outerObjectName, innerObjectName, property);
+}
+
 function isNodeCommonUIStringCall(node) {
-  return isNodeCallOnObject(node, 'Common', 'UIString');
+  return isNodeCallOnObject(node, 'Common', 'UIString') || isNodeCallOnNestedObject(node, 'Common', 'UIString', 'UIString');
 }
 
 function isNodeCommonUIStringFormat(node) {
   return node && node.type === esprimaTypes.NEW_EXPR &&
-      verifyCallExpressionCallee(node.callee, 'Common', 'UIStringFormat');
+      (verifyCallExpressionCallee(node.callee, 'Common', 'UIStringFormat') || verifyNestedCallExpressionCallee(node.callee, 'Common', 'UIString', 'UIStringFormat'));
 }
 
 function isNodeUIformatLocalized(node) {
-  return isNodeCallOnObject(node, 'UI', 'formatLocalized');
+  return isNodeCallOnObject(node, 'UI', 'formatLocalized') ||
+      isNodeCallOnNestedObject(node, 'UI', 'UIUtils', 'formatLocalized');
 }
 
 function isNodelsTaggedTemplateExpression(node) {
@@ -93,21 +107,33 @@ function verifyCallExpressionCallee(callee, objectName, propertyName) {
       verifyIdentifier(callee.object, objectName) && verifyIdentifier(callee.property, propertyName);
 }
 
+/**
+ * Verify nested callee of outerObjectName.innerObjectName.propertyName(), e.g. Common.UIString.UIString().
+ */
+function verifyNestedCallExpressionCallee(callee, outerObjectName, innerObjectName, propertyName) {
+  return callee !== undefined && callee.type === esprimaTypes.MEMBER_EXPR && callee.computed === false &&
+      callee.object.type === esprimaTypes.MEMBER_EXPR && verifyIdentifier(callee.object.object, outerObjectName) &&
+      verifyIdentifier(callee.object.property, innerObjectName) && verifyIdentifier(callee.property, propertyName);
+}
+
 function verifyIdentifier(node, name) {
   return node !== undefined && node.type === esprimaTypes.IDENTIFIER && node.name === name;
 }
 
 function getLocalizationCase(node) {
-  if (isNodeCommonUIStringCall(node))
+  if (isNodeCommonUIStringCall(node)) {
     return 'Common.UIString';
-  else if (isNodeCommonUIStringFormat(node))
+  }
+  if (isNodeCommonUIStringFormat(node)) {
     return 'Common.UIStringFormat';
-  else if (isNodelsTaggedTemplateExpression(node))
+  }
+  if (isNodelsTaggedTemplateExpression(node)) {
     return 'Tagged Template';
-  else if (isNodeUIformatLocalized(node))
+  }
+  if (isNodeUIformatLocalized(node)) {
     return 'UI.formatLocalized';
-  else
-    return null;
+  }
+  return null;
 }
 
 function isLocalizationCall(node) {
@@ -128,10 +154,10 @@ function getLocationMessage(location) {
       location.start.line !== undefined && location.end.line !== undefined) {
     const startLine = location.start.line;
     const endLine = location.end.line;
-    if (startLine === endLine)
+    if (startLine === endLine) {
       return ` Line ${startLine}`;
-    else
-      return ` Line ${location.start.line}-${location.end.line}`;
+    }
+    return ` Line ${location.start.line}-${location.end.line}`;
   }
   return '';
 }
@@ -141,7 +167,7 @@ function sanitizeStringIntoGRDFormat(str) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;')
+      .replace(/'/g, '&apos;');
 }
 
 function sanitizeStringIntoFrontendFormat(str) {
@@ -156,8 +182,9 @@ function sanitizeString(str, specialCharactersMap) {
   let sanitizedStr = '';
   for (let i = 0; i < str.length; i++) {
     let currChar = str.charAt(i);
-    if (specialCharactersMap[currChar] !== undefined)
+    if (specialCharactersMap[currChar] !== undefined) {
       currChar = specialCharactersMap[currChar];
+    }
 
     sanitizedStr += currChar;
   }
@@ -170,13 +197,15 @@ function sanitizeStringIntoCppFormat(str) {
 
 async function getFilesFromItem(itemPath, filePaths, acceptedFileEndings) {
   const stat = await statAsync(itemPath);
-  if (stat.isDirectory() && shouldParseDirectory(itemPath))
+  if (stat.isDirectory() && shouldParseDirectory(itemPath)) {
     return await getFilesFromDirectory(itemPath, filePaths, acceptedFileEndings);
+  }
 
   const hasAcceptedEnding =
       acceptedFileEndings.some(acceptedEnding => itemPath.toLowerCase().endsWith(acceptedEnding.toLowerCase()));
-  if (hasAcceptedEnding && shouldParseFile(itemPath))
+  if (hasAcceptedEnding && shouldParseFile(itemPath)) {
     filePaths.push(itemPath);
+  }
 }
 
 async function getFilesFromDirectory(directoryPath, filePaths, acceptedFileEndings) {
@@ -195,8 +224,9 @@ async function getChildDirectoriesFromDirectory(directoryPath) {
   for (const itemName of itemNames) {
     const itemPath = path.resolve(directoryPath, itemName);
     const stat = await statAsync(itemPath);
-    if (stat.isDirectory() && shouldParseDirectory(itemName))
+    if (stat.isDirectory() && shouldParseDirectory(itemName)) {
       dirPaths.push(itemPath);
+    }
   }
   return dirPaths;
 }
@@ -206,10 +236,12 @@ async function getChildDirectoriesFromDirectory(directoryPath) {
  * https://www.chromium.org/developers/tools-we-use-in-chromium/grit/grit-users-guide.
  */
 function padWhitespace(str) {
-  if (str.match(/^\s+/))
+  if (str.match(/^\s+/)) {
     str = `'''${str}`;
-  if (str.match(/\s+$/))
+  }
+  if (str.match(/\s+$/)) {
     str = `${str}'''`;
+  }
   return str;
 }
 
@@ -218,22 +250,25 @@ function modifyStringIntoGRDFormat(str, args) {
   sanitizedStr = padWhitespace(sanitizedStr);
 
   const phRegex = /%d|%f|%s|%.[0-9]f/gm;
-  if (!str.match(phRegex))
+  if (!str.match(phRegex)) {
     return sanitizedStr;
+  }
 
   let phNames;
-  if (args !== undefined)
+  if (args !== undefined) {
     phNames = args.map(arg => arg.replace(/[^a-zA-Z]/gm, '_').toUpperCase());
-  else
+  } else {
     phNames = ['PH1', 'PH2', 'PH3', 'PH4', 'PH5', 'PH6', 'PH7', 'PH8', 'PH9'];
+  }
 
   // It replaces all placeholders with <ph> tags.
   let match;
   let count = 1;
   while ((match = phRegex.exec(sanitizedStr)) !== null) {
     // This is necessary to avoid infinite loops with zero-width matches
-    if (match.index === phRegex.lastIndex)
+    if (match.index === phRegex.lastIndex) {
       phRegex.lastIndex++;
+    }
 
     // match[0]: the placeholder (e.g. %d, %s, %.2f, etc.)
     const ph = match[0];
@@ -294,19 +329,22 @@ async function addChildGRDPFilePathsToGRD(grdpFilePaths) {
     if (match) {
       const grdpFilePathsRemaining = [];
       for (const grdpFilePath of grdpFilePaths) {
-        if (grdpFilePath < getAbsoluteGrdpPath(match[1]))
+        if (grdpFilePath < getAbsoluteGrdpPath(match[1])) {
           newGrdFileContent += createPartFileEntry(grdpFilePath);
-        else
+        } else {
           grdpFilePathsRemaining.push(grdpFilePath);
+        }
       }
       grdpFilePaths = grdpFilePathsRemaining;
     } else if (grdLine.includes('</messages>')) {
-      for (const grdpFilePath of grdpFilePaths)
+      for (const grdpFilePath of grdpFilePaths) {
         newGrdFileContent += createPartFileEntry(grdpFilePath);
+      }
     }
     newGrdFileContent += grdLine;
-    if (i < grdLines.length - 1)
+    if (i < grdLines.length - 1) {
       newGrdFileContent += '\n';
+    }
   }
   return writeFileAsync(GRD_PATH, newGrdFileContent);
 }

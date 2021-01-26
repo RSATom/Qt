@@ -93,6 +93,12 @@ void OffscreenFontSelector::ReportSuccessfulFontFamilyMatch(
 void OffscreenFontSelector::ReportFailedFontFamilyMatch(
     const AtomicString& font_family_name) {}
 
+void OffscreenFontSelector::ReportSuccessfulLocalFontMatch(
+    const AtomicString& font_name) {}
+
+void OffscreenFontSelector::ReportFailedLocalFontMatch(
+    const AtomicString& font_name) {}
+
 void OffscreenFontSelector::FontCacheInvalidated() {
   font_face_cache_.IncrementVersion();
 }
@@ -101,7 +107,7 @@ void OffscreenFontSelector::FontFaceInvalidated() {
   FontCacheInvalidated();
 }
 
-void OffscreenFontSelector::Trace(blink::Visitor* visitor) {
+void OffscreenFontSelector::Trace(Visitor* visitor) {
   visitor->Trace(execution_context_);
   visitor->Trace(font_face_cache_);
   FontSelector::Trace(visitor);

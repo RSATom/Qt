@@ -68,5 +68,5 @@ SOURCES += \
         declarativemaps/qquickgeomapgesturearea.cpp
 
 load(qt_build_paths)
-LIBS_PRIVATE += -L$$MODULE_BASE_OUTDIR/lib -lpoly2tri$$qtPlatformTargetSuffix() -lclip2tri$$qtPlatformTargetSuffix()
+LIBS_PRIVATE += -L$$MODULE_BASE_OUTDIR/lib -lqt_poly2tri$$qtPlatformTargetSuffix() -lqt_clip2tri$$qtPlatformTargetSuffix()
 

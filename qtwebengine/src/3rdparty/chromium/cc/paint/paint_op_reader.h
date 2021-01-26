@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/memory/scoped_refptr.h"
 #include "cc/paint/paint_export.h"
 #include "cc/paint/paint_filter.h"
 #include "cc/paint/paint_op_writer.h"
@@ -15,6 +16,7 @@
 namespace cc {
 
 class PaintShader;
+class SkottieWrapper;
 
 // PaintOpReader takes garbage |memory| and clobbers it with successive
 // read functions.
@@ -69,6 +71,10 @@ class CC_PAINT_EXPORT PaintOpReader {
   void Read(sk_sp<SkColorSpace>* color_space);
   void Read(SkYUVColorSpace* yuv_color_space);
 
+#ifndef OS_ANDROID
+  void Read(scoped_refptr<SkottieWrapper>* skottie);
+#endif
+
   void Read(SkClipOp* op) {
     uint8_t value = 0u;
     Read(&value);
@@ -93,6 +99,15 @@ class CC_PAINT_EXPORT PaintOpReader {
     }
     *quality = static_cast<SkFilterQuality>(value);
   }
+  void Read(SkBlendMode* blend_mode) {
+    uint8_t value = 0u;
+    Read(&value);
+    if (value > static_cast<uint8_t>(SkBlendMode::kLastMode)) {
+      SetInvalid();
+      return;
+    }
+    *blend_mode = static_cast<SkBlendMode>(value);
+  }
   void Read(bool* data) {
     uint8_t value = 0u;
     Read(&value);
@@ -114,7 +129,7 @@ class CC_PAINT_EXPORT PaintOpReader {
   template <typename T>
   void ReadFlattenable(sk_sp<T>* val);
 
-  void SetInvalid();
+  void SetInvalid(bool skip_crash_dump = false);
 
   // The main entry point is Read(sk_sp<PaintFilter>* filter) which calls one of
   // the following functions depending on read type.

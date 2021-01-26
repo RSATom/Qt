@@ -15,47 +15,14 @@
 #include "src/core/SkAutoMalloc.h"
 #include "src/core/SkDistanceFieldGen.h"
 #include "src/core/SkStrikeSpec.h"
-
-GrStrikeCache::GrStrikeCache(const GrCaps* caps, size_t maxTextureBytes)
-        : fPreserveStrike(nullptr)
-        , f565Masks(SkMasks::CreateMasks({0xF800, 0x07E0, 0x001F, 0},
-                    GrMaskFormatBytesPerPixel(kA565_GrMaskFormat))) { }
+#include "src/gpu/text/GrStrikeCache.h"
 
 GrStrikeCache::~GrStrikeCache() {
-    StrikeHash::Iter iter(&fCache);
-    while (!iter.done()) {
-        (*iter).fIsAbandoned = true;
-        (*iter).unref();
-        ++iter;
-    }
+    this->freeAll();
 }
 
 void GrStrikeCache::freeAll() {
-    StrikeHash::Iter iter(&fCache);
-    while (!iter.done()) {
-        (*iter).fIsAbandoned = true;
-        (*iter).unref();
-        ++iter;
-    }
-    fCache.rewind();
-}
-
-void GrStrikeCache::HandleEviction(GrDrawOpAtlas::AtlasID id, void* ptr) {
-    GrStrikeCache* grStrikeCache = reinterpret_cast<GrStrikeCache*>(ptr);
-
-    StrikeHash::Iter iter(&grStrikeCache->fCache);
-    for (; !iter.done(); ++iter) {
-        GrTextStrike* strike = &*iter;
-        strike->removeID(id);
-
-        // clear out any empty strikes.  We will preserve the strike whose call to addToAtlas
-        // triggered the eviction
-        if (strike != grStrikeCache->fPreserveStrike && 0 == strike->fAtlasedGlyphs) {
-            grStrikeCache->fCache.remove(GrTextStrike::GetKey(*strike));
-            strike->fIsAbandoned = true;
-            strike->unref();
-        }
-    }
+    fCache.reset();
 }
 
 // expands each bit in a bitmask to 0 or ~0 of type INT_TYPE. Used to expand a BW glyph mask to
@@ -82,21 +49,56 @@ static void expand_bits(INT_TYPE* dst,
     }
 }
 
-static bool get_packed_glyph_image(const SkGlyph* glyph, int width,
-                                   int height, int dstRB, GrMaskFormat expectedMaskFormat,
-                                   void* dst, const SkMasks& masks) {
-    SkASSERT(glyph->width() == width);
-    SkASSERT(glyph->height() == height);
-    const void* src = glyph->image();
-    if (src == nullptr) {
-        return false;
-    }
+static void get_packed_glyph_image(
+        const SkGlyph& glyph, int dstRB, GrMaskFormat expectedMaskFormat, void* dst) {
+    const int width = glyph.width();
+    const int height = glyph.height();
+    const void* src = glyph.image();
+    SkASSERT(src != nullptr);
 
-    // Convert if the glyph uses a 565 mask format since it is using LCD text rendering but the
-    // expected format is 8888 (will happen on macOS with Metal since that combination does not
-    // support 565).
-    if (kA565_GrMaskFormat == GrGlyph::FormatFromSkGlyph(glyph->maskFormat()) &&
-        kARGB_GrMaskFormat == expectedMaskFormat) {
+    GrMaskFormat grMaskFormat = GrGlyph::FormatFromSkGlyph(glyph.maskFormat());
+    if (grMaskFormat == expectedMaskFormat) {
+        int srcRB = glyph.rowBytes();
+        // Notice this comparison is with the glyphs raw mask format, and not its GrMaskFormat.
+        if (glyph.maskFormat() != SkMask::kBW_Format) {
+            if (srcRB != dstRB) {
+                const int bbp = GrMaskFormatBytesPerPixel(expectedMaskFormat);
+                for (int y = 0; y < height; y++) {
+                    memcpy(dst, src, width * bbp);
+                    src = (const char*) src + srcRB;
+                    dst = (char*) dst + dstRB;
+                }
+            } else {
+                memcpy(dst, src, dstRB * height);
+            }
+        } else {
+            // Handle 8-bit format by expanding the mask to the expected format.
+            const uint8_t* bits = reinterpret_cast<const uint8_t*>(src);
+            switch (expectedMaskFormat) {
+                case kA8_GrMaskFormat: {
+                    uint8_t* bytes = reinterpret_cast<uint8_t*>(dst);
+                    expand_bits(bytes, bits, width, height, dstRB, srcRB);
+                    break;
+                }
+                case kA565_GrMaskFormat: {
+                    uint16_t* rgb565 = reinterpret_cast<uint16_t*>(dst);
+                    expand_bits(rgb565, bits, width, height, dstRB, srcRB);
+                    break;
+                }
+                default:
+                    SK_ABORT("Invalid GrMaskFormat");
+            }
+        }
+    } else if (grMaskFormat == kA565_GrMaskFormat && expectedMaskFormat == kARGB_GrMaskFormat) {
+        // Convert if the glyph uses a 565 mask format since it is using LCD text rendering
+        // but the expected format is 8888 (will happen on macOS with Metal since that
+        // combination does not support 565).
+        static constexpr SkMasks masks{
+                {0b1111'1000'0000'0000, 11, 5},  // Red
+                {0b0000'0111'1110'0000,  5, 6},  // Green
+                {0b0000'0000'0001'1111,  0, 5},  // Blue
+                {0, 0, 0}                        // Alpha
+        };
         const int a565Bpp = GrMaskFormatBytesPerPixel(kA565_GrMaskFormat);
         const int argbBpp = GrMaskFormatBytesPerPixel(kARGB_GrMaskFormat);
         for (int y = 0; y < height; y++) {
@@ -112,53 +114,16 @@ static bool get_packed_glyph_image(const SkGlyph* glyph, int width,
                 dst = (char*)dst + argbBpp;
             }
         }
-        return true;
-    }
-
-    // crbug:510931
-    // Retrieving the image from the cache can actually change the mask format.  This case is very
-    // uncommon so for now we just draw a clear box for these glyphs.
-    if (GrGlyph::FormatFromSkGlyph(glyph->maskFormat()) != expectedMaskFormat) {
+    } else {
+        // crbug:510931
+        // Retrieving the image from the cache can actually change the mask format. This case is
+        // very uncommon so for now we just draw a clear box for these glyphs.
         const int bpp = GrMaskFormatBytesPerPixel(expectedMaskFormat);
         for (int y = 0; y < height; y++) {
             sk_bzero(dst, width * bpp);
             dst = (char*)dst + dstRB;
         }
-        return true;
     }
-
-    int srcRB = glyph->rowBytes();
-    // The windows font host sometimes has BW glyphs in a non-BW strike. So it is important here to
-    // check the glyph's format, not the strike's format, and to be able to convert to any of the
-    // GrMaskFormats.
-    if (glyph->maskFormat() == SkMask::kBW_Format) {
-        // expand bits to our mask type
-        const uint8_t* bits = reinterpret_cast<const uint8_t*>(src);
-        switch (expectedMaskFormat) {
-            case kA8_GrMaskFormat:{
-                uint8_t* bytes = reinterpret_cast<uint8_t*>(dst);
-                expand_bits(bytes, bits, width, height, dstRB, srcRB);
-                break;
-            }
-            case kA565_GrMaskFormat: {
-                uint16_t* rgb565 = reinterpret_cast<uint16_t*>(dst);
-                expand_bits(rgb565, bits, width, height, dstRB, srcRB);
-                break;
-            }
-            default:
-                SK_ABORT("Invalid GrMaskFormat");
-        }
-    } else if (srcRB == dstRB) {
-        memcpy(dst, src, dstRB * height);
-    } else {
-        const int bbp = GrMaskFormatBytesPerPixel(expectedMaskFormat);
-        for (int y = 0; y < height; y++) {
-            memcpy(dst, src, width * bbp);
-            src = (const char*)src + srcRB;
-            dst = (char*)dst + dstRB;
-        }
-    }
-    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -174,95 +139,61 @@ static bool get_packed_glyph_image(const SkGlyph* glyph, int width,
 GrTextStrike::GrTextStrike(const SkDescriptor& key)
     : fFontScalerKey(key) {}
 
-void GrTextStrike::removeID(GrDrawOpAtlas::AtlasID id) {
-    SkTDynamicHash<GrGlyph, SkPackedGlyphID>::Iter iter(&fCache);
-    while (!iter.done()) {
-        if (id == (*iter).fID) {
-            (*iter).fID = GrDrawOpAtlas::kInvalidAtlasID;
-            fAtlasedGlyphs--;
-            SkASSERT(fAtlasedGlyphs >= 0);
-        }
-        ++iter;
-    }
-}
-
-GrDrawOpAtlas::ErrorCode GrTextStrike::addGlyphToAtlas(
-                                   GrResourceProvider* resourceProvider,
-                                   GrDeferredUploadTarget* target,
-                                   GrStrikeCache* glyphCache,
-                                   GrAtlasManager* fullAtlasManager,
-                                   GrGlyph* glyph,
-                                   SkBulkGlyphMetricsAndImages* metricsAndImages,
-                                   GrMaskFormat expectedMaskFormat,
-                                   bool isScaledGlyph) {
-    SkASSERT(glyph);
-    SkASSERT(metricsAndImages);
-    SkASSERT(fCache.find(glyph->fPackedID));
+GrDrawOpAtlas::ErrorCode GrTextStrike::addGlyphToAtlas(const SkGlyph& skGlyph,
+                                                       GrMaskFormat expectedMaskFormat,
+                                                       bool isScaledGlyph,
+                                                       GrResourceProvider* resourceProvider,
+                                                       GrDeferredUploadTarget* target,
+                                                       GrAtlasManager* fullAtlasManager,
+                                                       GrGlyph* grGlyph) {
+    SkASSERT(grGlyph != nullptr);
+    SkASSERT(fCache.findOrNull(grGlyph->fPackedID));
+    SkASSERT(grGlyph->width() == skGlyph.width());
+    SkASSERT(grGlyph->height() == skGlyph.height());
+    SkASSERT(skGlyph.image() != nullptr);
 
     expectedMaskFormat = fullAtlasManager->resolveMaskFormat(expectedMaskFormat);
     int bytesPerPixel = GrMaskFormatBytesPerPixel(expectedMaskFormat);
-    int width = glyph->width();
-    int height = glyph->height();
-    int rowBytes = width * bytesPerPixel;
 
-    size_t size = glyph->fBounds.area() * bytesPerPixel;
-    bool isSDFGlyph = GrGlyph::kDistance_MaskStyle == glyph->maskStyle();
+    bool isSDFGlyph = skGlyph.maskFormat() == SkMask::kSDF_Format;
+    // Add 1 pixel padding around grGlyph if needed.
     bool addPad = isScaledGlyph && !isSDFGlyph;
-    if (addPad) {
-        width += 2;
-        rowBytes += 2*bytesPerPixel;
-        size += 2 * rowBytes;
-        height += 2;
-        size += 2 * (height + 2) * bytesPerPixel;
-    }
-    SkAutoSMalloc<1024> storage(size);
+    const int width = addPad ? skGlyph.width() + 2 : skGlyph.width();
+    const int height = addPad ? skGlyph.height() + 2 : skGlyph.height();
+    int rowBytes = width * bytesPerPixel;
+    size_t size = height * rowBytes;
 
-    const SkGlyph* skGlyph = metricsAndImages->glyph(glyph->fPackedID);
+    // Temporary storage for normalizing grGlyph image.
+    SkAutoSMalloc<1024> storage(size);
     void* dataPtr = storage.get();
     if (addPad) {
         sk_bzero(dataPtr, size);
+        // Advance in one row and one column.
         dataPtr = (char*)(dataPtr) + rowBytes + bytesPerPixel;
     }
-    if (!get_packed_glyph_image(skGlyph, glyph->width(), glyph->height(),
-                                rowBytes, expectedMaskFormat,
-                                dataPtr, glyphCache->getMasks())) {
-        return GrDrawOpAtlas::ErrorCode::kError;
-    }
+
+    get_packed_glyph_image(skGlyph, rowBytes, expectedMaskFormat, dataPtr);
 
     GrDrawOpAtlas::ErrorCode result = fullAtlasManager->addToAtlas(
-                                                resourceProvider, glyphCache, this,
-                                                &glyph->fID, target, expectedMaskFormat,
-                                                width, height,
-                                                storage.get(), &glyph->fAtlasLocation);
+            resourceProvider, &grGlyph->fPlotLocator, target, expectedMaskFormat,
+            width, height,
+            storage.get(), &grGlyph->fAtlasLocation);
     if (GrDrawOpAtlas::ErrorCode::kSucceeded == result) {
         if (addPad) {
-            glyph->fAtlasLocation.fX += 1;
-            glyph->fAtlasLocation.fY += 1;
+            grGlyph->fAtlasLocation.fX += 1;
+            grGlyph->fAtlasLocation.fY += 1;
         }
-        SkASSERT(GrDrawOpAtlas::kInvalidAtlasID != glyph->fID);
-        fAtlasedGlyphs++;
+        SkASSERT(grGlyph->fPlotLocator != GrDrawOpAtlas::kInvalidPlotLocator);
     }
     return result;
 }
 
 GrGlyph* GrTextStrike::getGlyph(const SkGlyph& skGlyph) {
-    GrGlyph* grGlyph = fCache.find(skGlyph.getPackedID());
+    GrGlyph* grGlyph = fCache.findOrNull(skGlyph.getPackedID());
     if (grGlyph == nullptr) {
         grGlyph = fAlloc.make<GrGlyph>(skGlyph);
-        fCache.add(grGlyph);
+        fCache.set(grGlyph);
     }
     return grGlyph;
 }
 
-GrGlyph*
-GrTextStrike::getGlyph(SkPackedGlyphID packed, SkBulkGlyphMetricsAndImages* metricsAndImages) {
-    GrGlyph* grGlyph = fCache.find(packed);
-    if (grGlyph == nullptr) {
-        // We could return this to the caller, but in practice it adds code complexity for
-        // potentially little benefit(ie, if the glyph is not in our font cache, then its not
-        // in the atlas and we're going to be doing a texture upload anyways).
-        grGlyph = fAlloc.make<GrGlyph>(*metricsAndImages->glyph(packed));
-        fCache.add(grGlyph);
-    }
-    return grGlyph;
-}

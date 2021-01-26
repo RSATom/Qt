@@ -979,7 +979,7 @@ void QPrinter::setCreator(const QString &creator)
     On Windows and Mac, this option can be changed while printing and will
     take effect from the next call to newPage().
 
-    To obtain the current QPageLayout::Orientation use pageLayout().pageOrientation().
+    To obtain the current QPageLayout::Orientation use pageLayout().orientation().
 
     Returns true if the page orientation was successfully set to \a orientation.
 
@@ -997,7 +997,7 @@ void QPrinter::setCreator(const QString &creator)
     otherwise the \a margins must fall within the printable area for the page
     size on the current printer.
 
-    To obtain the current page margins use pageLayout().pageMargins().
+    To obtain the current page margins use pageLayout().margins().
 
     Returns \c true if the page margins was successfully set to \a margins.
 
@@ -1027,7 +1027,7 @@ void QPrinter::setCreator(const QString &creator)
 #endif
 
 /*!
-  \obsolete Use pageLayout().pageOrientation() instead.
+  \obsolete Use pageLayout().orientation() instead.
 
   Returns the orientation setting. This is driver-dependent, but is usually
   QPrinter::Portrait.
@@ -1747,7 +1747,7 @@ void QPrinter::setMargins(const Margins &m)
 /*!
     \since 4.4
 
-    \obsolete Use pageLayout().pageMargins() instead.
+    \obsolete Use pageLayout().margins() instead.
 
     Returns the page margins for this printer in \a left, \a top, \a
     right, \a bottom. The unit of the returned margins are specified

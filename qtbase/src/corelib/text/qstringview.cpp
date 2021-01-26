@@ -604,7 +604,9 @@ QT_BEGIN_NAMESPACE
     Returns the substring starting at position \a start in this object,
     and extending to the end of the string.
 
-    \note The behavior is undefined when \a start < 0 or \a start > size().
+    \note Until 5.15.1, the behavior was undefined when \a start < 0 or
+    \a start > size(). Since 5.15.2, the behavior is compatible with
+    QString::mid().
 
     \sa left(), right(), chopped(), chop(), truncate()
 */
@@ -616,8 +618,9 @@ QT_BEGIN_NAMESPACE
     Returns the substring of length \a length starting at position
     \a start in this object.
 
-    \note The behavior is undefined when \a start < 0, \a length < 0,
-    or \a start + \a length > size().
+    \note Until 5.15.1, the behavior was undefined when \a start < 0, \a length < 0,
+    or \a start + \a length > size(). Since 5.15.2, the behavior is compatible with
+    QString::mid().
 
     \sa left(), right(), chopped(), chop(), truncate()
 */
@@ -628,7 +631,8 @@ QT_BEGIN_NAMESPACE
     Returns the substring of length \a length starting at position
     0 in this object.
 
-    \note The behavior is undefined when \a length < 0 or \a length > size().
+    \note Until 5.15.1, the behavior was undefined when \a length < 0 or \a length > size().
+    Since 5.15.2, the behavior is compatible with QString::left().
 
     \sa mid(), right(), chopped(), chop(), truncate()
 */
@@ -639,7 +643,8 @@ QT_BEGIN_NAMESPACE
     Returns the substring of length \a length starting at position
     size() - \a length in this object.
 
-    \note The behavior is undefined when \a length < 0 or \a length > size().
+    \note Until 5.15.1, the behavior was undefined when \a length < 0 or \a length > size().
+    Since 5.15.2, the behavior is compatible with QString::right().
 
     \sa mid(), left(), chopped(), chop(), truncate()
 */
@@ -894,6 +899,23 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
+    \fn QList<QStringView> QStringView::split(QStringView sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const;
+    \fn QList<QStringView> QStringView::split(QChar sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const;
+    \fn QList<QStringView> QStringView::split(const QRegularExpression &sep, Qt::SplitBehavior behavior) const;
+
+    Splits the string into substrings wherever \a sep occurs, and
+    returns the list of those strings.
+
+    See QString::split() for how \a sep, \a behavior and \a cs interact to form
+    the result.
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \since 5.15.2
+*/
+
+/*!
     \fn QStringView::toWCharArray(wchar_t *array) const
     \since 5.14
 
@@ -911,6 +933,289 @@ QT_BEGIN_NAMESPACE
     Returns the number of \c wchar_t entries written to \a array.
 
     \sa QString::toWCharArray()
+*/
+
+/*!
+    \fn qsizetype QStringView::count(QChar ch, Qt::CaseSensitivity cs) const noexcept
+
+    \since 5.15.2
+
+    Returns the number of occurrences of the character \a ch in the
+    string reference.
+
+    If \a cs is Qt::CaseSensitive (default), the search is
+    case sensitive; otherwise the search is case insensitive.
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::count(), contains(), indexOf()
+*/
+
+/*!
+    \fn qsizetype QStringView::count(QStringView str, Qt::CaseSensitivity cs) const noexcept
+
+    \since 5.15.2
+    \overload
+
+    Returns the number of (potentially overlapping) occurrences of the
+    string reference \a str in this string reference.
+
+    If \a cs is Qt::CaseSensitive (default), the search is
+    case sensitive; otherwise the search is case insensitive.
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::count(), contains(), indexOf()
+*/
+
+/*!
+  \fn qint64 QStringView::toLongLong(bool *ok, int base) const
+
+    Returns the string converted to a \c{long long} using base \a
+    base, which is 10 by default and must be between 2 and 36, or 0.
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    If \a base is 0, the C language convention is used: If the string
+    begins with "0x", base 16 is used; if the string begins with "0",
+    base 8 is used; otherwise, base 10 is used.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toLongLong()
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toLongLong()
+
+    \since 5.15.2
+*/
+
+/*!
+  \fn quint64 QStringView::toULongLong(bool *ok, int base) const
+
+    Returns the string converted to an \c{unsigned long long} using base \a
+    base, which is 10 by default and must be between 2 and 36, or 0.
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    If \a base is 0, the C language convention is used: If the string
+    begins with "0x", base 16 is used; if the string begins with "0",
+    base 8 is used; otherwise, base 10 is used.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toULongLong()
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toULongLong()
+
+    \since 5.15.2
+*/
+
+/*!
+    \fn long QStringView::toLong(bool *ok, int base) const
+
+    Returns the string converted to a \c long using base \a
+    base, which is 10 by default and must be between 2 and 36, or 0.
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    If \a base is 0, the C language convention is used: If the string
+    begins with "0x", base 16 is used; if the string begins with "0",
+    base 8 is used; otherwise, base 10 is used.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toLong()
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toLong()
+
+    \since 5.15.2
+*/
+
+/*!
+    \fn ulong QStringView::toULong(bool *ok, int base) const
+
+    Returns the string converted to an \c{unsigned long} using base \a
+    base, which is 10 by default and must be between 2 and 36, or 0.
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    If \a base is 0, the C language convention is used: If the string
+    begins with "0x", base 16 is used; if the string begins with "0",
+    base 8 is used; otherwise, base 10 is used.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toULongLong()
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toULong()
+
+    \since 5.15.2
+*/
+
+/*!
+  \fn int QStringView::toInt(bool *ok, int base) const
+
+    Returns the string converted to an \c int using base \a
+    base, which is 10 by default and must be between 2 and 36, or 0.
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    If \a base is 0, the C language convention is used: If the string
+    begins with "0x", base 16 is used; if the string begins with "0",
+    base 8 is used; otherwise, base 10 is used.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toInt()
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toInt()
+
+    \since 5.15.2
+*/
+
+/*!
+  \fn uint QStringView::toUInt(bool *ok, int base) const
+
+    Returns the string converted to an \c{unsigned int} using base \a
+    base, which is 10 by default and must be between 2 and 36, or 0.
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    If \a base is 0, the C language convention is used: If the string
+    begins with "0x", base 16 is used; if the string begins with "0",
+    base 8 is used; otherwise, base 10 is used.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toUInt()
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toUInt()
+
+    \since 5.15.2
+*/
+
+/*!
+  \fn short QStringView::toShort(bool *ok, int base) const
+
+    Returns the string converted to a \c short using base \a
+    base, which is 10 by default and must be between 2 and 36, or 0.
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    If \a base is 0, the C language convention is used: If the string
+    begins with "0x", base 16 is used; if the string begins with "0",
+    base 8 is used; otherwise, base 10 is used.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toShort()
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toShort()
+
+    \since 5.15.2
+*/
+
+/*!
+  \fn ushort QStringView::toUShort(bool *ok, int base) const
+
+    Returns the string converted to an \c{unsigned short} using base \a
+    base, which is 10 by default and must be between 2 and 36, or 0.
+    Returns 0 if the conversion fails.
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    If \a base is 0, the C language convention is used: If the string
+    begins with "0x", base 16 is used; if the string begins with "0",
+    base 8 is used; otherwise, base 10 is used.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toUShort()
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toUShort()
+
+    \since 5.15.2
+*/
+
+/*!
+  \fn double QStringView::toDouble(bool *ok) const
+
+    Returns the string converted to a \c double value.
+
+    Returns an infinity if the conversion overflows or 0.0 if the
+    conversion fails for other reasons (e.g. underflow).
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toDouble()
+
+    For historic reasons, this function does not handle
+    thousands group separators. If you need to convert such numbers,
+    use QLocale::toDouble().
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toDouble()
+
+    \since 5.15.2
+*/
+
+/*!
+  \fn float QStringView::toFloat(bool *ok) const
+
+    Returns the string converted to a \c float value.
+
+    Returns an infinity if the conversion overflows or 0.0 if the
+    conversion fails for other reasons (e.g. underflow).
+
+    If \a ok is not \nullptr, failure is reported by setting *\a{ok}
+    to \c false, and success by setting *\a{ok} to \c true.
+
+    The string conversion will always happen in the 'C' locale. For locale
+    dependent conversion use QLocale::toFloat()
+
+    \note This method has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QString::toFloat()
+
+    \since 5.15.2
 */
 
 QT_END_NAMESPACE

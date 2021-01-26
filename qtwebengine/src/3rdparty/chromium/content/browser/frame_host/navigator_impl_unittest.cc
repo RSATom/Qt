@@ -17,15 +17,14 @@
 #include "content/browser/frame_host/navigator.h"
 #include "content/browser/frame_host/render_frame_host_manager.h"
 #include "content/browser/site_instance_impl.h"
+#include "content/common/content_navigation_policy.h"
 #include "content/common/frame.mojom.h"
 #include "content/common/frame_messages.h"
 #include "content/common/navigation_params.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/common/content_features.h"
-#include "content/public/common/navigation_policy.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/url_utils.h"
-#include "content/public/test/browser_side_navigation_test_utils.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_utils.h"
@@ -88,7 +87,8 @@ TEST_F(NavigatorTest, SimpleBrowserInitiatedNavigationFromNonLiveRenderer) {
   EXPECT_TRUE(request->browser_initiated());
 
   // As there's no live renderer the navigation should not wait for a
-  // beforeUnload ACK from the renderer and start right away.
+  // beforeUnload completion callback being invoked by the renderer and
+  // start right away.
   EXPECT_EQ(NavigationRequest::WILL_START_REQUEST, request->state());
   ASSERT_TRUE(GetLoaderForNavigationRequest(request));
   EXPECT_FALSE(GetSpeculativeRenderFrameHost(node));
@@ -244,7 +244,7 @@ TEST_F(NavigatorTest, BeforeUnloadDenialCancelNavigation) {
       GetSpeculativeRenderFrameHost(node));
 
   // Simulate a beforeUnload denial.
-  main_test_rfh()->SendBeforeUnloadACK(false);
+  main_test_rfh()->SimulateBeforeUnloadCompleted(false);
   EXPECT_FALSE(node->navigation_request());
   EXPECT_FALSE(GetSpeculativeRenderFrameHost(node));
   EXPECT_TRUE(rfh_deleted_observer.deleted());
@@ -277,10 +277,10 @@ TEST_F(NavigatorTest, BeginNavigation) {
   ASSERT_TRUE(subframe_request);
   EXPECT_EQ(NavigationRequest::WAITING_FOR_RENDERER_RESPONSE,
             subframe_request->state());
-  EXPECT_TRUE(subframe_rfh->is_waiting_for_beforeunload_ack());
+  EXPECT_TRUE(subframe_rfh->is_waiting_for_beforeunload_completion());
 
   // Start the navigation, which will internally simulate that the beforeUnload
-  // ACK has been received.
+  // completion callback has been invoked.
   navigation->Start();
   TestNavigationURLLoader* subframe_loader =
       GetLoaderForNavigationRequest(subframe_request);
@@ -289,7 +289,8 @@ TEST_F(NavigatorTest, BeginNavigation) {
   EXPECT_EQ(kUrl2, subframe_request->common_params().url);
   EXPECT_EQ(kUrl2, subframe_loader->request_info()->common_params->url);
   // First party for cookies url should be that of the main frame.
-  EXPECT_EQ(kUrl1, subframe_loader->request_info()->site_for_cookies);
+  EXPECT_TRUE(subframe_loader->request_info()->site_for_cookies.IsEquivalent(
+      net::SiteForCookies::FromUrl(kUrl1)));
 
   EXPECT_EQ(net::NetworkIsolationKey(url::Origin::Create(kUrl1),
                                      url::Origin::Create(kUrl2)),
@@ -322,18 +323,19 @@ TEST_F(NavigatorTest, BeginNavigation) {
   EXPECT_TRUE(GetSpeculativeRenderFrameHost(root_node));
 
   // Start the navigation, which will internally simulate that the beforeUnload
-  // ACK has been received.
+  // completion callback has been invoked.
   navigation2->Start();
   TestNavigationURLLoader* main_loader =
       GetLoaderForNavigationRequest(main_request);
   EXPECT_EQ(kUrl3, main_request->common_params().url);
   EXPECT_EQ(kUrl3, main_loader->request_info()->common_params->url);
-  EXPECT_EQ(kUrl3, main_loader->request_info()->site_for_cookies);
+  EXPECT_TRUE(main_loader->request_info()->site_for_cookies.IsEquivalent(
+      net::SiteForCookies::FromUrl(kUrl3)));
   EXPECT_TRUE(main_loader->request_info()->is_main_frame);
   EXPECT_FALSE(main_loader->request_info()->parent_is_main_frame);
   EXPECT_TRUE(main_request->browser_initiated());
-  // BeforeUnloadACK was received from the renderer so the navigation should
-  // have started.
+  // BeforeUnloadCompleted callback was invoked by the renderer so the
+  // navigation should have started.
   EXPECT_EQ(NavigationRequest::WILL_START_REQUEST, main_request->state());
   EXPECT_TRUE(GetSpeculativeRenderFrameHost(root_node));
 
@@ -579,8 +581,8 @@ TEST_F(NavigatorTest, RendererUserInitiatedNavigationCancel) {
   contents()->NavigateAndCommit(kUrl0);
   FrameTreeNode* node = main_test_rfh()->frame_tree_node();
 
-  // Start a browser-initiated navigation to the 1st URL and receive its
-  // beforeUnload ACK.
+  // Start a browser-initiated navigation to the 1st URL and invoke its
+  // beforeUnload completion callback.
   EXPECT_FALSE(main_test_rfh()->navigation_request());
   auto navigation2 =
       NavigationSimulator::CreateBrowserInitiated(kUrl1, contents());

@@ -9,7 +9,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_connection_stats.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -69,7 +69,7 @@ class QuicConnectionPeer {
   static void SwapCrypters(QuicConnection* connection, QuicFramer* framer);
 
   static void SetCurrentPacket(QuicConnection* connection,
-                               QuicStringPiece current_packet);
+                               quiche::QuicheStringPiece current_packet);
 
   static QuicConnectionHelperInterface* GetHelper(QuicConnection* connection);
 
@@ -135,6 +135,17 @@ class QuicConnectionPeer {
                                         const std::string& details);
 
   static size_t GetNumEncryptionLevels(QuicConnection* connection);
+
+  static QuicNetworkBlackholeDetector& GetBlackholeDetector(
+      QuicConnection* connection);
+
+  static QuicAlarm* GetBlackholeDetectorAlarm(QuicConnection* connection);
+
+  static QuicTime GetPathDegradingDeadline(QuicConnection* connection);
+
+  static QuicTime GetBlackholeDetectionDeadline(QuicConnection* connection);
+
+  static QuicAlarm* GetIdleNetworkDetectorAlarm(QuicConnection* connection);
 };
 
 }  // namespace test

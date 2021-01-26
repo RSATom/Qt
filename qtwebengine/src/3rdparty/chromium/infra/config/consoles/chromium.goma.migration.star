@@ -30,11 +30,6 @@ luci.console_view(
             category = 'week1|linux|cfi',
         ),
         luci.console_view_entry(
-            builder = 'ci/CFI Linux CF',
-            category = 'week1|linux|cfi',
-            short_name = 'cf',
-        ),
-        luci.console_view_entry(
             builder = 'ci/Linux MSan Builder',
             category = 'week1|linux',
             short_name = 'msan',
@@ -722,9 +717,14 @@ luci.console_view(
             short_name = 'rel',
         ),
         luci.console_view_entry(
-            builder = 'ci/linux-bfcache-debug',
+            builder = 'ci/linux-bfcache-rel',
             category = 'week15a|linux',
             short_name = 'bfc',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/linux-blink-cors-rel',
+            category = 'week15a|linux',
+            short_name = 'oorcors',
         ),
         luci.console_view_entry(
             builder = 'ci/linux-fieldtrial-rel',
@@ -732,12 +732,7 @@ luci.console_view(
             short_name = 'field',
         ),
         luci.console_view_entry(
-            builder = 'ci/linux-oor-cors-rel',
-            category = 'week15a|linux',
-            short_name = 'oorcors',
-        ),
-        luci.console_view_entry(
-            builder = 'ci/Android WebView P OOR-CORS FYI (rel)',
+            builder = 'ci/Android WebView P Blink-CORS FYI (rel)',
             category = 'week15b|android|webview p',
             short_name = 'oorcors',
         ),
@@ -757,7 +752,7 @@ luci.console_view(
             short_name = 'asan',
         ),
         luci.console_view_entry(
-            builder = 'ci/android-bfcache-debug',
+            builder = 'ci/android-bfcache-rel',
             category = 'week15b|android',
             short_name = 'bfc',
         ),
@@ -772,7 +767,7 @@ luci.console_view(
             short_name = 'arm64',
         ),
         luci.console_view_entry(
-            builder = 'ci/android-pie-x86-fyi-rel',
+            builder = 'ci/android-pie-x86-rel',
             category = 'week15b|android|pie',
             short_name = 'x86',
         ),
@@ -832,6 +827,10 @@ luci.console_view(
             short_name = 'x86',
         ),
         luci.console_view_entry(
+            builder = 'ci/android-code-coverage-native',
+            category = 'misc|android',
+        ),
+        luci.console_view_entry(
             builder = 'ci/Win ASan Release',
             category = 'win|week1|asan',
         ),
@@ -859,6 +858,202 @@ luci.console_view(
             builder = 'ci/win-archive-rel',
             category = 'win|week1.5|archive',
             short_name = 'rel',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Dawn Win10 x64 Builder',
+            category = 'win|week2|dawn',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Dawn Win10 x64 DEPS Builder',
+            category = 'win|week2|dawn',
+            short_name = 'deps',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU Win x64 Builder (dbg)',
+            category = 'win|week2|gpu',
+            short_name = 'dbg',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU FYI XR Win x64 Builder',
+            category = 'win|week2|gpu|fyi',
+            short_name = 'xr',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU FYI Win x64 dEQP Builder',
+            category = 'win|week2|gpu|fyi',
+            short_name = 'deqp',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU FYI Win x64 DX12 Vulkan Builder',
+            category = 'win|week2|gpu|fyi|dx12',
+            short_name = 'rel',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU FYI Win x64 DX12 Vulkan Builder (dbg)',
+            category = 'win|week2|gpu|fyi|dx12',
+            short_name = 'dbg',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU FYI Win x64 Builder',
+            category = 'win|week2|gpu|fyi',
+            short_name = 'rel',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU FYI Win x64 Builder (dbg)',
+            category = 'win|week2|gpu|fyi',
+            short_name = 'dbg',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Win Builder',
+            category = 'win|week3',
+            short_name = 'rel',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Win Builder (dbg)',
+            category = 'win|week3',
+            short_name = 'dbg',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU FYI Win Builder',
+            category = 'win|week3|gpu|fyi',
+            short_name = 'rel',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU FYI Win Builder (dbg)',
+            category = 'win|week3|gpu|fyi',
+            short_name = 'dbg',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU FYI Win dEQP Builder',
+            category = 'win|week3|gpu|fyi',
+            short_name = 'deqp',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Dawn Win10 x86 Builder',
+            category = 'win|week3|dawn',
+            short_name = 'rel',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Dawn Win10 x86 DEPS Builder',
+            category = 'win|week3|dawn',
+            short_name = 'deps',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win32-archive-rel',
+            category = 'win|week4|win32',
+            short_name = 'rel',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win32-archive-dbg',
+            category = 'win|week4|win32',
+            short_name = 'dbg',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win32-arm64-rel',
+            category = 'win|week4|win32',
+            short_name = 'arm',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Libfuzzer Upload Windows ASan',
+            category = 'win|week4',
+            short_name = 'libfuzzer',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Windows deterministic',
+            category = 'win|week4',
+            short_name = 'det',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Mojo Windows',
+            category = 'win|week4',
+            short_name = 'mojo',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-celab-builder-rel',
+            category = 'win|week4',
+            short_name = 'celab',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-asan',
+            category = 'win|week4',
+            short_name = 'asan',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Win 10 Fast Ring',
+            category = 'win|week4',
+            short_name = 'fastring',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-annotator-rel',
+            category = 'win|week4',
+            short_name = 'anno',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-pixel-builder-rel',
+            category = 'win|week4',
+            short_name = 'pixel',
+        ),
+        luci.console_view_entry(
+            builder = 'webrtc/WebRTC Chromium Win Builder',
+            category = 'win|week4|webrtc',
+        ),
+        luci.console_view_entry(
+            builder = 'webrtc.fyi/WebRTC Chromium FYI Win Builder',
+            category = 'win|week4|webrtc|fyi',
+            short_name = 'rel',
+        ),
+        luci.console_view_entry(
+            builder = 'webrtc.fyi/WebRTC Chromium FYI Win Builder (dbg)',
+            category = 'win|week4|webrtc|fyi',
+            short_name = 'dbg',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-swangle-x86',
+            category = 'win|week4|swangle',
+            short_name = 'x86',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-swangle-x64',
+            category = 'win|week4|swangle',
+            short_name = 'x64',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-swangle-tot-angle-x86',
+            category = 'win|week4|swangle|angle',
+            short_name = 'x86',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-swangle-tot-angle-x64',
+            category = 'win|week4|swangle|angle',
+            short_name = 'x64',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-swangle-tot-swiftshader-x86',
+            category = 'win|week4|swangle|swift',
+            short_name = 'x86',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/win-swangle-tot-swiftshader-x64',
+            category = 'win|week4|swangle|swift',
+            short_name = 'x64',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/Win x64 Builder',
+            category = 'win|week5',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/GPU Win x64 Builder',
+            category = 'win|week5',
+            short_name = 'gpu',
+        ),
+        luci.console_view_entry(
+            builder = 'ci-m81/Win x64 Builder',
+            category = 'win|week5|stable',
+        ),
+        luci.console_view_entry(
+            builder = 'ci-m81/GPU Win x64 Builder',
+            category = 'win|week5|stable',
+            short_name = 'gpu',
         ),
         luci.console_view_entry(
             builder = 'ci/linux-chromeos-dbg',
@@ -949,6 +1144,70 @@ luci.console_view(
             builder = 'ci/chromeos-kevin-rel-hw-tests',
             category = 'cros|week3|kevin',
             short_name = 'hwtests',
+        ),
+        luci.console_view_entry(
+            builder = 'webrtc.fyi/WebRTC Chromium FYI ios-device',
+            category = 'ios|week1a',
+            short_name = 'dev',
+        ),
+        luci.console_view_entry(
+            builder = 'webrtc.fyi/WebRTC Chromium FYI ios-simulator',
+            category = 'ios|week1a',
+            short_name = 'sim',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios-device',
+            category = 'ios|week1b',
+            short_name = 'dev',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios-simulator',
+            category = 'ios|week1b|sim',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios-simulator-full-configs',
+            category = 'ios|week1b|sim',
+            short_name = 'fullconf',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios-simulator-noncq',
+            category = 'ios|week1b|sim',
+            short_name = 'noncq',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios13-beta-simulator',
+            category = 'ios|week1b|ios13|beta',
+            short_name = 'sim',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios13-sdk-simulator',
+            category = 'ios|week1b|ios13|sdk',
+            short_name = 'sim',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios-simulator-cronet',
+            category = 'ios|week1c',
+            short_name = 'cro',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios-simulator-cr-recipe',
+            category = 'ios|week1c',
+            short_name = 'crr',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios-webkit-tot',
+            category = 'ios|week1c',
+            short_name = 'webkit',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios13-sdk-device',
+            category = 'ios|week1c|ios13',
+            short_name = 'dev',
+        ),
+        luci.console_view_entry(
+            builder = 'ci/ios-simulator-code-coverage',
+            category = 'ios|week1d',
+            short_name = 'code',
         ),
     ],
 )

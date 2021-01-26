@@ -55,10 +55,6 @@ void CFX_RTFBreak::SetUserData(const RetainPtr<CFX_TextUserData>& pUserData) {
   m_pUserData = pUserData;
 }
 
-int32_t CFX_RTFBreak::GetLastPositionedTab() const {
-  return m_PositionedTabs.empty() ? m_iLineStart : m_PositionedTabs.back();
-}
-
 bool CFX_RTFBreak::GetPositionedTab(int32_t* iTabPos) const {
   auto it = std::upper_bound(m_PositionedTabs.begin(), m_PositionedTabs.end(),
                              *iTabPos);
@@ -142,7 +138,7 @@ void CFX_RTFBreak::AppendChar_Combination(CFX_Char* pCurChar) {
   int32_t iCharWidthValid = iCharWidth.ValueOrDefault(0);
   pCurChar->m_iCharWidth = iCharWidthValid;
   if (iCharWidthValid > 0) {
-    pdfium::base::CheckedNumeric<int32_t> checked_width = m_pCurLine->m_iWidth;
+    FX_SAFE_INT32 checked_width = m_pCurLine->m_iWidth;
     checked_width += iCharWidthValid;
     if (!checked_width.IsValid())
       return;
@@ -220,7 +216,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
            m_pFont->GetCharWidth(pLastChar->char_code(), &iCharWidthOut))) {
         iCharWidth = iCharWidthOut;
       } else {
-        iCharWidth = m_iDefChar;
+        iCharWidth = 0;
       }
 
       iCharWidth *= m_iFontSize;
@@ -230,8 +226,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
       int iCharWidthValid = iCharWidth.ValueOrDefault(0);
       pLastChar->m_iCharWidth = iCharWidthValid;
 
-      pdfium::base::CheckedNumeric<int32_t> checked_width =
-          m_pCurLine->m_iWidth;
+      FX_SAFE_INT32 checked_width = m_pCurLine->m_iWidth;
       checked_width += iCharWidthValid;
       if (!checked_width.IsValid())
         return CFX_BreakType::None;
@@ -250,7 +245,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
        m_pFont->GetCharWidth(pCurChar->char_code(), &iCharWidthOut))) {
     iCharWidth = iCharWidthOut;
   } else {
-    iCharWidth = m_iDefChar;
+    iCharWidth = 0;
   }
 
   iCharWidth *= m_iFontSize;
@@ -260,7 +255,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
   int iCharWidthValid = iCharWidth.ValueOrDefault(0);
   pCurChar->m_iCharWidth = iCharWidthValid;
 
-  pdfium::base::CheckedNumeric<int32_t> checked_width = m_pCurLine->m_iWidth;
+  FX_SAFE_INT32 checked_width = m_pCurLine->m_iWidth;
   checked_width += iCharWidthValid;
   if (!checked_width.IsValid())
     return CFX_BreakType::None;
@@ -280,7 +275,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Others(CFX_Char* pCurChar) {
   if (m_pFont && m_pFont->GetCharWidth(wForm, &iCharWidthOut))
     iCharWidth = iCharWidthOut;
   else
-    iCharWidth = m_iDefChar;
+    iCharWidth = 0;
 
   iCharWidth *= m_iFontSize;
   iCharWidth *= m_iHorizontalScale;
@@ -290,7 +285,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Others(CFX_Char* pCurChar) {
   int iCharWidthValid = iCharWidth.ValueOrDefault(0);
   pCurChar->m_iCharWidth = iCharWidthValid;
 
-  pdfium::base::CheckedNumeric<int32_t> checked_width = m_pCurLine->m_iWidth;
+  FX_SAFE_INT32 checked_width = m_pCurLine->m_iWidth;
   checked_width += iCharWidthValid;
   if (!checked_width.IsValid())
     return CFX_BreakType::None;

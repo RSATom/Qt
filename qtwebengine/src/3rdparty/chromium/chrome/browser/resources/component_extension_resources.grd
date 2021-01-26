@@ -59,6 +59,7 @@
       <include name="IDR_IDENTITY_API_SCOPE_APPROVAL_DIALOG_CSS" file="identity_scope_approval_dialog/scope_approval_dialog.css" type="BINDATA" />
       <include name="IDR_IDENTITY_API_SCOPE_APPROVAL_DIALOG" file="identity_scope_approval_dialog/scope_approval_dialog.html" type="BINDATA" />
       <include name="IDR_IDENTITY_API_SCOPE_APPROVAL_DIALOG_JS" file="identity_scope_approval_dialog/scope_approval_dialog.js" type="BINDATA" />
+      <include name="IDR_IDENTITY_API_SCOPE_APPROVAL_INJECT_JS" file="identity_scope_approval_dialog/inject.js" type="BINDATA" />
       <if expr="chromeos">
         <include name="IDR_WALLPAPER_MANAGER_CONSTANTS_JS" file="chromeos/wallpaper_manager/js/constants.js" flattenhtml="true" type="BINDATA" />
         <include name="IDR_WALLPAPER_MANAGER_EVENT_JS" file="chromeos/wallpaper_manager/js/event_page.js" flattenhtml="true" type="BINDATA" />
@@ -101,9 +102,9 @@
         <include name="IDR_PDF_INDEX_CSS" file="pdf/index.css" allowexternalscript="true" type="BINDATA" />
         <include name="IDR_PDF_MAIN_JS" file="pdf/main.js" type="BINDATA" preprocess="true" />
         <include name="IDR_PDF_PDF_VIEWER_JS" file="pdf/pdf_viewer.js" type="BINDATA" />
+        <include name="IDR_PDF_CONSTANTS_JS" file="pdf/constants.js" type="BINDATA" />
         <include name="IDR_PDF_CONTROLLER_JS" file="pdf/controller.js" type="BINDATA" />
         <include name="IDR_PDF_TOOLBAR_MANAGER_JS" file="pdf/toolbar_manager.js" type="BINDATA" />
-        <include name="IDR_PDF_PDF_FITTING_TYPE_JS" file="pdf/pdf_fitting_type.js" type="BINDATA" />
         <include name="IDR_PDF_VIEWPORT_JS" file="pdf/viewport.js" type="BINDATA" />
         <include name="IDR_PDF_OPEN_PDF_PARAMS_PARSER_JS" file="pdf/open_pdf_params_parser.js" type="BINDATA" />
         <include name="IDR_PDF_NAVIGATOR_JS" file="pdf/navigator.js" type="BINDATA" />

@@ -12,31 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef VK_FORMAT_UTILS_HPP_
-#define VK_FORMAT_UTILS_HPP_
+#ifndef VK_FORMAT_HPP_
+#define VK_FORMAT_HPP_
+
+#include "System/Types.hpp"
 
 #include <Vulkan/VulkanPlatform.h>
 
-namespace sw
-{
-	struct float4;
-}
-
-namespace vk
-{
+namespace vk {
 
 class Format
 {
 public:
 	Format() {}
-	Format(VkFormat format) : format(format) {}
+	Format(VkFormat format)
+	    : format(format)
+	{}
 	inline operator VkFormat() const { return format; }
 
 	bool isUnsignedNormalized() const;
 	bool isSignedNormalized() const;
-	bool isSignedNonNormalizedInteger() const;
-	bool isUnsignedNonNormalizedInteger() const;
-	bool isNonNormalizedInteger() const;
+	bool isSignedUnnormalizedInteger() const;
+	bool isUnsignedUnnormalizedInteger() const;
+	bool isUnnormalizedInteger() const;
 
 	VkImageAspectFlags getAspects() const;
 	Format getAspectFormat(VkImageAspectFlags aspect) const;
@@ -46,7 +44,7 @@ public:
 	bool isFloatFormat() const;
 	bool isYcbcrFormat() const;
 
-	bool isCompatible(const Format& other) const;
+	bool isCompatible(const Format &other) const;
 	bool isCompressed() const;
 	VkFormat getDecompressedFormat() const;
 	int blockWidth() const;
@@ -69,6 +67,8 @@ public:
 	bool has32bitIntegerTextureComponents() const;
 	bool isRGBComponent(int component) const;
 
+	static uint8_t mapTo8bit(VkFormat format);
+
 private:
 	VkFormat compatibleFormat() const;
 	int sliceBUnpadded(int width, int height, int border, bool target) const;
@@ -76,6 +76,6 @@ private:
 	VkFormat format = VK_FORMAT_UNDEFINED;
 };
 
-} // namespace vk
+}  // namespace vk
 
-#endif // VK_FORMAT_UTILS_HPP_
+#endif  // VK_FORMAT_HPP_

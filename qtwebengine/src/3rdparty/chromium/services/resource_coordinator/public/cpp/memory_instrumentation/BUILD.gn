@@ -56,7 +56,5 @@ source_set("browser") {
     "browser_metrics.h",
   ]
 
-  deps = [
-    "//base",
-  ]
+  deps = [ "//base" ]
 }

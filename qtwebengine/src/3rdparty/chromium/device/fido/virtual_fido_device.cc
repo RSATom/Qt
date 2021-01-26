@@ -140,6 +140,7 @@ bool VirtualFidoDevice::State::InjectResidentKey(
 
 VirtualFidoDevice::VirtualFidoDevice() = default;
 
+
 VirtualFidoDevice::VirtualFidoDevice(scoped_refptr<State> state)
     : state_(std::move(state)) {}
 
@@ -194,12 +195,14 @@ VirtualFidoDevice::GenerateAttestationCertificate(
       {kTransportTypesOID, false /* not critical */, kTransportTypesContents},
   };
 
+  // https://w3c.github.io/webauthn/#sctn-packed-attestation-cert-requirements
   std::string attestation_cert;
   if (!net::x509_util::CreateSelfSignedCert(
           attestation_private_key->key(), net::x509_util::DIGEST_SHA256,
-          "CN=" + (individual_attestation_requested
-                       ? state_->individual_attestation_cert_common_name
-                       : state_->attestation_cert_common_name),
+          "C=US, O=Chromium, OU=Authenticator Attestation, CN=" +
+              (individual_attestation_requested
+                   ? state_->individual_attestation_cert_common_name
+                   : state_->attestation_cert_common_name),
           kAttestationCertSerialNumber, base::Time::FromTimeT(1500000000),
           base::Time::FromTimeT(1500000000), extensions, &attestation_cert)) {
     DVLOG(2) << "Failed to create attestation certificate";
@@ -245,6 +248,17 @@ VirtualFidoDevice::RegistrationData* VirtualFidoDevice::FindRegistrationData(
   }
 
   return &it->second;
+}
+
+bool VirtualFidoDevice::SimulatePress() {
+  if (!state_->simulate_press_callback)
+    return true;
+
+  auto weak_this = GetWeakPtr();
+  bool result = state_->simulate_press_callback.Run(this);
+  // |this| might have been destroyed at this point - accessing state from the
+  // object without checking weak_this is dangerous.
+  return weak_this && result;
 }
 
 void VirtualFidoDevice::TryWink(base::OnceClosure cb) {

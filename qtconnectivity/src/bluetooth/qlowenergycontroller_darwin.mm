@@ -460,11 +460,16 @@ void QLowEnergyControllerPrivateDarwin::_q_serviceDiscoveryFinished()
         qCDebug(QT_BT_OSX) << "no services found";
     }
 
-    for (ServiceMap::const_iterator it = serviceList.constBegin(); it != serviceList.constEnd(); ++it)
-        emit q_ptr->serviceDiscovered(it.key());
 
-    setState(QLowEnergyController::DiscoveredState);
-    emit q_ptr->discoveryFinished();
+    state = QLowEnergyController::DiscoveredState;
+
+    for (auto it = serviceList.constBegin(); it != serviceList.constEnd(); ++it) {
+        QMetaObject::invokeMethod(q_ptr, "serviceDiscovered", Qt::QueuedConnection,
+                                  Q_ARG(QBluetoothUuid, it.key()));
+    }
+
+    QMetaObject::invokeMethod(q_ptr, "stateChanged", Qt::QueuedConnection, Q_ARG(QLowEnergyController::ControllerState, state));
+    QMetaObject::invokeMethod(q_ptr, "discoveryFinished", Qt::QueuedConnection);
 }
 
 void QLowEnergyControllerPrivateDarwin::_q_serviceDetailsDiscoveryFinished(QSharedPointer<QLowEnergyServicePrivate> service)

@@ -37,7 +37,10 @@ from blinkpy.common import exit_codes
 from blinkpy.common.host import Host
 from blinkpy.web_tests.controllers.manager import Manager
 from blinkpy.web_tests.models import test_run_results
-from blinkpy.web_tests.port.factory import configuration_options, platform_options, wpt_options
+from blinkpy.web_tests.port.factory import configuration_options
+from blinkpy.web_tests.port.factory import platform_options
+from blinkpy.web_tests.port.factory import wpt_options
+from blinkpy.web_tests.port.factory import python_server_options
 from blinkpy.web_tests.views import printing
 
 _log = logging.getLogger(__name__)
@@ -110,6 +113,8 @@ def parse_args(args):
     option_group_definitions.append(
         ('web-platform-tests (WPT) Options', wpt_options()))
 
+    option_group_definitions.append(('Python Server Options', python_server_options()))
+
     option_group_definitions.append(
         ('Android-specific Options', [
             optparse.make_option(
@@ -177,6 +182,12 @@ def parse_args(args):
                 '--ignore-default-expectations',
                 action='store_true',
                 help=('Do not use the default set of TestExpectations files.')),
+            optparse.make_option(
+                '--no-expectations',
+                action='store_true',
+                help=('Do not use TestExpectations, only run the tests without '
+                      'reporting any results. Useful for generating code '
+                      'coverage reports.')),
             optparse.make_option(
                 '--additional-platform-directory',
                 action='append',
@@ -475,6 +486,11 @@ def parse_args(args):
                 action='store_true',
                 help='run all tests in parallel'),
             optparse.make_option(
+                '--virtual-parallel',
+                action='store_true',
+                help='When running in parallel, include virtual tests. Useful for running a single '
+                     'virtual test suite, but will be slower in other cases.'),
+            optparse.make_option(
                 '-i', '--ignore-tests',
                 action='append',
                 default=[],
@@ -521,8 +537,10 @@ def parse_args(args):
                 default='',
                 help='The name of the builder shown on the waterfall running '
                      'this script, e.g. "Mac10.13 Tests".'),
-            # TODO(crbug/1002702): Remove this, it's not actually a Buildbot
-            # master since Buildbot is gone.
+            # TODO(qyearsley): This is not actually a Buildbot master since
+            # Buildbot is gone; all instances of the term "master" in this
+            # code-base should be removed after test-results.appspot.com is
+            # removed.
             optparse.make_option('--master-name'),
             optparse.make_option(
                 '--test-results-server',

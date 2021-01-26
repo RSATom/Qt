@@ -48,7 +48,7 @@ void CompareTextRuns(
   EXPECT_EQ(expected_style.font_name, actual_style.font_name);
   EXPECT_EQ(expected_style.font_weight, actual_style.font_weight);
   EXPECT_EQ(expected_style.render_mode, actual_style.render_mode);
-  EXPECT_EQ(expected_style.font_size, actual_style.font_size);
+  EXPECT_FLOAT_EQ(expected_style.font_size, actual_style.font_size);
   EXPECT_EQ(expected_style.fill_color, actual_style.fill_color);
   EXPECT_EQ(expected_style.stroke_color, actual_style.stroke_color);
   EXPECT_EQ(expected_style.is_italic, actual_style.is_italic);
@@ -353,12 +353,16 @@ TEST_F(PDFiumPageHighlightTest, TestPopulateHighlights) {
     int32_t start_char_index;
     int32_t char_count;
     pp::Rect bounding_rect;
+    uint32_t color;
   };
 
+  constexpr uint32_t kHighlightDefaultColor = MakeARGB(255, 255, 255, 0);
+  constexpr uint32_t kHighlightRedColor = MakeARGB(102, 230, 0, 0);
+  constexpr uint32_t kHighlightNoColor = MakeARGB(0, 0, 0, 0);
   static const ExpectedHighlight kExpectedHighlights[] = {
-      {0, 5, {5, 196, 49, 26}},
-      {12, 7, {110, 196, 77, 26}},
-      {20, 1, {192, 196, 13, 26}}};
+      {0, 5, {5, 196, 49, 26}, kHighlightDefaultColor},
+      {12, 7, {110, 196, 77, 26}, kHighlightRedColor},
+      {20, 1, {192, 196, 13, 26}, kHighlightNoColor}};
 
   TestClient client;
   std::unique_ptr<PDFiumEngine> engine =
@@ -368,7 +372,7 @@ TEST_F(PDFiumPageHighlightTest, TestPopulateHighlights) {
 
   PDFiumPage* page = GetPDFiumPageForTest(engine.get(), 0);
   ASSERT_TRUE(page);
-  page->PopulateHighlights();
+  page->PopulateAnnotations();
   ASSERT_EQ(base::size(kExpectedHighlights), page->highlights_.size());
 
   for (size_t i = 0; i < page->highlights_.size(); ++i) {
@@ -378,6 +382,44 @@ TEST_F(PDFiumPageHighlightTest, TestPopulateHighlights) {
               page->highlights_[i].char_count);
     CompareRect(kExpectedHighlights[i].bounding_rect,
                 page->highlights_[i].bounding_rect);
+    ASSERT_EQ(kExpectedHighlights[i].color, page->highlights_[i].color);
+  }
+}
+
+using PDFiumPageTextFieldTest = PDFiumTestBase;
+
+TEST_F(PDFiumPageTextFieldTest, TestPopulateTextFields) {
+  struct ExpectedTextField {
+    const char* name;
+    const char* value;
+    pp::Rect bounding_rect;
+    int flags;
+  };
+
+  static const ExpectedTextField kExpectedTextFields[] = {
+      {"Text Box", "Text", {138, 230, 135, 41}, 0},
+      {"ReadOnly", "Elephant", {138, 163, 135, 41}, 1},
+      {"Required", "Required Field", {138, 303, 135, 34}, 2},
+      {"Password", "", {138, 356, 135, 35}, 8192}};
+
+  TestClient client;
+  std::unique_ptr<PDFiumEngine> engine =
+      InitializeEngine(&client, FILE_PATH_LITERAL("form_text_fields.pdf"));
+  ASSERT_TRUE(engine);
+  ASSERT_EQ(1, engine->GetNumberOfPages());
+
+  PDFiumPage* page = GetPDFiumPageForTest(engine.get(), 0);
+  ASSERT_TRUE(page);
+  page->PopulateAnnotations();
+  size_t text_fields_count = page->text_fields_.size();
+  ASSERT_EQ(base::size(kExpectedTextFields), text_fields_count);
+
+  for (size_t i = 0; i < text_fields_count; ++i) {
+    EXPECT_EQ(kExpectedTextFields[i].name, page->text_fields_[i].name);
+    EXPECT_EQ(kExpectedTextFields[i].value, page->text_fields_[i].value);
+    CompareRect(kExpectedTextFields[i].bounding_rect,
+                page->text_fields_[i].bounding_rect);
+    EXPECT_EQ(kExpectedTextFields[i].flags, page->text_fields_[i].flags);
   }
 }
 

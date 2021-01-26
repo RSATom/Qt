@@ -94,7 +94,15 @@ blink_modules_sources("mediastream") {
     "webmediaplayer_ms_compositor.cc",
     "webmediaplayer_ms_compositor.h",
   ]
+
+  jumbo_excluded_sources = [
+    "input_device_info.cc",
+    "processed_local_audio_source.cc",
+    "user_media_processor.cc",
+  ]
+
   deps = [
+    "//build:chromecast_buildflags",
     "//media/capture/mojom:image_capture_blink",
     "//media/webrtc",
   ]

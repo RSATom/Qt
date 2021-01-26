@@ -1161,9 +1161,24 @@ int QRegularExpressionPrivate::captureIndexForName(QStringView name) const
     if (!compiledPattern)
         return -1;
 
-    int index = pcre2_substring_number_from_name_16(compiledPattern, reinterpret_cast<PCRE2_SPTR16>(name.utf16()));
-    if (index >= 0)
-        return index;
+    // See the other usages of pcre2_pattern_info_16 for more details about this
+    PCRE2_SPTR16 *namedCapturingTable;
+    unsigned int namedCapturingTableEntryCount;
+    unsigned int namedCapturingTableEntrySize;
+
+    pcre2_pattern_info_16(compiledPattern, PCRE2_INFO_NAMETABLE, &namedCapturingTable);
+    pcre2_pattern_info_16(compiledPattern, PCRE2_INFO_NAMECOUNT, &namedCapturingTableEntryCount);
+    pcre2_pattern_info_16(compiledPattern, PCRE2_INFO_NAMEENTRYSIZE, &namedCapturingTableEntrySize);
+
+    for (unsigned int i = 0; i < namedCapturingTableEntryCount; ++i) {
+        const auto currentNamedCapturingTableRow =
+                reinterpret_cast<const char16_t *>(namedCapturingTable) + namedCapturingTableEntrySize * i;
+
+        if (name == (currentNamedCapturingTableRow + 1)) {
+            const int index = *currentNamedCapturingTableRow;
+            return index;
+        }
+    }
 
     return -1;
 }
@@ -1720,6 +1735,24 @@ QRegularExpressionMatch QRegularExpression::match(const QStringRef &subjectRef,
 }
 
 /*!
+    \fn QRegularExpressionMatch QRegularExpression::match(QStringView subject, int offset, QRegularExpression::MatchType matchType, MatchOptions matchOptions) const
+    \since 5.15.2
+    \overload
+
+    Attempts to match the regular expression against the given \a subjectRef
+    string reference, starting at the position \a offset inside the subject, using a
+    match of type \a matchType and honoring the given \a matchOptions.
+
+    The returned QRegularExpressionMatch object contains the results of the
+    match.
+
+    \note This overload has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QRegularExpressionMatch, {normal matching}
+*/
+
+/*!
     Attempts to perform a global match of the regular expression against the
     given \a subject string, starting at the position \a offset inside the
     subject, using a match of type \a matchType and honoring the given \a
@@ -1771,6 +1804,26 @@ QRegularExpressionMatchIterator QRegularExpression::globalMatch(const QStringRef
 
     return QRegularExpressionMatchIterator(*priv);
 }
+
+
+/*!
+    \fn QRegularExpressionMatchIterator QRegularExpression::globalMatch(QStringView subject, int offset, QRegularExpression::MatchType matchType, MatchOptions matchOptions) const
+    \since 5.15.2
+    \overload
+
+    Attempts to perform a global match of the regular expression against the
+    given \a subject string, starting at the position \a offset inside the
+    subject, using a match of type \a matchType and honoring the given \a
+    matchOptions.
+
+    The returned QRegularExpressionMatchIterator is positioned before the
+    first match result (if any).
+
+    \note This overload has been added in 5.15.2 to simplify writing code that is portable
+    between Qt 5.15 and Qt 6. The implementation is not tuned for performance in Qt 5.
+
+    \sa QRegularExpressionMatchIterator, {global matching}
+*/
 
 /*!
     \since 5.4

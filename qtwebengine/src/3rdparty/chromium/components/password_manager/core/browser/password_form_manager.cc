@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -101,6 +102,17 @@ const PasswordFieldPrediction* FindFieldPrediction(
       return &field;
   }
   return nullptr;
+}
+
+void LogUsingPossibleUsername(PasswordManagerClient* client,
+                              bool is_used,
+                              const char* message) {
+  if (!password_manager_util::IsLoggingActive(client))
+    return;
+  BrowserSavePasswordProgressLogger logger(client->GetLogManager());
+  logger.LogString(is_used ? Logger::STRING_POSSIBLE_USERNAME_USED
+                           : Logger::STRING_POSSIBLE_USERNAME_NOT_USED,
+                   message);
 }
 
 }  // namespace
@@ -234,7 +246,7 @@ PasswordFormManager::GetFederatedMatches() const {
 }
 
 const PasswordForm& PasswordFormManager::GetPendingCredentials() const {
-  return *password_save_manager_->GetPendingCredentials();
+  return password_save_manager_->GetPendingCredentials();
 }
 
 metrics_util::CredentialSourceType PasswordFormManager::GetCredentialSource()
@@ -293,9 +305,6 @@ void PasswordFormManager::OnUpdateUsernameFromPrompt(
   // uploaded.
   votes_uploader_.set_has_username_edited_vote(false);
   if (!new_username.empty()) {
-    // |all_possible_usernames| has all possible usernames.
-    // TODO(crbug.com/831123): rename to |all_possible_usernames| when the old
-    // parser is gone.
     for (const auto& possible_username :
          parsed_submitted_form_->all_possible_usernames) {
       if (possible_username.first == new_username) {
@@ -391,6 +400,10 @@ void PasswordFormManager::OnPasswordsRevealed() {
   votes_uploader_.set_has_passwords_revealed_vote(true);
 }
 
+void PasswordFormManager::MoveCredentialsToAccountStore() {
+  password_save_manager_->MoveCredentialsToAccountStore();
+}
+
 bool PasswordFormManager::IsNewLogin() const {
   return password_save_manager_->IsNewLogin();
 }
@@ -400,15 +413,16 @@ FormFetcher* PasswordFormManager::GetFormFetcher() {
 }
 
 bool PasswordFormManager::IsPendingCredentialsPublicSuffixMatch() const {
-  return password_save_manager_->GetPendingCredentials()
-      ->is_public_suffix_match;
+  return password_save_manager_->GetPendingCredentials().is_public_suffix_match;
 }
 
-void PasswordFormManager::PresaveGeneratedPassword(const PasswordForm& form) {
+void PasswordFormManager::PresaveGeneratedPassword(
+    const FormData& form_data,
+    const base::string16& password_value) {
   // TODO(https://crbug.com/831123): Propagate generated password independently
   // of PasswordForm when PasswordForm goes away from the renderer process.
-  PresaveGeneratedPasswordInternal(form.form_data,
-                                   form.password_value /*generated_password*/);
+  PresaveGeneratedPasswordInternal(form_data,
+                                   password_value /*generated_password*/);
 }
 
 void PasswordFormManager::PasswordNoLongerGenerated() {
@@ -463,16 +477,13 @@ void PasswordFormManager::PresaveGeneratedPassword(
   votes_uploader_.set_generation_element(generation_element);
 }
 
-bool PasswordFormManager::UpdateGeneratedPasswordOnUserInput(
+bool PasswordFormManager::UpdateStateOnUserInput(
     const base::string16& form_identifier,
     const base::string16& field_identifier,
     const base::string16& field_value) {
-  if (observed_form_.name != form_identifier || !HasGeneratedPassword()) {
-    // *this might not have generated password, because
-    // 1.This function is called before PresaveGeneratedPassword, or
-    // 2.There are multiple forms with the same |form_identifier|
+  if (observed_form_.name != form_identifier)
     return false;
-  }
+
   bool form_data_changed = false;
   for (FormFieldData& field : observed_form_.fields) {
     if (field.unique_id == field_identifier) {
@@ -481,6 +492,10 @@ bool PasswordFormManager::UpdateGeneratedPasswordOnUserInput(
       break;
     }
   }
+
+  if (!HasGeneratedPassword())
+    return true;
+
   base::string16 generated_password =
       password_save_manager_->GetGeneratedPassword();
   if (votes_uploader_.get_generation_element() == field_identifier) {
@@ -490,6 +505,11 @@ bool PasswordFormManager::UpdateGeneratedPasswordOnUserInput(
   if (form_data_changed)
     PresaveGeneratedPasswordInternal(observed_form_, generated_password);
   return true;
+}
+
+void PasswordFormManager::SetDriver(
+    const base::WeakPtr<PasswordManagerDriver>& driver) {
+  driver_ = driver;
 }
 #endif  // defined(OS_IOS)
 
@@ -556,7 +576,6 @@ PasswordFormManager::PasswordFormManager(
 void PasswordFormManager::OnFetchCompleted() {
   received_stored_credentials_time_ = TimeTicks::Now();
 
-  // Copy out blacklisted matches.
   newly_blacklisted_ = false;
   autofills_left_ = kMaxTimesAutofill;
 
@@ -565,6 +584,13 @@ void PasswordFormManager::OnFetchCompleted() {
     // filling required.
     return;
   }
+
+  client_->UpdateCredentialCache(observed_form_.url.GetOrigin(),
+                                 form_fetcher_->GetBestMatches(),
+                                 form_fetcher_->IsBlacklisted());
+
+  if (is_submitted_)
+    CreatePendingCredentials();
 
   if (IsHttpAuth()) {
     // No server prediction for http auth, so no need to wait.
@@ -583,6 +609,16 @@ void PasswordFormManager::OnFetchCompleted() {
   }
 }
 
+void PasswordFormManager::CreatePendingCredentials() {
+  DCHECK(is_submitted_);
+  if (!parsed_submitted_form_)
+    return;
+
+  password_save_manager_->CreatePendingCredentials(
+      *parsed_submitted_form_, observed_form_, submitted_form_, IsHttpAuth(),
+      IsCredentialAPISave());
+}
+
 bool PasswordFormManager::ProvisionallySave(
     const FormData& submitted_form,
     const PasswordManagerDriver* driver,
@@ -593,11 +629,17 @@ bool PasswordFormManager::ProvisionallySave(
   RecordMetricOnReadonly(parser_.readonly_status(), !!parsed_submitted_form,
                          FormDataParser::Mode::kSaving);
 
-  // This function might be called multiple times. Consider as success if the
-  // submitted form was successfully parsed on a previous call.
-  if (!parsed_submitted_form ||
-      !parsed_submitted_form->HasNonEmptyPasswordValue()) {
-    return is_submitted_;
+  bool have_password_to_save =
+      parsed_submitted_form &&
+      parsed_submitted_form->HasNonEmptyPasswordValue();
+
+  if (!have_password_to_save) {
+    // In case of error during parsing, reset the state.
+    parsed_submitted_form_.reset();
+    submitted_form_ = FormData();
+    password_save_manager_->ResetPendingCrednetials();
+    is_submitted_ = false;
+    return false;
   }
 
   parsed_submitted_form_ = std::move(parsed_submitted_form);
@@ -809,20 +851,6 @@ void PasswordFormManager::ReportTimeBetweenStoreAndServerUMA() {
   }
 }
 
-// TODO(https://crbug.com/831123): move this function to the proper place
-// corresponding to its place in the header.
-void PasswordFormManager::CreatePendingCredentials() {
-  DCHECK(is_submitted_);
-  // TODO(https://crbug.com/831123): Process correctly the case when saved
-  // credentials are not received from the store yet.
-  if (!parsed_submitted_form_)
-    return;
-
-  password_save_manager_->CreatePendingCredentials(
-      *parsed_submitted_form_, observed_form_, submitted_form_, IsHttpAuth(),
-      IsCredentialAPISave());
-}
-
 void PasswordFormManager::FillHttpAuth() {
   DCHECK(IsHttpAuth());
   if (!form_fetcher_->GetPreferredMatch())
@@ -889,19 +917,25 @@ void PasswordFormManager::CalculateFillingAssistanceMetric(
 
 bool PasswordFormManager::UsePossibleUsername(
     const PossibleUsernameData* possible_username) {
-  if (!possible_username)
+  if (!possible_username) {
+    LogUsingPossibleUsername(client_, /*is_used*/ false, "Null");
     return false;
+  }
 
   // The username form and password forms signon realms must be the same.
-  if (GetSignonRealm(observed_form_.url) != possible_username->signon_realm)
+  if (GetSignonRealm(observed_form_.url) != possible_username->signon_realm) {
+    LogUsingPossibleUsername(client_, /*is_used*/ false, "Different domains");
     return false;
+  }
 
   // The username candidate field should not be in |observed_form_|, otherwise
   // that is a task of FormParser to choose it from |observed_form_|.
   if (possible_username->driver_id == driver_id_) {
     for (const auto& field : observed_form_.fields) {
-      if (field.unique_renderer_id == possible_username->renderer_id)
+      if (field.unique_renderer_id == possible_username->renderer_id) {
+        LogUsingPossibleUsername(client_, /*is_used*/ false, "Same form");
         return false;
+      }
     }
   }
 
@@ -909,12 +943,22 @@ bool PasswordFormManager::UsePossibleUsername(
   const PasswordFieldPrediction* field_prediction = FindFieldPrediction(
       possible_username->form_predictions, possible_username->renderer_id);
   if (field_prediction) {
-    if (field_prediction->type == SINGLE_USERNAME)
+    if (field_prediction->type == SINGLE_USERNAME) {
+      LogUsingPossibleUsername(client_, /*is_used*/ true, "Server predictions");
       return true;
-    if (field_prediction->type == NOT_USERNAME)
+    }
+    if (field_prediction->type == NOT_USERNAME) {
+      LogUsingPossibleUsername(client_, /*is_used*/ false,
+                               "Server predictions");
       return false;
+    }
   }
 
+#if defined(OS_ANDROID)
+  // Do not trust local heuristics on Android.
+  // TODO(https://crbug.com/1051914): Make local heuristics more reliable.
+  return false;
+#else
   // Check whether it is already learned from previous user actions whether
   // |possible_username| corresponds to the valid username form.
   const FieldInfoManager* field_info_manager = client_->GetFieldInfoManager();
@@ -923,15 +967,23 @@ bool PasswordFormManager::UsePossibleUsername(
     auto field_signature = field_prediction->signature;
     autofill::ServerFieldType type =
         field_info_manager->GetFieldType(form_signature, field_signature);
-    if (type == SINGLE_USERNAME)
+    if (type == SINGLE_USERNAME) {
+      LogUsingPossibleUsername(client_, /*is_used*/ true, "Local prediction");
       return true;
-    if (type == NOT_USERNAME)
+    }
+    if (type == NOT_USERNAME) {
+      LogUsingPossibleUsername(client_, /*is_used*/ false, "Local prediction");
       return false;
+    }
   }
 
-  return IsPossibleUsernameValid(*possible_username,
-                                 parsed_submitted_form_->signon_realm,
-                                 base::Time::Now());
+  bool is_possible_username_valid = IsPossibleUsernameValid(
+      *possible_username, parsed_submitted_form_->signon_realm,
+      base::Time::Now());
+  LogUsingPossibleUsername(client_, /*is_used*/ is_possible_username_valid,
+                           "Local heuristics");
+  return is_possible_username_valid;
+#endif  // defined(OS_ANDROID)
 }
 
 }  // namespace password_manager

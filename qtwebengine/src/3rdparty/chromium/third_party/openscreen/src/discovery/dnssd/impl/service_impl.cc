@@ -6,22 +6,60 @@
 
 #include <utility>
 
+#include "discovery/common/config.h"
 #include "discovery/mdns/public/mdns_service.h"
+#include "platform/api/task_runner.h"
 
 namespace openscreen {
 namespace discovery {
+namespace {
 
-// static
-std::unique_ptr<DnsSdService> DnsSdService::Create(TaskRunner* task_runner) {
-  return std::make_unique<ServiceImpl>(task_runner);
+MdnsService::SupportedNetworkAddressFamily GetSupportedEndpointTypes(
+    const InterfaceInfo& interface) {
+  MdnsService::SupportedNetworkAddressFamily supported_types =
+      MdnsService::kNoAddressFamily;
+  if (interface.GetIpAddressV4()) {
+    supported_types = supported_types | MdnsService::kUseIpV4Multicast;
+  }
+  if (interface.GetIpAddressV6()) {
+    supported_types = supported_types | MdnsService::kUseIpV6Multicast;
+  }
+  return supported_types;
 }
 
-ServiceImpl::ServiceImpl(TaskRunner* task_runner)
-    : mdns_service_(MdnsService::Create(task_runner)),
-      querier_(mdns_service_.get()),
-      publisher_(mdns_service_.get()) {}
+}  // namespace
 
-ServiceImpl::~ServiceImpl() = default;
+// static
+SerialDeletePtr<DnsSdService> CreateDnsSdService(
+    TaskRunner* task_runner,
+    ReportingClient* reporting_client,
+    const Config& config) {
+  return SerialDeletePtr<DnsSdService>(
+      task_runner, new ServiceImpl(task_runner, reporting_client, config));
+}
+
+ServiceImpl::ServiceImpl(TaskRunner* task_runner,
+                         ReportingClient* reporting_client,
+                         const Config& config)
+    : task_runner_(task_runner),
+      mdns_service_(
+          MdnsService::Create(task_runner,
+                              reporting_client,
+                              config,
+                              config.interface.index,
+                              GetSupportedEndpointTypes(config.interface))) {
+  if (config.enable_querying) {
+    querier_ = std::make_unique<QuerierImpl>(mdns_service_.get(), task_runner_);
+  }
+  if (config.enable_publication) {
+    publisher_ = std::make_unique<PublisherImpl>(
+        mdns_service_.get(), reporting_client, task_runner_);
+  }
+}
+
+ServiceImpl::~ServiceImpl() {
+  OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
+}
 
 }  // namespace discovery
 }  // namespace openscreen

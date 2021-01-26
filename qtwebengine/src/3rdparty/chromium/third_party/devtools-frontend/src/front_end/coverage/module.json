@@ -47,11 +47,13 @@
         "sdk",
         "ui",
         "source_frame",
-        "sources",
-        "data_grid"
+        "data_grid",
+        "formatter"
     ],
     "scripts": [],
     "modules": [
+        "coverage.js",
+        "coverage-legacy.js",
         "CoverageModel.js",
         "CoverageListView.js",
         "CoverageView.js",

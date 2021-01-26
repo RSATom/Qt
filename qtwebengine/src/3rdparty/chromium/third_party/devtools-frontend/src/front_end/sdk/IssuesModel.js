@@ -2,91 +2,280 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
 
-class Issue {
-  constructor(category, name, data) {
-    this._category = category;
-    this._name = name;
-    this._data = data;
+import {CookieModel} from './CookieModel.js';
+import {AggregatedIssue, Issue} from './Issue.js';
+import {Events as NetworkManagerEvents, NetworkManager} from './NetworkManager.js';
+import {NetworkRequest} from './NetworkRequest.js';  // eslint-disable-line no-unused-vars
+import * as RelatedIssue from './RelatedIssue.js';
+import {Events as ResourceTreeModelEvents, ResourceTreeFrame, ResourceTreeModel} from './ResourceTreeModel.js';  // eslint-disable-line no-unused-vars
+import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+
+
+/**
+ * This class generates issues in the front-end based on information provided by the network panel. In the long
+ * term, we might move this reporting to the back-end, but the current COVID-19 policy requires us to tone down
+ * back-end changes until we are back at normal release cycle.
+ */
+export class NetworkIssueDetector {
+  /**
+   * @param {!Target} target
+   * @param {!IssuesModel} issuesModel
+   */
+  constructor(target, issuesModel) {
+    this._issuesModel = issuesModel;
+    this._networkManager = target.model(NetworkManager);
+    if (this._networkManager) {
+      this._networkManager.addEventListener(NetworkManagerEvents.RequestFinished, this._handleRequestFinished, this);
+    }
+    for (const request of self.SDK.networkLog.requests()) {
+      this._handleRequestFinished({data: request});
+    }
+  }
+
+  /**
+   * @param {!{data:*}} event
+   */
+  _handleRequestFinished(event) {
+    const request = /** @type {!NetworkRequest} */ (event.data);
+    const blockedReason = getCoepBlockedReason(request);
+    if (blockedReason) {
+      const resources = {requests: [{requestId: request.requestId()}]};
+      const code = `CrossOriginEmbedderPolicy::${this._toCamelCase(blockedReason)}`;
+      this._issuesModel.issueAdded({code, resources});
+    }
+
+    /**
+     * @param {!NetworkRequest} request
+     * @return {?string}
+     */
+    function getCoepBlockedReason(request) {
+      if (!request.wasBlocked()) {
+        return null;
+      }
+      const blockedReason = request.blockedReason() || null;
+      if (blockedReason === Protocol.Network.BlockedReason.CoepFrameResourceNeedsCoepHeader ||
+          blockedReason === Protocol.Network.BlockedReason.CorpNotSameOriginAfterDefaultedToSameOriginByCoep ||
+          blockedReason === Protocol.Network.BlockedReason.CoopSandboxedIframeCannotNavigateToCoopPage ||
+          blockedReason === Protocol.Network.BlockedReason.CorpNotSameSite ||
+          blockedReason === Protocol.Network.BlockedReason.CorpNotSameOrigin) {
+        return blockedReason;
+      }
+      return null;
+    }
+  }
+
+  detach() {
+    if (this._networkManager) {
+      this._networkManager.removeEventListener(NetworkManagerEvents.RequestFinished, this._handleRequestFinished, this);
+    }
+  }
+
+  /**
+   * @param {string} string
+   * @return {string}
+   */
+  _toCamelCase(string) {
+    const result = string.replace(/-\p{ASCII}/gu, match => match.substr(1).toUpperCase());
+    return result.replace(/^./, match => match.toUpperCase());
   }
 }
 
-Issue.Categories = {
-  SameSite: Symbol('SameSite'),
-};
-
-const connectedIssuesSymbol = Symbol('issues');
 
 /**
- * @unrestricted
+ * @implements {Protocol.AuditsDispatcher}
  */
-export default class IssuesModel extends SDK.SDKModel {
+export class IssuesModel extends SDKModel {
   /**
-   * @param {!SDK.Target} target
+   * @param {!Target} target
    */
   constructor(target) {
     super(target);
-
-    const networkManager = target.model(SDK.NetworkManager);
-    if (networkManager) {
-      networkManager.addEventListener(SDK.NetworkManager.Events.RequestFinished, this._handleRequestFinished, this);
-    }
-
+    this._enabled = false;
+    /** @type {!Array<!Issue>} */
     this._issues = [];
+    /** @type {!Map<string, !AggregatedIssue>} */
+    this._aggregatedIssuesByCode = new Map();
+    this._cookiesModel = target.model(CookieModel);
+    /** @type {*} */
+    this._auditsAgent = null;
+    this._hasSeenMainFrameNavigated = false;
+
+    this._networkManager = target.model(NetworkManager);
+    const resourceTreeModel = /** @type {?ResourceTreeModel} */ (target.model(ResourceTreeModel));
+    if (resourceTreeModel) {
+      resourceTreeModel.addEventListener(
+        ResourceTreeModelEvents.MainFrameNavigated, this._onMainFrameNavigated, this);
+    }
+    this._networkIssueDetector = null;
+    this.ensureEnabled();
   }
 
   /**
-   * @param {!*} obj
-   * @param {!Issue} issue
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
-  static connectWithIssue(obj, issue) {
-    if (!obj) {
+  _onMainFrameNavigated(event) {
+    const mainFrame = /** @type {!ResourceTreeFrame} */ (event.data);
+    const keptIssues = [];
+    for (const issue of this._issues) {
+      if (issue.isAssociatedWithRequestId(mainFrame.loaderId)) {
+        keptIssues.push(issue);
+      } else {
+        this._disconnectIssue(issue);
+      }
+    }
+    this._issues = keptIssues;
+    this._aggregatedIssuesByCode.clear();
+    for (const issue of this._issues) {
+      this._aggregateIssue(issue);
+    }
+    this._hasSeenMainFrameNavigated = true;
+    this.dispatchEventToListeners(Events.FullUpdateRequired);
+  }
+
+  /**
+   * The `IssuesModel` requires at least one `MainFrameNavigated` event. Receiving
+   * one implies that we have all the information for accurate issues.
+   *
+   * @return {boolean}
+   */
+  reloadForAccurateInformationRequired() {
+    return !this._hasSeenMainFrameNavigated;
+  }
+
+  ensureEnabled() {
+    if (this._enabled) {
       return;
     }
 
-    if (!obj[connectedIssuesSymbol]) {
-      obj[connectedIssuesSymbol] = [];
-    }
-
-    obj[connectedIssuesSymbol].push(issue);
+    this._enabled = true;
+    this.target().registerAuditsDispatcher(this);
+    this._auditsAgent = this.target().auditsAgent();
+    this._auditsAgent.enable();
+    this._networkIssueDetector = new NetworkIssueDetector(this.target(), this);
   }
 
   /**
-   * @param {!*} obj
+   * @param {!Issue} issue
+   * @returns {!AggregatedIssue}
    */
-  static hasIssues(obj) {
-    if (!obj) {
-      return false;
+  _aggregateIssue(issue) {
+    if (!this._aggregatedIssuesByCode.has(issue.code())) {
+      this._aggregatedIssuesByCode.set(issue.code(), new AggregatedIssue(issue.code()));
     }
-
-    return obj[connectedIssuesSymbol] && obj[connectedIssuesSymbol].length;
+    const aggregatedIssue = this._aggregatedIssuesByCode.get(issue.code());
+    aggregatedIssue.addInstance(issue);
+    return aggregatedIssue;
   }
 
   /**
-   * @param {!Common.Event} event
+   * @override
+   * TODO(chromium:1063765): Strengthen types.
+   * @param {*} inspectorIssue
    */
-  _handleRequestFinished(event) {
-    const request = /** @type {!SDK.NetworkRequest} */ (event.data);
+  issueAdded(inspectorIssue) {
+    const issues = this._createIssuesFromProtocolIssue(inspectorIssue);
+    this._issues.push(...issues);
 
-    const blockedResponseCookies = request.blockedResponseCookies();
-    for (const blockedCookie of blockedResponseCookies) {
-      const reason = blockedCookie.blockedReasons[0];
-      const cookie = blockedCookie.cookie;
-      const issue = new Issue(Issue.Categories.SameSite, reason, {request, cookie});
-
-      IssuesModel.connectWithIssue(request, issue);
-      IssuesModel.connectWithIssue(cookie, issue);
+    for (const issue of issues) {
+      this._connectIssue(issue);
+      const aggregatedIssue = this._aggregateIssue(issue);
+      this.dispatchEventToListeners(Events.AggregatedIssueUpdated, aggregatedIssue);
     }
+  }
+
+  /**
+   * Each issue reported by the backend can result in multiple {!Issue} instances.
+   * Handlers are simple functions hard-coded into a map. If no handler is found for
+   * a given Issue code, the default behavior creates one {!Issue} per incoming backend
+   * issue.
+   * TODO(chromium:1063765): Strengthen types.
+   * @param {*} inspectorIssue} inspectorIssue
+   * @return {!Array<!Issue>}
+   */
+  _createIssuesFromProtocolIssue(inspectorIssue) {
+    const handler = issueCodeHandlers.get(inspectorIssue.code);
+    if (handler) {
+      // TODO(chromium:1063765): Pass the details object here, not the full inspector issue.
+      return handler(this, inspectorIssue);
+    }
+
+    return [new Issue(inspectorIssue.code, inspectorIssue.resources)];
+  }
+
+  /**
+   *
+   * @param {!Issue} issue
+   */
+  _connectIssue(issue) {
+    const resources = issue.resources();
+    if (!resources) {
+      return;
+    }
+    if (resources.requests) {
+      for (const resourceRequest of resources.requests) {
+        const request =
+            /** @type {?NetworkRequest} */ (
+                self.SDK.networkLog.requests().find(r => r.requestId() === resourceRequest.requestId));
+        if (request) {
+          // Connect the real network request with this issue and vice versa.
+          RelatedIssue.connect(request, issue.getCategory(), issue);
+          resourceRequest.request = request;
+        }
+      }
+    }
+  }
+
+  /**
+   *
+   * @param {!Issue} issue
+   */
+  _disconnectIssue(issue) {
+    const resources = issue.resources();
+    if (!resources) {
+      return;
+    }
+    if (resources.requests) {
+      for (const resourceRequest of resources.requests) {
+        const request =
+            /** @type {?NetworkRequest} */ (
+                self.SDK.networkLog.requests().find(r => r.requestId() === resourceRequest.requestId));
+        if (request) {
+          // Disconnect the real network request from this issue;
+          RelatedIssue.disconnect(request, issue.getCategory(), issue);
+        }
+      }
+    }
+  }
+
+  /**
+   * @returns {!Iterable<AggregatedIssue>}
+   */
+  aggregatedIssues() {
+    return this._aggregatedIssuesByCode.values();
+  }
+
+  /**
+   * @return {number}
+   */
+  numberOfAggregatedIssues() {
+    return this._aggregatedIssuesByCode.size;
   }
 }
 
-/* Legacy exported object */
-self.SDK = self.SDK || {};
+/**
+ * TODO(chromium:1063765): Change the type (once the protocol/backend changes have landed) to:
+ *   !Map<!Protocol.Audits.InspectorIssueCode, function(!IssuesModel, !Protocol.Audits.InspectorIssueDetails):!Array<!Issue>>
+ *
+ * @type {!Map<string, function(!IssuesModel, *):!Array<!Issue>>}
+ */
+const issueCodeHandlers = new Map([]);
 
-/* Legacy exported object */
-SDK = SDK || {};
+/** @enum {symbol} */
+export const Events = {
+  AggregatedIssueUpdated: Symbol('AggregatedIssueUpdated'),
+  FullUpdateRequired: Symbol('FullUpdateRequired'),
+};
 
-/** @constructor */
-SDK.IssuesModel = IssuesModel;
-
-SDK.SDKModel.register(IssuesModel, SDK.Target.Capability.None, true);
+SDKModel.register(IssuesModel, Capability.Audits, true);

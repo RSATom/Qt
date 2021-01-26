@@ -18,8 +18,8 @@ class GrContext;
 //////////////////////////////////////////////////////////////////////////////
 
 void Sample::setSize(SkScalar width, SkScalar height) {
-    width = SkMaxScalar(0, width);
-    height = SkMaxScalar(0, height);
+    width = std::max(0.0f, width);
+    height = std::max(0.0f, height);
 
     if (fWidth != width || fHeight != height)
     {
@@ -65,9 +65,6 @@ bool Sample::mouse(SkPoint point, skui::InputState clickState, skui::ModifierKey
     switch (clickState) {
         case skui::InputState::kDown:
             fClick = nullptr;
-            if (point.x() < 0 || point.y() < 0 || point.x() >= fWidth || point.y() >= fHeight) {
-                return false;
-            }
             fClick.reset(this->onFindClickHandler(point.x(), point.y(), modifierKeys));
             if (!fClick) {
                 return false;

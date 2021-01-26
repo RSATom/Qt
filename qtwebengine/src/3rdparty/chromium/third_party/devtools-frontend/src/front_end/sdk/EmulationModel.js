@@ -2,31 +2,39 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-export default class EmulationModel extends SDK.SDKModel {
+import * as Common from '../common/common.js';
+
+import {CSSModel} from './CSSModel.js';
+import {Events, OverlayModel} from './OverlayModel.js';
+import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+
+export class EmulationModel extends SDKModel {
   /**
-   * @param {!SDK.Target} target
+   * @param {!Target} target
    */
   constructor(target) {
     super(target);
     this._emulationAgent = target.emulationAgent();
     this._pageAgent = target.pageAgent();
     this._deviceOrientationAgent = target.deviceOrientationAgent();
-    this._cssModel = target.model(SDK.CSSModel);
-    this._overlayModel = target.model(SDK.OverlayModel);
+    this._cssModel = target.model(CSSModel);
+    this._overlayModel = target.model(OverlayModel);
     if (this._overlayModel) {
-      this._overlayModel.addEventListener(SDK.OverlayModel.Events.InspectModeWillBeToggled, this._updateTouch, this);
+      this._overlayModel.addEventListener(Events.InspectModeWillBeToggled, this._updateTouch, this);
     }
 
-    const disableJavascriptSetting = Common.settings.moduleSetting('javaScriptDisabled');
+    const disableJavascriptSetting = Common.Settings.Settings.instance().moduleSetting('javaScriptDisabled');
     disableJavascriptSetting.addChangeListener(
         () => this._emulationAgent.setScriptExecutionDisabled(disableJavascriptSetting.get()));
     if (disableJavascriptSetting.get()) {
       this._emulationAgent.setScriptExecutionDisabled(true);
     }
 
-    const mediaTypeSetting = Common.moduleSetting('emulatedCSSMedia');
-    const mediaFeaturePrefersColorSchemeSetting = Common.moduleSetting('emulatedCSSMediaFeaturePrefersColorScheme');
-    const mediaFeaturePrefersReducedMotionSetting = Common.moduleSetting('emulatedCSSMediaFeaturePrefersReducedMotion');
+    const mediaTypeSetting = Common.Settings.Settings.instance().moduleSetting('emulatedCSSMedia');
+    const mediaFeaturePrefersColorSchemeSetting =
+        Common.Settings.Settings.instance().moduleSetting('emulatedCSSMediaFeaturePrefersColorScheme');
+    const mediaFeaturePrefersReducedMotionSetting =
+        Common.Settings.Settings.instance().moduleSetting('emulatedCSSMediaFeaturePrefersReducedMotion');
     // Note: this uses a different format than what the CDP API expects,
     // because we want to update these values per media type/feature
     // without having to search the `features` array (inefficient) or
@@ -50,6 +58,12 @@ export default class EmulationModel extends SDK.SDKModel {
     });
     this._updateCssMedia();
 
+    const visionDeficiencySetting = Common.Settings.Settings.instance().moduleSetting('emulatedVisionDeficiency');
+    visionDeficiencySetting.addChangeListener(() => this._emulateVisionDeficiency(visionDeficiencySetting.get()));
+    if (visionDeficiencySetting.get()) {
+      this._emulateVisionDeficiency(visionDeficiencySetting.get());
+    }
+
     this._touchEnabled = false;
     this._touchMobile = false;
     this._customTouchEnabled = false;
@@ -60,7 +74,7 @@ export default class EmulationModel extends SDK.SDKModel {
    * @return {boolean}
    */
   supportsDeviceEmulation() {
-    return this.target().hasAllCapabilities(SDK.Target.Capability.DeviceEmulation);
+    return this.target().hasAllCapabilities(Capability.DeviceEmulation);
   }
 
   /**
@@ -77,37 +91,44 @@ export default class EmulationModel extends SDK.SDKModel {
   emulateDevice(metrics) {
     if (metrics) {
       return this._emulationAgent.invoke_setDeviceMetricsOverride(metrics);
-    } else {
-      return this._emulationAgent.clearDeviceMetricsOverride();
     }
+    return this._emulationAgent.clearDeviceMetricsOverride();
   }
 
   /**
-   * @return {?SDK.OverlayModel}
+   * @return {?OverlayModel}
    */
   overlayModel() {
     return this._overlayModel;
   }
 
   /**
-   * @param {?Geolocation} geolocation
+   * @param {?Location} location
    */
-  async emulateGeolocation(geolocation) {
-    if (!geolocation) {
+  async emulateLocation(location) {
+    if (!location) {
       this._emulationAgent.clearGeolocationOverride();
       this._emulationAgent.setTimezoneOverride('');
+      this._emulationAgent.setLocaleOverride('');
+      this._emulationAgent.setUserAgentOverride(SDK.multitargetNetworkManager.currentUserAgent());
     }
 
-    if (geolocation.error) {
+    if (location.error) {
       this._emulationAgent.setGeolocationOverride();
       this._emulationAgent.setTimezoneOverride('');
+      this._emulationAgent.setLocaleOverride('');
+      this._emulationAgent.setUserAgentOverride(SDK.multitargetNetworkManager.currentUserAgent());
     } else {
       return Promise.all([
         this._emulationAgent
-            .setGeolocationOverride(geolocation.latitude, geolocation.longitude, Geolocation.DefaultMockAccuracy)
-            .catch(err => Promise.reject({type: 'emulation-set-geolocation', message: err.message})),
-        this._emulationAgent.setTimezoneOverride(geolocation.timezoneId)
-            .catch(err => Promise.reject({type: 'emulation-set-timezone', message: err.message}))
+            .setGeolocationOverride(location.latitude, location.longitude, Location.DefaultGeoMockAccuracy)
+            .catch(err => Promise.reject({type: 'emulation-set-location', message: err.message})),
+        this._emulationAgent.setTimezoneOverride(location.timezoneId)
+            .catch(err => Promise.reject({type: 'emulation-set-timezone', message: err.message})),
+        this._emulationAgent.setLocaleOverride(location.locale)
+            .catch(err => Promise.reject({type: 'emulation-set-locale', message: err.message})),
+        this._emulationAgent.setUserAgentOverride(SDK.multitargetNetworkManager.currentUserAgent(), location.locale)
+            .catch(err => Promise.reject({type: 'emulation-set-user-agent', message: err.message})),
       ]);
     }
   }
@@ -133,6 +154,13 @@ export default class EmulationModel extends SDK.SDKModel {
     if (this._cssModel) {
       this._cssModel.mediaQueryResultChanged();
     }
+  }
+
+  /**
+   * @param {string} type
+   */
+  _emulateVisionDeficiency(type) {
+    this._emulationAgent.setEmulatedVisionDeficiency(type);
   }
 
   /**
@@ -203,45 +231,47 @@ export default class EmulationModel extends SDK.SDKModel {
   }
 }
 
-export class Geolocation {
+export class Location {
   /**
    * @param {number} latitude
    * @param {number} longitude
    * @param {string} timezoneId
+   * @param {string} locale
    * @param {boolean} error
    */
-  constructor(latitude, longitude, timezoneId, error) {
+  constructor(latitude, longitude, timezoneId, locale, error) {
     this.latitude = latitude;
     this.longitude = longitude;
     this.timezoneId = timezoneId;
+    this.locale = locale;
     this.error = error;
   }
 
   /**
-   * @return {!Geolocation}
+   * @return {!Location}
    */
   static parseSetting(value) {
     if (value) {
-      const [position, timezoneId, error] = value.split(':');
+      const [position, timezoneId, locale, error] = value.split(':');
       const [latitude, longitude] = position.split('@');
-      return new Geolocation(parseFloat(latitude), parseFloat(longitude), timezoneId, Boolean(error));
+      return new Location(parseFloat(latitude), parseFloat(longitude), timezoneId, locale, Boolean(error));
     }
-    return new Geolocation(0, 0, '', false);
+    return new Location(0, 0, '', '', false);
   }
 
   /**
    * @param {string} latitudeString
    * @param {string} longitudeString
    * @param {string} timezoneId
-   * @return {?Geolocation}
+   * @return {?Location}
    */
-  static parseUserInput(latitudeString, longitudeString, timezoneId) {
+  static parseUserInput(latitudeString, longitudeString, timezoneId, locale) {
     if (!latitudeString && !longitudeString) {
       return null;
     }
 
-    const {valid: isLatitudeValid} = Geolocation.latitudeValidator(latitudeString);
-    const {valid: isLongitudeValid} = Geolocation.longitudeValidator(longitudeString);
+    const {valid: isLatitudeValid} = Location.latitudeValidator(latitudeString);
+    const {valid: isLongitudeValid} = Location.longitudeValidator(longitudeString);
 
     if (!isLatitudeValid && !isLongitudeValid) {
       return null;
@@ -249,7 +279,7 @@ export class Geolocation {
 
     const latitude = isLatitudeValid ? parseFloat(latitudeString) : -1;
     const longitude = isLongitudeValid ? parseFloat(longitudeString) : -1;
-    return new Geolocation(latitude, longitude, timezoneId, false);
+    return new Location(latitude, longitude, timezoneId, locale, false);
   }
 
   /**
@@ -288,14 +318,29 @@ export class Geolocation {
   }
 
   /**
+   * @param {string} value
+   * @return {{valid: boolean, errorMessage: (string|undefined)}}
+   */
+  static localeValidator(value) {
+    // Similarly to timezone IDs, there's not much point in validating
+    // input locales other than checking if it contains at least two
+    // alphabetic characters.
+    // https://unicode.org/reports/tr35/#Unicode_language_identifier
+    // The empty string resets the override, and is accepted as
+    // well.
+    const valid = value === '' || /[a-zA-Z]{2}/.test(value);
+    return {valid};
+  }
+
+  /**
    * @return {string}
    */
   toSetting() {
-    return `${this.latitude}@${this.longitude}:${this.timezoneId}:${this.error || ''}`;
+    return `${this.latitude}@${this.longitude}:${this.timezoneId}:${this.locale}:${this.error || ''}`;
   }
 }
 
-Geolocation.DefaultMockAccuracy = 150;
+Location.DefaultGeoMockAccuracy = 150;
 
 export class DeviceOrientation {
   /**
@@ -360,19 +405,4 @@ export class DeviceOrientation {
   }
 }
 
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.EmulationModel = EmulationModel;
-
-/** @constructor */
-SDK.EmulationModel.Geolocation = Geolocation;
-
-/** @constructor */
-SDK.EmulationModel.DeviceOrientation = DeviceOrientation;
-
-SDK.SDKModel.register(EmulationModel, SDK.Target.Capability.Emulation, true);
+SDKModel.register(EmulationModel, Capability.Emulation, true);

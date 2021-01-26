@@ -12,6 +12,7 @@
 #include "net/third_party/quiche/src/quic/tools/quic_simple_crypto_server_stream_helper.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_dispatcher.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_server_session.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -24,7 +25,7 @@ class CustomStreamSession : public QuicSimpleServerSession {
       const ParsedQuicVersionVector& supported_versions,
       QuicConnection* connection,
       QuicSession::Visitor* visitor,
-      QuicCryptoServerStream::Helper* helper,
+      QuicCryptoServerStreamBase::Helper* helper,
       const QuicCryptoServerConfig* crypto_config,
       QuicCompressedCertsCache* compressed_certs_cache,
       QuicTestServer::StreamFactory* stream_factory,
@@ -54,7 +55,7 @@ class CustomStreamSession : public QuicSimpleServerSession {
     return QuicSimpleServerSession::CreateIncomingStream(id);
   }
 
-  QuicCryptoServerStreamBase* CreateQuicCryptoServerStream(
+  std::unique_ptr<QuicCryptoServerStreamBase> CreateQuicCryptoServerStream(
       const QuicCryptoServerConfig* crypto_config,
       QuicCompressedCertsCache* compressed_certs_cache) override {
     if (crypto_stream_factory_) {
@@ -76,7 +77,7 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
       const QuicCryptoServerConfig* crypto_config,
       QuicVersionManager* version_manager,
       std::unique_ptr<QuicConnectionHelperInterface> helper,
-      std::unique_ptr<QuicCryptoServerStream::Helper> session_helper,
+      std::unique_ptr<QuicCryptoServerStreamBase::Helper> session_helper,
       std::unique_ptr<QuicAlarmFactory> alarm_factory,
       QuicSimpleServerBackend* quic_simple_server_backend,
       uint8_t expected_server_connection_id_length)
@@ -92,10 +93,10 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
         stream_factory_(nullptr),
         crypto_stream_factory_(nullptr) {}
 
-  QuicServerSessionBase* CreateQuicSession(
+  std::unique_ptr<QuicSession> CreateQuicSession(
       QuicConnectionId id,
       const QuicSocketAddress& client,
-      QuicStringPiece alpn,
+      quiche::QuicheStringPiece alpn,
       const ParsedQuicVersion& version) override {
     QuicReaderMutexLock lock(&factory_lock_);
     if (session_factory_ == nullptr && stream_factory_ == nullptr &&
@@ -107,9 +108,9 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
                            /* owns_writer= */ false, Perspective::IS_SERVER,
                            ParsedQuicVersionVector{version});
 
-    QuicServerSessionBase* session = nullptr;
+    std::unique_ptr<QuicServerSessionBase> session;
     if (stream_factory_ != nullptr || crypto_stream_factory_ != nullptr) {
-      session = new CustomStreamSession(
+      session = std::make_unique<CustomStreamSession>(
           config(), GetSupportedVersions(), connection, this, session_helper(),
           crypto_config(), compressed_certs_cache(), stream_factory_,
           crypto_stream_factory_, server_backend());
@@ -190,7 +191,7 @@ QuicDispatcher* QuicTestServer::CreateQuicDispatcher() {
       &config(), &crypto_config(), version_manager(),
       std::make_unique<QuicEpollConnectionHelper>(epoll_server(),
                                                   QuicAllocator::BUFFER_POOL),
-      std::unique_ptr<QuicCryptoServerStream::Helper>(
+      std::unique_ptr<QuicCryptoServerStreamBase::Helper>(
           new QuicSimpleCryptoServerStreamHelper()),
       std::make_unique<QuicEpollAlarmFactory>(epoll_server()), server_backend(),
       expected_server_connection_id_length());
@@ -216,7 +217,7 @@ ImmediateGoAwaySession::ImmediateGoAwaySession(
     const QuicConfig& config,
     QuicConnection* connection,
     QuicSession::Visitor* visitor,
-    QuicCryptoServerStream::Helper* helper,
+    QuicCryptoServerStreamBase::Helper* helper,
     const QuicCryptoServerConfig* crypto_config,
     QuicCompressedCertsCache* compressed_certs_cache,
     QuicSimpleServerBackend* quic_simple_server_backend)

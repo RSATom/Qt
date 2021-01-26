@@ -19,6 +19,7 @@
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/browser/extension_util.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/browser/service_worker_task_queue_factory.h"
 #include "extensions/common/constants.h"
@@ -251,7 +252,7 @@ void ServiceWorkerTaskQueue::DidInitializeServiceWorkerContext(
 void ServiceWorkerTaskQueue::DidStartServiceWorkerContext(
     int render_process_id,
     const ExtensionId& extension_id,
-    int activation_sequence,
+    ActivationSequence activation_sequence,
     const GURL& service_worker_scope,
     int64_t service_worker_version_id,
     int thread_id) {
@@ -288,7 +289,7 @@ void ServiceWorkerTaskQueue::DidStartServiceWorkerContext(
 void ServiceWorkerTaskQueue::DidStopServiceWorkerContext(
     int render_process_id,
     const ExtensionId& extension_id,
-    int activation_sequence,
+    ActivationSequence activation_sequence,
     const GURL& service_worker_scope,
     int64_t service_worker_version_id,
     int thread_id) {
@@ -363,7 +364,7 @@ void ServiceWorkerTaskQueue::ActivateExtension(const Extension* extension) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   const ExtensionId extension_id = extension->id();
-  ActivationSequence current_sequence = ++next_activation_sequence_;
+  ActivationSequence current_sequence(++next_activation_sequence_);
   activation_sequences_[extension_id] = current_sequence;
   SequencedContextId context_id(
       LazyContextId(browser_context_, extension_id, extension->url()),
@@ -392,8 +393,7 @@ void ServiceWorkerTaskQueue::ActivateExtension(const Extension* extension) {
       BackgroundInfo::GetBackgroundServiceWorkerScript(extension));
   blink::mojom::ServiceWorkerRegistrationOptions option;
   option.scope = extension->url();
-  content::BrowserContext::GetStoragePartitionForSite(browser_context_,
-                                                      extension->url())
+  util::GetStoragePartitionForExtensionId(extension->id(), browser_context_)
       ->GetServiceWorkerContext()
       ->RegisterServiceWorker(
           script_url, option,
@@ -413,17 +413,17 @@ void ServiceWorkerTaskQueue::DeactivateExtension(const Extension* extension) {
   if (!sequence)
     return;
 
+  activation_sequences_.erase(extension_id);
   SequencedContextId context_id(
       LazyContextId(browser_context_, extension_id, extension->url()),
       *sequence);
-   WorkerState* worker_state = GetWorkerState(context_id);
-   DCHECK(worker_state);
-   // TODO(lazyboy): Run orphaned tasks with nullptr ContextInfo.
-   worker_state->pending_tasks_.clear();
-   worker_state_map_.erase(context_id);
+  WorkerState* worker_state = GetWorkerState(context_id);
+  DCHECK(worker_state);
+  // TODO(lazyboy): Run orphaned tasks with nullptr ContextInfo.
+  worker_state->pending_tasks_.clear();
+  worker_state_map_.erase(context_id);
 
-   content::BrowserContext::GetStoragePartitionForSite(browser_context_,
-                                                      extension->url())
+  util::GetStoragePartitionForExtensionId(extension->id(), browser_context_)
       ->GetServiceWorkerContext()
       ->UnregisterServiceWorker(
           extension->url(),
@@ -443,9 +443,9 @@ void ServiceWorkerTaskQueue::RunTasksAfterStartWorker(
   DCHECK_NE(BrowserState::kStarted, worker_state->browser_state_);
 
   content::StoragePartition* partition =
-      BrowserContext::GetStoragePartitionForSite(
-          lazy_context_id.browser_context(),
-          lazy_context_id.service_worker_scope());
+      util::GetStoragePartitionForExtensionId(
+          lazy_context_id.extension_id(), lazy_context_id.browser_context());
+
   content::ServiceWorkerContext* service_worker_context =
       partition->GetServiceWorkerContext();
 
@@ -586,8 +586,7 @@ bool ServiceWorkerTaskQueue::IsCurrentSequence(
   return current_sequence == sequence;
 }
 
-base::Optional<ServiceWorkerTaskQueue::ActivationSequence>
-ServiceWorkerTaskQueue::GetCurrentSequence(
+base::Optional<ActivationSequence> ServiceWorkerTaskQueue::GetCurrentSequence(
     const ExtensionId& extension_id) const {
   auto iter = activation_sequences_.find(extension_id);
   if (iter == activation_sequences_.end())

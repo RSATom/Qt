@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/strings/string_number_conversions.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -22,9 +23,10 @@ const base::FilePath::CharType kFutureFileName[] =
     FILE_PATH_LITERAL("_future_name_");
 }
 
-class MojoDataItem : public storage::BlobDataItem::DataHandle {
+class MojoDataItem : public BlobDataItem::DataHandle {
  public:
-  MojoDataItem(mojom::BlobDataItemPtr element) : item_(std::move(element)) {
+  explicit MojoDataItem(mojom::BlobDataItemPtr element)
+      : item_(std::move(element)) {
     reader_.Bind(std::move(item_->reader));
   }
 
@@ -225,6 +227,16 @@ void BlobDataItem::GrowFile(uint64_t new_length) {
   DCHECK_EQ(type_, Type::kFile);
   DCHECK_GE(new_length, length_);
   length_ = new_length;
+}
+
+// static
+void BlobDataItem::SetFileModificationTimes(
+    std::vector<scoped_refptr<BlobDataItem>> items,
+    std::vector<base::Time> times) {
+  DCHECK_EQ(items.size(), times.size());
+  for (size_t i = 0; i < items.size(); ++i) {
+    items[i]->expected_modification_time_ = times[i];
+  }
 }
 
 void PrintTo(const BlobDataItem& x, ::std::ostream* os) {

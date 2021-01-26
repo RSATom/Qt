@@ -7,14 +7,15 @@
 
 #include "base/callback_helpers.h"
 #include "base/macros.h"
-#include "chrome/browser/permissions/permission_request.h"
 #include "chrome/common/custom_handlers/protocol_handler.h"
+#include "components/permissions/permission_request.h"
 
 class ProtocolHandlerRegistry;
 
 // This class provides display data for a permission request, shown when a page
 // wants to register a protocol handler and was triggered by a user action.
-class RegisterProtocolHandlerPermissionRequest : public PermissionRequest {
+class RegisterProtocolHandlerPermissionRequest
+    : public permissions::PermissionRequest {
  public:
   RegisterProtocolHandlerPermissionRequest(
       ProtocolHandlerRegistry* registry,
@@ -25,7 +26,7 @@ class RegisterProtocolHandlerPermissionRequest : public PermissionRequest {
   ~RegisterProtocolHandlerPermissionRequest() override;
 
  private:
-  // PermissionRequest:
+  // permissions::PermissionRequest:
   IconId GetIconId() const override;
   base::string16 GetMessageTextFragment() const override;
   GURL GetOrigin() const override;
@@ -33,7 +34,7 @@ class RegisterProtocolHandlerPermissionRequest : public PermissionRequest {
   void PermissionDenied() override;
   void Cancelled() override;
   void RequestFinished() override;
-  PermissionRequestType GetPermissionRequestType() const override;
+  permissions::PermissionRequestType GetPermissionRequestType() const override;
 
   ProtocolHandlerRegistry* registry_;
   ProtocolHandler handler_;

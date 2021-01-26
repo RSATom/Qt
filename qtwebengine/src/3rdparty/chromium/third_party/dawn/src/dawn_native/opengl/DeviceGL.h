@@ -80,12 +80,19 @@ namespace dawn_native { namespace opengl {
             const ShaderModuleDescriptor* descriptor) override;
         ResultOrError<SwapChainBase*> CreateSwapChainImpl(
             const SwapChainDescriptor* descriptor) override;
+        ResultOrError<NewSwapChainBase*> CreateSwapChainImpl(
+            Surface* surface,
+            NewSwapChainBase* previousSwapChain,
+            const SwapChainDescriptor* descriptor) override;
         ResultOrError<TextureBase*> CreateTextureImpl(const TextureDescriptor* descriptor) override;
         ResultOrError<TextureViewBase*> CreateTextureViewImpl(
             TextureBase* texture,
             const TextureViewDescriptor* descriptor) override;
 
+        void InitTogglesFromDriver();
         void CheckPassedFences();
+        void Destroy() override;
+        MaybeError WaitForIdleForDestruction() override;
 
         Serial mCompletedSerial = 0;
         Serial mLastSubmittedSerial = 0;

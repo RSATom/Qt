@@ -5,6 +5,10 @@
 #ifndef STORAGE_BROWSER_BLOB_BLOB_URL_LOADER_H_
 #define STORAGE_BROWSER_BLOB_BLOB_URL_LOADER_H_
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -24,12 +28,18 @@ class BlobDataHandle;
 // method) when it has finished responding.
 // Note: some of this code is duplicated from BlobURLRequestJob.
 class COMPONENT_EXPORT(STORAGE_BROWSER) BlobURLLoader
-    : public storage::MojoBlobReader::Delegate,
+    : public MojoBlobReader::Delegate,
       public network::mojom::URLLoader {
  public:
   static void CreateAndStart(
       mojo::PendingReceiver<network::mojom::URLLoader> url_loader_receiver,
       const network::ResourceRequest& request,
+      mojo::PendingRemote<network::mojom::URLLoaderClient> client,
+      std::unique_ptr<BlobDataHandle> blob_handle);
+  static void CreateAndStart(
+      mojo::PendingReceiver<network::mojom::URLLoader> url_loader_receiver,
+      const std::string& method,
+      const net::HttpRequestHeaders& headers,
       mojo::PendingRemote<network::mojom::URLLoaderClient> client,
       std::unique_ptr<BlobDataHandle> blob_handle);
   ~BlobURLLoader() override;
@@ -40,8 +50,13 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobURLLoader
       const network::ResourceRequest& request,
       mojo::PendingRemote<network::mojom::URLLoaderClient> client,
       std::unique_ptr<BlobDataHandle> blob_handle);
-
-  void Start(const network::ResourceRequest& request);
+  BlobURLLoader(
+      mojo::PendingReceiver<network::mojom::URLLoader> url_loader_receiver,
+      const std::string& method,
+      const net::HttpRequestHeaders& headers,
+      mojo::PendingRemote<network::mojom::URLLoaderClient> client,
+      std::unique_ptr<BlobDataHandle> blob_handle);
+  void Start(const std::string& method, const net::HttpRequestHeaders& headers);
 
   // network::mojom::URLLoader implementation:
   void FollowRedirect(const std::vector<std::string>& removed_headers,
@@ -52,7 +67,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobURLLoader
   void PauseReadingBodyFromNet() override {}
   void ResumeReadingBodyFromNet() override {}
 
-  // storage::MojoBlobReader::Delegate implementation:
+  // MojoBlobReader::Delegate implementation:
   RequestSideData DidCalculateSize(uint64_t total_size,
                                    uint64_t content_size) override;
   void DidReadSideData(base::Optional<mojo_base::BigBuffer> data) override;
@@ -82,4 +97,4 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobURLLoader
 
 }  // namespace storage
 
-#endif  // CONTENT_BROWSER_BLOB_STORAGE_BLOB_URL_LOADER_FACTORY_H_
+#endif  // STORAGE_BROWSER_BLOB_BLOB_URL_LOADER_H_

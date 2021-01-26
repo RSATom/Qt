@@ -37,7 +37,8 @@ class TestProfileBuilder : public ProfileBuilder {
   ModuleCache* GetModuleCache() override { return module_cache_; }
   void RecordMetadata(MetadataProvider* metadata_provider) override {}
 
-  void OnSampleCompleted(std::vector<Frame> sample) override {
+  void OnSampleCompleted(std::vector<Frame> sample,
+                         TimeTicks sample_timestamp) override {
     EXPECT_TRUE(sample_.empty());
     sample_ = std::move(sample);
   }
@@ -227,7 +228,7 @@ void ExpectStackDoesNotContain(
   };
 
   std::set<FunctionAddressRange, FunctionAddressRangeCompare> seen_functions;
-  for (const auto frame : stack) {
+  for (const auto& frame : stack) {
     for (const auto function : functions) {
       if (frame.instruction_pointer >=
               reinterpret_cast<uintptr_t>(function.start) &&

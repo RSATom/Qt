@@ -21,8 +21,10 @@
 #include "src/objects/oddball.h"
 #include "src/objects/property.h"
 #include "src/objects/transitions-inl.h"
+#include "src/roots/roots.h"
 #include "src/utils/ostreams.h"
 #include "src/zone/zone-containers.h"
+#include "torque-generated/field-offsets-tq.h"
 
 namespace v8 {
 namespace internal {
@@ -73,14 +75,20 @@ void Map::PrintReconfiguration(Isolate* isolate, FILE* file,
   os << "]\n";
 }
 
-Map Map::GetStructMap(Isolate* isolate, InstanceType type) {
+Map Map::GetInstanceTypeMap(ReadOnlyRoots roots, InstanceType type) {
   Map map;
   switch (type) {
-#define MAKE_CASE(TYPE, Name, name)            \
-  case TYPE:                                   \
-    map = ReadOnlyRoots(isolate).name##_map(); \
+#define MAKE_CASE(TYPE, Name, name) \
+  case TYPE:                        \
+    map = roots.name##_map();       \
     break;
     STRUCT_LIST(MAKE_CASE)
+#undef MAKE_CASE
+#define MAKE_CASE(_, TYPE, Name, name) \
+  case TYPE:                           \
+    map = roots.name##_map();          \
+    break;
+    TORQUE_INTERNAL_CLASS_LIST_GENERATOR(MAKE_CASE, _)
 #undef MAKE_CASE
     default:
       UNREACHABLE();
@@ -180,6 +188,9 @@ VisitorId Map::GetVisitorId(Map map) {
     case FEEDBACK_CELL_TYPE:
       return kVisitFeedbackCell;
 
+    case FEEDBACK_METADATA_TYPE:
+      return kVisitFeedbackMetadata;
+
     case FEEDBACK_VECTOR_TYPE:
       return kVisitFeedbackVector;
 
@@ -256,6 +267,9 @@ VisitorId Map::GetVisitorId(Map map) {
     case UNCOMPILED_DATA_WITH_PREPARSE_DATA_TYPE:
       return kVisitUncompiledDataWithPreparseData;
 
+    case COVERAGE_INFO_TYPE:
+      return kVisitCoverageInfo;
+
     case JS_OBJECT_TYPE:
     case JS_ERROR_TYPE:
     case JS_ARGUMENTS_OBJECT_TYPE:
@@ -281,8 +295,8 @@ VisitorId Map::GetVisitorId(Map map) {
     case JS_PROMISE_TYPE:
     case JS_REG_EXP_TYPE:
     case JS_REG_EXP_STRING_ITERATOR_TYPE:
-    case JS_FINALIZATION_GROUP_CLEANUP_ITERATOR_TYPE:
-    case JS_FINALIZATION_GROUP_TYPE:
+    case JS_FINALIZATION_REGISTRY_CLEANUP_ITERATOR_TYPE:
+    case JS_FINALIZATION_REGISTRY_TYPE:
 #ifdef V8_INTL_SUPPORT
     case JS_V8_BREAK_ITERATOR_TYPE:
     case JS_COLLATOR_TYPE:
@@ -322,7 +336,6 @@ VisitorId Map::GetVisitorId(Map map) {
     case FILLER_TYPE:
     case FOREIGN_TYPE:
     case HEAP_NUMBER_TYPE:
-    case FEEDBACK_METADATA_TYPE:
       return kVisitDataObject;
 
     case BIGINT_TYPE:
@@ -353,6 +366,12 @@ VisitorId Map::GetVisitorId(Map map) {
       return kVisitSourceTextModule;
     case SYNTHETIC_MODULE_TYPE:
       return kVisitSyntheticModule;
+
+#define MAKE_TQ_CASE(TYPE, Name) \
+  case TYPE:                     \
+    return kVisit##Name;
+      TORQUE_BODY_DESCRIPTOR_LIST(MAKE_TQ_CASE)
+#undef MAKE_TQ_CASE
 
     default:
       UNREACHABLE();
@@ -590,12 +609,13 @@ void Map::DeprecateTransitionTree(Isolate* isolate) {
     transitions.GetTarget(i).DeprecateTransitionTree(isolate);
   }
   DCHECK(!constructor_or_backpointer().IsFunctionTemplateInfo());
+  DCHECK(CanBeDeprecated());
   set_is_deprecated(true);
   if (FLAG_trace_maps) {
-    LOG(isolate, MapEvent("Deprecate", *this, Map()));
+    LOG(isolate, MapEvent("Deprecate", handle(*this, isolate), Handle<Map>()));
   }
   dependent_code().DeoptimizeDependentCodeGroup(
-      isolate, DependentCode::kTransitionGroup);
+      DependentCode::kTransitionGroup);
   NotifyLeafMapLayoutChange(isolate);
 }
 
@@ -776,7 +796,7 @@ void Map::GeneralizeField(Isolate* isolate, Handle<Map> map,
   field_owner->UpdateFieldType(isolate, modify_index, name, new_constness,
                                new_representation, wrapped_type);
   field_owner->dependent_code().DeoptimizeDependentCodeGroup(
-      isolate, DependentCode::kFieldOwnerGroup);
+      DependentCode::kFieldOwnerGroup);
 
   if (FLAG_trace_generalization) {
     map->PrintGeneralization(
@@ -1427,14 +1447,14 @@ Handle<Map> Map::RawCopy(Isolate* isolate, Handle<Map> map, int instance_size,
   result->set_bit_field(map->bit_field());
   result->set_bit_field2(map->bit_field2());
   int new_bit_field3 = map->bit_field3();
-  new_bit_field3 = OwnsDescriptorsBit::update(new_bit_field3, true);
-  new_bit_field3 = NumberOfOwnDescriptorsBits::update(new_bit_field3, 0);
+  new_bit_field3 = Bits3::OwnsDescriptorsBit::update(new_bit_field3, true);
+  new_bit_field3 = Bits3::NumberOfOwnDescriptorsBits::update(new_bit_field3, 0);
   new_bit_field3 =
-      EnumLengthBits::update(new_bit_field3, kInvalidEnumCacheSentinel);
-  new_bit_field3 = IsDeprecatedBit::update(new_bit_field3, false);
-  new_bit_field3 = IsInRetainedMapListBit::update(new_bit_field3, false);
+      Bits3::EnumLengthBits::update(new_bit_field3, kInvalidEnumCacheSentinel);
+  new_bit_field3 = Bits3::IsDeprecatedBit::update(new_bit_field3, false);
+  new_bit_field3 = Bits3::IsInRetainedMapListBit::update(new_bit_field3, false);
   if (!map->is_dictionary_map()) {
-    new_bit_field3 = IsUnstableBit::update(new_bit_field3, false);
+    new_bit_field3 = Bits3::IsUnstableBit::update(new_bit_field3, false);
   }
   result->set_bit_field3(new_bit_field3);
   result->clear_padding();
@@ -1478,7 +1498,8 @@ Handle<Map> Map::Normalize(Isolate* isolate, Handle<Map> fast_map,
       // The IsMigrationTargetBit might be different if the {new_map} from
       // {cache} has already been marked as a migration target.
       constexpr int ignored_bit_field3_bits =
-          IsInRetainedMapListBit::kMask | IsMigrationTargetBit::kMask;
+          Bits3::IsInRetainedMapListBit::kMask |
+          Bits3::IsMigrationTargetBit::kMask;
       DCHECK_EQ(fresh->bit_field3() & ~ignored_bit_field3_bits,
                 new_map->bit_field3() & ~ignored_bit_field3_bits);
       int offset = Map::kBitField3Offset + kInt32Size;
@@ -1508,7 +1529,7 @@ Handle<Map> Map::Normalize(Isolate* isolate, Handle<Map> fast_map,
     }
   }
   if (FLAG_trace_maps) {
-    LOG(isolate, MapEvent("Normalize", *fast_map, *new_map, reason));
+    LOG(isolate, MapEvent("Normalize", fast_map, new_map, reason));
   }
   fast_map->NotifyLeafMapLayoutChange(isolate);
   return new_map;
@@ -1694,12 +1715,12 @@ void Map::ConnectTransition(Isolate* isolate, Handle<Map> parent,
   if (parent->is_prototype_map()) {
     DCHECK(child->is_prototype_map());
     if (FLAG_trace_maps) {
-      LOG(isolate, MapEvent("Transition", *parent, *child, "prototype", *name));
+      LOG(isolate, MapEvent("Transition", parent, child, "prototype", name));
     }
   } else {
     TransitionsAccessor(isolate, parent).Insert(name, child, flag);
     if (FLAG_trace_maps) {
-      LOG(isolate, MapEvent("Transition", *parent, *child, "", *name));
+      LOG(isolate, MapEvent("Transition", parent, child, "", name));
     }
   }
 }
@@ -1745,8 +1766,8 @@ Handle<Map> Map::CopyReplaceDescriptors(
       (map->is_prototype_map() ||
        !(flag == INSERT_TRANSITION &&
          TransitionsAccessor(isolate, map).CanHaveMoreTransitions()))) {
-    LOG(isolate, MapEvent("ReplaceDescriptors", *map, *result, reason,
-                          maybe_name.is_null() ? Name() : *name));
+    LOG(isolate, MapEvent("ReplaceDescriptors", map, result, reason,
+                          maybe_name.is_null() ? Handle<HeapObject>() : name));
   }
   return result;
 }
@@ -2190,7 +2211,7 @@ Handle<Map> Map::TransitionToDataProperty(Isolate* isolate, Handle<Map> map,
 
       // Deoptimize all code that embeds the previous initial map.
       initial_map->dependent_code().DeoptimizeDependentCodeGroup(
-          isolate, DependentCode::kInitialMapChangedGroup);
+          DependentCode::kInitialMapChangedGroup);
       if (!result->EquivalentToForNormalization(*map,
                                                 CLEAR_INOBJECT_PROPERTIES)) {
         result =
@@ -2483,9 +2504,10 @@ bool Map::EquivalentToForNormalization(const Map other,
   int properties =
       mode == CLEAR_INOBJECT_PROPERTIES ? 0 : other.GetInObjectProperties();
   // Make sure the elements_kind bits are in bit_field2.
-  DCHECK_EQ(this->elements_kind(), Map::ElementsKindBits::decode(bit_field2()));
+  DCHECK_EQ(this->elements_kind(),
+            Map::Bits2::ElementsKindBits::decode(bit_field2()));
   int adjusted_other_bit_field2 =
-      Map::ElementsKindBits::update(other.bit_field2(), elements_kind);
+      Map::Bits2::ElementsKindBits::update(other.bit_field2(), elements_kind);
   return CheckEquivalent(*this, other) &&
          bit_field2() == adjusted_other_bit_field2 &&
          GetInObjectProperties() == properties &&

@@ -80,6 +80,13 @@ public:
                                                               const GrSwizzle&);
 
     /**
+     *  Returns a fragment processor that calls the passed in fragment processor, and then ensures
+     *  the output is a valid premul color by clamping RGB to [0, A].
+     */
+    static std::unique_ptr<GrFragmentProcessor> ClampPremulOutput(
+            std::unique_ptr<GrFragmentProcessor>);
+
+    /**
      * Returns a fragment processor that runs the passed in array of fragment processors in a
      * series. The original input is passed to the first, the first's output is passed to the
      * second, etc. The output of the returned processor is the output of the last processor of the
@@ -87,7 +94,7 @@ public:
      *
      * The array elements with be moved.
      */
-    static std::unique_ptr<GrFragmentProcessor> RunInSeries(std::unique_ptr<GrFragmentProcessor>*,
+    static std::unique_ptr<GrFragmentProcessor> RunInSeries(std::unique_ptr<GrFragmentProcessor>[],
                                                             int cnt);
 
     /**
@@ -130,19 +137,19 @@ public:
     bool usesLocalCoords() const {
         // If the processor is sampled with explicit coords then we do not need to apply the
         // coord transforms in the vertex shader to the local coords.
-        return SkToBool(fFlags & kHasCoordTranforms_Flag) &&
-               SkToBool(fFlags & kCoordTransformsApplyToLocalCoords_Flag);
+        return SkToBool(fFlags & kHasCoordTransforms_Flag) &&
+               !SkToBool(fFlags & kSampledWithExplicitCoords);
     }
 
-    bool coordTransformsApplyToLocalCoords() const {
-        return SkToBool(fFlags & kCoordTransformsApplyToLocalCoords_Flag);
+    bool isSampledWithExplicitCoords() const {
+        return SkToBool(fFlags & kSampledWithExplicitCoords);
     }
 
     void setSampledWithExplicitCoords(bool value) {
         if (value) {
-            fFlags &= ~kCoordTransformsApplyToLocalCoords_Flag;
+            fFlags |= kSampledWithExplicitCoords;
         } else {
-            fFlags |= kCoordTransformsApplyToLocalCoords_Flag;
+            fFlags &= ~kSampledWithExplicitCoords;
         }
         for (auto& child : fChildProcessors) {
             child->setSampledWithExplicitCoords(value);
@@ -347,8 +354,7 @@ protected:
     }
 
     GrFragmentProcessor(ClassID classID, OptimizationFlags optimizationFlags)
-            : INHERITED(classID)
-            , fFlags(optimizationFlags | kCoordTransformsApplyToLocalCoords_Flag) {
+            : INHERITED(classID), fFlags(optimizationFlags) {
         SkASSERT((optimizationFlags & ~kAll_OptimizationFlags) == 0);
     }
 
@@ -448,11 +454,11 @@ private:
 
     enum PrivateFlags {
         kFirstPrivateFlag = kAll_OptimizationFlags + 1,
-        kHasCoordTranforms_Flag = kFirstPrivateFlag,
-        kCoordTransformsApplyToLocalCoords_Flag = kFirstPrivateFlag << 1,
+        kHasCoordTransforms_Flag = kFirstPrivateFlag,
+        kSampledWithExplicitCoords = kFirstPrivateFlag << 1,
     };
 
-    uint32_t fFlags = kCoordTransformsApplyToLocalCoords_Flag;
+    uint32_t fFlags = 0;
 
     int fTextureSamplerCnt = 0;
 
@@ -475,39 +481,39 @@ public:
     /**
      * This copy constructor is used by GrFragmentProcessor::clone() implementations.
      */
-    explicit TextureSampler(const TextureSampler& that)
-            : fProxy(that.fProxy)
-            , fSamplerState(that.fSamplerState) {}
+    explicit TextureSampler(const TextureSampler&) = default;
 
-    TextureSampler(sk_sp<GrSurfaceProxy>, const GrSamplerState& = GrSamplerState::ClampNearest());
+    TextureSampler(GrSurfaceProxyView, GrSamplerState = {});
 
     TextureSampler& operator=(const TextureSampler&) = delete;
 
-    void reset(sk_sp<GrSurfaceProxy>, const GrSamplerState&);
-
     bool operator==(const TextureSampler& that) const {
-        return this->proxy()->underlyingUniqueID() == that.proxy()->underlyingUniqueID() &&
-               fSamplerState == that.fSamplerState;
+        return fView == that.fView && fSamplerState == that.fSamplerState;
     }
 
     bool operator!=(const TextureSampler& other) const { return !(*this == other); }
 
-    SkDEBUGCODE(bool isInstantiated() const { return fProxy->isInstantiated(); })
+    SkDEBUGCODE(bool isInstantiated() const { return this->proxy()->isInstantiated(); })
 
     // 'peekTexture' should only ever be called after a successful 'instantiate' call
     GrTexture* peekTexture() const {
-        SkASSERT(fProxy->isInstantiated());
-        return fProxy->peekTexture();
+        SkASSERT(this->proxy()->isInstantiated());
+        return this->proxy()->peekTexture();
     }
 
-    GrSurfaceProxy* proxy() const { return fProxy.get(); }
-    const GrSamplerState& samplerState() const { return fSamplerState; }
-    const GrSwizzle& swizzle() const { return this->proxy()->textureSwizzle(); }
+    const GrSurfaceProxyView& view() const { return fView; }
+    GrSamplerState samplerState() const { return fSamplerState; }
 
-    bool isInitialized() const { return SkToBool(fProxy.get()); }
+    bool isInitialized() const { return SkToBool(this->proxy()); }
+
+    GrSurfaceProxy* proxy() const { return fView.proxy(); }
+
+#if GR_TEST_UTILS
+    void set(GrSurfaceProxyView, GrSamplerState);
+#endif
 
 private:
-    sk_sp<GrSurfaceProxy> fProxy;
+    GrSurfaceProxyView    fView;
     GrSamplerState        fSamplerState;
 };
 
@@ -531,8 +537,10 @@ public:
     bool operator!=(const EndIter&) { return (bool)*this; }
 
 #if !defined(__GNUC__) || defined(__clang__) || __GNUC__ > 6
+    // Hopefully this does not actually get called because of RVO.
+    IterBase(const IterBase&) = default;
+
     // Because each iterator carries a stack we want to avoid copies.
-    IterBase(const IterBase&) = delete;
     IterBase& operator=(const IterBase&) = delete;
 #endif
 

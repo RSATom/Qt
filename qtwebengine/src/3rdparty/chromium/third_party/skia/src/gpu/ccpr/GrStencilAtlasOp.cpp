@@ -119,10 +119,9 @@ static constexpr GrUserStencilSettings kResolveStencilCoverageAndReset(
 void GrStencilAtlasOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) {
     SkIRect drawBoundsRect = SkIRect::MakeWH(fDrawBounds.width(), fDrawBounds.height());
 
-    GrPipeline pipeline(
-            GrScissorTest::kEnabled, GrDisableColorXPFactory::MakeXferProcessor(),
-            flushState->drawOpArgs().outputSwizzle(), GrPipeline::InputFlags::kHWAntialias,
-            &kIncrDecrStencil);
+    GrPipeline pipeline(GrScissorTest::kEnabled, GrDisableColorXPFactory::MakeXferProcessor(),
+                        flushState->drawOpArgs().writeSwizzle(),
+                        GrPipeline::InputFlags::kHWAntialias, &kIncrDecrStencil);
 
     GrSampleMaskProcessor sampleMaskProc;
 
@@ -144,25 +143,20 @@ void GrStencilAtlasOp::onExecute(GrOpFlushState* flushState, const SkRect& chain
             : &kResolveStencilCoverageAndReset;
 
     GrPipeline resolvePipeline(GrScissorTest::kEnabled, SkBlendMode::kSrc,
-                               flushState->drawOpArgs().outputSwizzle(), noHWAA,
+                               flushState->drawOpArgs().writeSwizzle(), noHWAA,
                                stencilResolveSettings);
-    GrPipeline::FixedDynamicState scissorRectState(drawBoundsRect);
-
-    GrMesh mesh(GrPrimitiveType::kTriangleStrip);
-    mesh.setInstanced(fResources->refStencilResolveBuffer(),
-                      fEndStencilResolveInstance - fBaseStencilResolveInstance,
-                      fBaseStencilResolveInstance, 4);
 
     StencilResolveProcessor primProc;
 
     GrProgramInfo programInfo(flushState->proxy()->numSamples(),
                               flushState->proxy()->numStencilSamples(),
                               flushState->proxy()->backendFormat(),
-                              flushState->view()->origin(),
-                              &resolvePipeline,
-                              &primProc,
-                              &scissorRectState,
-                              nullptr, 0, GrPrimitiveType::kTriangleStrip);
+                              flushState->outputView()->origin(), &resolvePipeline, &primProc,
+                              GrPrimitiveType::kTriangleStrip);
 
-    flushState->opsRenderPass()->draw(programInfo, &mesh, 1, SkRect::Make(drawBoundsRect));
+    flushState->bindPipeline(programInfo, SkRect::Make(drawBoundsRect));
+    flushState->setScissorRect(drawBoundsRect);
+    flushState->bindBuffers(nullptr, fResources->stencilResolveBuffer(), nullptr);
+    flushState->drawInstanced(fEndStencilResolveInstance - fBaseStencilResolveInstance,
+                              fBaseStencilResolveInstance, 4, 0);
 }

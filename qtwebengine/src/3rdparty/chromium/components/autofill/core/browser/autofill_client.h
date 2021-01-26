@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/containers/span.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
@@ -18,11 +19,16 @@
 #include "build/build_config.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/browser/payments/risk_data_loader.h"
+#include "components/autofill/core/browser/ui/popup_item_ids.h"
 #include "components/autofill/core/browser/ui/popup_types.h"
 #include "components/security_state/core/security_state.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
+
+#if !defined(OS_IOS)
+#include "components/autofill/core/browser/payments/internal_authenticator.h"
+#endif
 
 class PrefService;
 
@@ -129,23 +135,6 @@ class AutofillClient : public RiskDataLoader {
     FIDO = 2,
   };
 
-  // Details for card unmasking, such as the suggested method of authentication,
-  // along with any information required to facilitate the authentication.
-  struct UnmaskDetails {
-    UnmaskDetails();
-    ~UnmaskDetails();
-
-    // The type of authentication method suggested for card unmask.
-    UnmaskAuthMethod unmask_auth_method = UnmaskAuthMethod::UNKNOWN;
-    // Set to true if the user should be offered opt-in for FIDO Authentication.
-    bool offer_fido_opt_in = false;
-    // Public Key Credential Request Options required for authentication.
-    // https://www.w3.org/TR/webauthn/#dictdef-publickeycredentialrequestoptions
-    base::Value fido_request_options;
-    // Set of credit cards ids that are eligible for FIDO Authentication.
-    std::set<std::string> fido_eligible_card_ids;
-  };
-
   // Used for explicitly requesting the user to enter/confirm cardholder name,
   // expiration date month and year.
   struct UserProvidedCardDetails {
@@ -202,7 +191,7 @@ class AutofillClient : public RiskDataLoader {
       const UserProvidedCardDetails& user_provided_card_details)>
       UploadSaveCardPromptCallback;
 
-  typedef base::Callback<void(const CreditCard&)> CreditCardScanCallback;
+  typedef base::OnceCallback<void(const CreditCard&)> CreditCardScanCallback;
 
   // Callback to run if user presses the Save button in the migration dialog.
   // Will pass a vector of GUIDs of cards that the user selected to upload to
@@ -270,6 +259,24 @@ class AutofillClient : public RiskDataLoader {
   // Returns the current best guess as to the page's display language.
   virtual std::string GetPageLanguage() const;
 
+  // Retrieves the country code of the user from Chrome variation service.
+  // If the variation service is not available, return an empty string.
+  virtual std::string GetVariationConfigCountryCode() const;
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  // Returns the whitelists for virtual cards. Used on desktop platforms only.
+  virtual std::vector<std::string> GetMerchantWhitelistForVirtualCards() = 0;
+  virtual std::vector<std::string> GetBinRangeWhitelistForVirtualCards() = 0;
+#endif
+
+#if !defined(OS_IOS)
+  // Creates the appropriate implementation of InternalAuthenticator. May be
+  // null for platforms that don't support this, in which case standard CVC
+  // authentication will be used instead.
+  virtual std::unique_ptr<InternalAuthenticator>
+  CreateCreditCardInternalAuthenticator(content::RenderFrameHost* rfh);
+#endif
+
   // Causes the Autofill settings UI to be shown. If |show_credit_card_settings|
   // is true, will show the credit card specific subpage.
   virtual void ShowAutofillSettings(bool show_credit_card_settings) = 0;
@@ -333,6 +340,18 @@ class AutofillClient : public RiskDataLoader {
   // Will close the current visible WebAuthn dialog. Returns true if dialog was
   // visible and has been closed.
   virtual bool CloseWebauthnDialog() = 0;
+
+  // Prompt the user to confirm the saving of a UPI ID.
+  virtual void ConfirmSaveUpiIdLocally(
+      const std::string& upi_id,
+      base::OnceCallback<void(bool user_decision)> callback) = 0;
+
+  // Shows the dialog including all credit cards that are available to be used
+  // as a virtual card. |candidates| must not be empty and has at least one
+  // card. Runs |callback| when a card is selected.
+  virtual void OfferVirtualCardOptions(
+      const std::vector<CreditCard*>& candidates,
+      base::OnceCallback<void(const std::string&)> callback) = 0;
 #endif
 
   // Runs |callback| if the |profile| should be imported as personal data.
@@ -397,7 +416,7 @@ class AutofillClient : public RiskDataLoader {
   // Shows the user interface for scanning a credit card. Invokes the |callback|
   // when a credit card is scanned successfully. Should be called only if
   // HasCreditCardScanFeature() returns true.
-  virtual void ScanCreditCard(const CreditCardScanCallback& callback) = 0;
+  virtual void ScanCreditCard(CreditCardScanCallback callback) = 0;
 
   // Shows an Autofill popup with the given |values|, |labels|, |icons|, and
   // |identifiers| for the element at |element_bounds|. |delegate| will be
@@ -415,8 +434,19 @@ class AutofillClient : public RiskDataLoader {
       const std::vector<base::string16>& values,
       const std::vector<base::string16>& labels) = 0;
 
+  // Informs the client that the popup needs to be kept alive. Call before
+  // |UpdatePopup| to update the open popup in-place.
+  virtual void PinPopupView() = 0;
+
+  // Returns (not elided) suggestions currently held by the UI.
+  virtual base::span<const Suggestion> GetPopupSuggestions() const = 0;
+
+  // Updates the popup contents with the newly given suggestions.
+  virtual void UpdatePopup(const std::vector<autofill::Suggestion>& suggestions,
+                           PopupType popup_type) = 0;
+
   // Hide the Autofill popup if one is currently showing.
-  virtual void HideAutofillPopup() = 0;
+  virtual void HideAutofillPopup(PopupHidingReason reason) = 0;
 
   // Whether the Autocomplete feature of Autofill should be enabled.
   virtual bool IsAutocompleteEnabled() = 0;

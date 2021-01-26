@@ -34,12 +34,10 @@ class ProcessTrackerTest : public ::testing::Test {
  public:
   ProcessTrackerTest() {
     context.storage.reset(new TraceStorage());
+    context.global_args_tracker.reset(new GlobalArgsTracker(&context));
     context.args_tracker.reset(new ArgsTracker(&context));
     context.process_tracker.reset(new ProcessTracker(&context));
     context.event_tracker.reset(new EventTracker(&context));
-#if PERFETTO_BUILDFLAG(PERFETTO_TP_FTRACE)
-    context.sched_tracker.reset(new SchedEventTracker(&context));
-#endif  // PERFETTO_BUILDFLAG(PERFETTO_TP_FTRACE)
   }
 
  protected:
@@ -61,9 +59,10 @@ TEST_F(ProcessTrackerTest, GetOrCreateNewProcess) {
 
 TEST_F(ProcessTrackerTest, StartNewProcess) {
   TraceStorage storage;
-  auto upid = context.process_tracker->StartNewProcess(1000, 0, 123, 0);
+  auto upid =
+      context.process_tracker->StartNewProcess(1000, 0u, 123, kNullStringId);
   ASSERT_EQ(context.process_tracker->GetOrCreateProcess(123), upid);
-  ASSERT_EQ(context.storage->GetProcess(upid).start_ns, 1000);
+  ASSERT_EQ(context.storage->process_table().start_ts()[upid], 1000);
 }
 
 TEST_F(ProcessTrackerTest, PushTwoProcessEntries_SamePidAndName) {
@@ -85,11 +84,11 @@ TEST_F(ProcessTrackerTest, PushTwoProcessEntries_DifferentPid) {
 
 TEST_F(ProcessTrackerTest, AddProcessEntry_CorrectName) {
   context.process_tracker->SetProcessMetadata(1, base::nullopt, "test");
-  ASSERT_EQ(context.storage->GetString(context.storage->GetProcess(1).name_id),
-            "test");
+  auto name =
+      context.storage->GetString(context.storage->process_table().name()[1]);
+  ASSERT_EQ(name, "test");
 }
 
-#if PERFETTO_BUILDFLAG(PERFETTO_TP_FTRACE)
 TEST_F(ProcessTrackerTest, UpdateThreadMatch) {
   uint32_t cpu = 3;
   int64_t timestamp = 100;
@@ -97,41 +96,54 @@ TEST_F(ProcessTrackerTest, UpdateThreadMatch) {
   static const char kCommProc1[] = "process1";
   static const char kCommProc2[] = "process2";
   int32_t prio = 1024;
+  SchedEventTracker* sched_tracker = SchedEventTracker::GetOrCreate(&context);
 
-  context.sched_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1, kCommProc2,
-                                         prio, prev_state,
-                                         /*tid=*/4, kCommProc1, prio);
-  context.sched_tracker->PushSchedSwitch(cpu, timestamp + 1, /*tid=*/4,
-                                         kCommProc1, prio, prev_state,
-                                         /*tid=*/1, kCommProc2, prio);
+  sched_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1, kCommProc2, prio,
+                                 prev_state,
+                                 /*tid=*/4, kCommProc1, prio);
+  sched_tracker->PushSchedSwitch(cpu, timestamp + 1, /*tid=*/4, kCommProc1,
+                                 prio, prev_state,
+                                 /*tid=*/1, kCommProc2, prio);
 
   context.process_tracker->SetProcessMetadata(2, base::nullopt, "test");
   context.process_tracker->UpdateThread(4, 2);
 
-  TraceStorage::Thread thread = context.storage->GetThread(/*utid=*/1);
-  TraceStorage::Process process = context.storage->GetProcess(/*utid=*/1);
-
-  ASSERT_EQ(thread.tid, 4u);
-  ASSERT_EQ(thread.upid.value(), 1u);
-  ASSERT_EQ(process.pid, 2u);
-  ASSERT_EQ(process.start_ns, 0);
+  ASSERT_EQ(context.storage->thread_table().tid()[1], 4u);
+  ASSERT_EQ(context.storage->thread_table().upid()[1].value(), 1u);
+  ASSERT_EQ(context.storage->process_table().pid()[1], 2u);
+  ASSERT_EQ(context.storage->process_table().start_ts()[1], base::nullopt);
 }
-#endif  // PERFETTO_BUILDFLAG(PERFETTO_TP_FTRACE)
 
 TEST_F(ProcessTrackerTest, UpdateThreadCreate) {
   context.process_tracker->UpdateThread(12, 2);
 
-  TraceStorage::Thread thread = context.storage->GetThread(1);
-
   // We expect 3 threads: Invalid thread, main thread for pid, tid 12.
-  ASSERT_EQ(context.storage->thread_count(), 3u);
+  ASSERT_EQ(context.storage->thread_table().row_count(), 3u);
 
   auto tid_it = context.process_tracker->UtidsForTidForTesting(12);
   ASSERT_NE(tid_it.first, tid_it.second);
-  ASSERT_EQ(thread.upid.value(), 1u);
+  ASSERT_EQ(context.storage->thread_table().upid()[1].value(), 1u);
   auto pid_it = context.process_tracker->UpidsForPidForTesting(2);
   ASSERT_NE(pid_it.first, pid_it.second);
-  ASSERT_EQ(context.storage->process_count(), 2u);
+  ASSERT_EQ(context.storage->process_table().row_count(), 2u);
+}
+
+TEST_F(ProcessTrackerTest, PidReuseWithoutStartAndEndThread) {
+  UniquePid p1 = context.process_tracker->StartNewProcess(
+      base::nullopt, base::nullopt, /*pid=*/1, kNullStringId);
+  UniqueTid t1 = context.process_tracker->UpdateThread(/*tid=*/2, /*pid=*/1);
+
+  UniquePid p2 = context.process_tracker->StartNewProcess(
+      base::nullopt, base::nullopt, /*pid=*/1, kNullStringId);
+  UniqueTid t2 = context.process_tracker->UpdateThread(/*tid=*/2, /*pid=*/1);
+
+  ASSERT_NE(p1, p2);
+  ASSERT_NE(t1, t2);
+
+  // We expect 3 processes: idle process, 2x pid 1.
+  ASSERT_EQ(context.storage->process_table().row_count(), 3u);
+  // We expect 5 threads: Invalid thread, 2x (main thread + sub thread).
+  ASSERT_EQ(context.storage->thread_table().row_count(), 5u);
 }
 
 }  // namespace

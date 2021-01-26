@@ -114,6 +114,7 @@ public:
     bool OverrideCreatePlugin(content::RenderFrame *render_frame,
                               const blink::WebPluginParams &params,
                               blink::WebPlugin **plugin) override;
+    bool IsOriginIsolatedPepperPlugin(const base::FilePath& plugin_path) override;
     content::BrowserPluginDelegate *CreateBrowserPluginDelegate(content::RenderFrame *render_frame,
                                                                 const content::WebPluginInfo &info,
                                                                 const std::string &mime_type,
@@ -122,7 +123,7 @@ public:
     void WillSendRequest(blink::WebLocalFrame *frame,
                          ui::PageTransition transition_type,
                          const blink::WebURL &url,
-                         const blink::WebURL &site_for_cookies,
+                         const net::SiteForCookies &site_for_cookies,
                          const url::Origin *initiator_origin,
                          GURL *new_url,
                          bool *attach_same_site_cookies) override;

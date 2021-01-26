@@ -13,11 +13,10 @@
 
 #include "base/bind.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_delegate.h"
-#include "chrome/browser/plugins/plugin_data_remover_helper.h"
-#include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_reconcilor_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -27,6 +26,7 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/browsing_data/core/pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -36,9 +36,14 @@
 #include "extensions/common/extension.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 
-using content::BrowserThread;
-using browsing_data::ClearBrowsingDataTab;
+#if BUILDFLAG(ENABLE_PLUGINS)
+#include "chrome/browser/plugins/plugin_data_remover_helper.h"
+#include "chrome/browser/plugins/plugin_prefs.h"
+#endif
+
 using browsing_data::BrowsingDataType;
+using browsing_data::ClearBrowsingDataTab;
+using content::BrowserThread;
 
 namespace extension_browsing_data_api_constants {
 // Parameter name keys.
@@ -347,20 +352,24 @@ bool BrowsingDataRemoverFunction::RunAsync() {
     return false;
   }
 
+#if BUILDFLAG(ENABLE_PLUGINS)
   if (removal_mask_ &
       ChromeBrowsingDataRemoverDelegate::DATA_TYPE_PLUGIN_DATA) {
     // If we're being asked to remove plugin data, check whether it's actually
     // supported.
-    PostTask(FROM_HERE,
-             {base::ThreadPool(), base::MayBlock(),
-              base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
-              base::TaskPriority::USER_VISIBLE},
-             base::BindOnce(
-                 &BrowsingDataRemoverFunction::CheckRemovingPluginDataSupported,
-                 this, PluginPrefs::GetForProfile(GetProfile())));
+    base::ThreadPool::PostTask(
+        FROM_HERE,
+        {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
+         base::TaskPriority::USER_VISIBLE},
+        base::BindOnce(
+            &BrowsingDataRemoverFunction::CheckRemovingPluginDataSupported,
+            this, PluginPrefs::GetForProfile(GetProfile())));
   } else {
     StartRemoving();
   }
+#else
+  StartRemoving();
+#endif
 
   // Will finish asynchronously.
   return true;
@@ -372,6 +381,7 @@ bool BrowsingDataRemoverFunction::IsPauseSyncAllowed() {
   return true;
 }
 
+#if BUILDFLAG(ENABLE_PLUGINS)
 void BrowsingDataRemoverFunction::CheckRemovingPluginDataSupported(
     scoped_refptr<PluginPrefs> plugin_prefs) {
   if (!PluginDataRemoverHelper::IsSupported(plugin_prefs.get()))
@@ -381,6 +391,7 @@ void BrowsingDataRemoverFunction::CheckRemovingPluginDataSupported(
       FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&BrowsingDataRemoverFunction::StartRemoving, this));
 }
+#endif
 
 void BrowsingDataRemoverFunction::StartRemoving() {
   Profile* profile = GetProfile();

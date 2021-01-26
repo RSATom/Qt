@@ -33,7 +33,7 @@
             "title": "DOM Breakpoints",
             "order": 7,
             "persistence": "permanent",
-            "factoryName": "BrowserDebugger.DOMBreakpointsSidebarPane"
+            "className": "BrowserDebugger.DOMBreakpointsSidebarPane"
         },
         {
             "type": "view",
@@ -42,7 +42,7 @@
             "title": "DOM Breakpoints",
             "order": 6,
             "persistence": "permanent",
-            "factoryName": "BrowserDebugger.DOMBreakpointsSidebarPane"
+            "className": "BrowserDebugger.DOMBreakpointsSidebarPane"
         },
         {
             "type": "@Elements.MarkerDecorator",
@@ -120,6 +120,7 @@
     ],
     "modules": [
         "browser_debugger.js",
+        "browser_debugger-legacy.js",
         "DOMBreakpointsSidebarPane.js",
         "EventListenerBreakpointsSidebarPane.js",
         "ObjectEventListenersSidebarPane.js",

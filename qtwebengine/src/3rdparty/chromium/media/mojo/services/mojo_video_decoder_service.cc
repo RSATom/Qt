@@ -4,6 +4,8 @@
 
 #include "media/mojo/services/mojo_video_decoder_service.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
@@ -98,8 +100,12 @@ MojoVideoDecoderService::MojoVideoDecoderService(
 MojoVideoDecoderService::~MojoVideoDecoderService() {
   DVLOG(1) << __func__;
 
-  if (init_cb_)
-    OnDecoderInitialized(false);
+  if (init_cb_) {
+    OnDecoderInitialized(
+        Status(StatusCode::kMojoDecoderDeletedWithoutInitialization)
+            .WithData("decoder", "MojoVideoDecoder"));
+  }
+
   if (reset_cb_)
     OnDecoderReset();
 
@@ -171,7 +177,7 @@ void MojoVideoDecoderService::Initialize(const VideoDecoderConfig& config,
   init_cb_ = std::move(callback);
 
   if (!decoder_) {
-    OnDecoderInitialized(false);
+    OnDecoderInitialized(StatusCode::kMojoDecoderNoWrappedDecoder);
     return;
   }
 
@@ -186,7 +192,7 @@ void MojoVideoDecoderService::Initialize(const VideoDecoderConfig& config,
     } else if (cdm_id != cdm_id_) {
       // TODO(xhwang): Replace with mojo::ReportBadMessage().
       NOTREACHED() << "The caller should not switch CDM";
-      OnDecoderInitialized(false);
+      OnDecoderInitialized(StatusCode::kDecoderMissingCdmForEncryptedContent);
       return;
     }
   }
@@ -197,14 +203,14 @@ void MojoVideoDecoderService::Initialize(const VideoDecoderConfig& config,
 
   if (config.is_encrypted() && !cdm_context) {
     DVLOG(1) << "CdmContext for " << cdm_id << " not found for encrypted video";
-    OnDecoderInitialized(false);
+    OnDecoderInitialized(StatusCode::kDecoderMissingCdmForEncryptedContent);
     return;
   }
 
   using Self = MojoVideoDecoderService;
   decoder_->Initialize(
       config, low_delay, cdm_context,
-      base::BindRepeating(&Self::OnDecoderInitialized, weak_this_),
+      base::BindOnce(&Self::OnDecoderInitialized, weak_this_),
       base::BindRepeating(&Self::OnDecoderOutput, weak_this_),
       base::BindRepeating(&Self::OnDecoderWaiting, weak_this_));
 }
@@ -256,20 +262,20 @@ void MojoVideoDecoderService::Reset(ResetCallback callback) {
   }
 
   // Flush the reader so that pending decodes will be dispatched first.
-  mojo_decoder_buffer_reader_->Flush(base::BindRepeating(
-      &MojoVideoDecoderService::OnReaderFlushed, weak_this_));
+  mojo_decoder_buffer_reader_->Flush(
+      base::BindOnce(&MojoVideoDecoderService::OnReaderFlushed, weak_this_));
 }
 
-void MojoVideoDecoderService::OnDecoderInitialized(bool success) {
+void MojoVideoDecoderService::OnDecoderInitialized(Status status) {
   DVLOG(1) << __func__;
-  DCHECK(!success || decoder_);
+  DCHECK(!status.is_ok() || decoder_);
   DCHECK(init_cb_);
   TRACE_EVENT_ASYNC_END1("media", kInitializeTraceName, this, "success",
-                         success);
+                         status.code());
 
   std::move(init_cb_).Run(
-      success, success ? decoder_->NeedsBitstreamConversion() : false,
-      success ? decoder_->GetMaxDecodeRequests() : 1);
+      status, status.is_ok() ? decoder_->NeedsBitstreamConversion() : false,
+      status.is_ok() ? decoder_->GetMaxDecodeRequests() : 1);
 }
 
 void MojoVideoDecoderService::OnReaderRead(
@@ -290,14 +296,14 @@ void MojoVideoDecoderService::OnReaderRead(
   }
 
   decoder_->Decode(
-      buffer, base::BindRepeating(&MojoVideoDecoderService::OnDecoderDecoded,
-                                  weak_this_, base::Passed(&callback),
-                                  base::Passed(&trace_event)));
+      buffer,
+      base::BindOnce(&MojoVideoDecoderService::OnDecoderDecoded, weak_this_,
+                     std::move(callback), std::move(trace_event)));
 }
 
 void MojoVideoDecoderService::OnReaderFlushed() {
-  decoder_->Reset(base::BindRepeating(&MojoVideoDecoderService::OnDecoderReset,
-                                      weak_this_));
+  decoder_->Reset(
+      base::BindOnce(&MojoVideoDecoderService::OnDecoderReset, weak_this_));
 }
 
 void MojoVideoDecoderService::OnDecoderDecoded(
@@ -368,7 +374,7 @@ void MojoVideoDecoderService::OnOverlayInfoChanged(
 
 void MojoVideoDecoderService::OnDecoderRequestedOverlayInfo(
     bool restart_for_transitions,
-    const ProvideOverlayInfoCB& provide_overlay_info_cb) {
+    ProvideOverlayInfoCB provide_overlay_info_cb) {
   DVLOG(2) << __func__;
   DCHECK(client_);
   DCHECK(decoder_);

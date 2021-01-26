@@ -45,7 +45,6 @@
 
 #include "base/command_line.h"
 #include "chrome/common/chrome_switches.h"
-#include "components/viz/common/features.h"
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
@@ -113,9 +112,8 @@ WebEngineSettings::~WebEngineSettings()
     if (parentSettings)
         parentSettings->childSettings.remove(this);
     // In QML the profile and its settings may be garbage collected before the page and its settings.
-    for (WebEngineSettings *settings : qAsConst(childSettings)) {
-        settings->parentSettings = 0;
-    }
+    for (WebEngineSettings *settings : qAsConst(childSettings))
+        settings->parentSettings = nullptr;
 }
 
 void WebEngineSettings::overrideWebPreferences(content::WebContents *webContents, content::WebPreferences *prefs)
@@ -142,11 +140,15 @@ void WebEngineSettings::setAttribute(WebEngineSettings::Attribute attr, bool on)
 
 bool WebEngineSettings::testAttribute(WebEngineSettings::Attribute attr) const
 {
-    if (!parentSettings) {
-        Q_ASSERT(s_defaultAttributes.contains(attr));
-        return m_attributes.value(attr, s_defaultAttributes.value(attr));
-    }
-    return m_attributes.value(attr, parentSettings->testAttribute(attr));
+    auto it = m_attributes.constFind(attr);
+    if (it != m_attributes.constEnd())
+        return *it;
+
+    if (parentSettings)
+        return parentSettings->testAttribute(attr);
+
+    Q_ASSERT(s_defaultAttributes.contains(attr));
+    return s_defaultAttributes.value(attr);
 }
 
 bool WebEngineSettings::isAttributeExplicitlySet(Attribute attr) const
@@ -388,11 +390,6 @@ void WebEngineSettings::applySettingsToWebPreferences(content::WebPreferences *p
     }
     prefs->dom_paste_enabled = testAttribute(JavascriptCanPaste);
     prefs->dns_prefetching_enabled = testAttribute(DnsPrefetchEnabled);
-
-    if (!features::IsVizDisplayCompositorEnabled()) {
-        prefs->accelerated_2d_canvas_enabled = false;
-        prefs->disable_features_depending_on_viz = true;
-    }
 
     // Fonts settings.
     prefs->standard_font_family_map[content::kCommonScript] = toString16(fontFamily(StandardFont));

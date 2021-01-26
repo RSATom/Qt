@@ -12,10 +12,12 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/metrics/field_trial.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_split.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -94,6 +96,9 @@ namespace {
 
 bool* g_discard_domain_reliability_uploads_for_testing = nullptr;
 
+const char kHttpCacheFinchExperimentGroups[] =
+    "profile_network_context_service.http_cache_finch_experiment_groups";
+
 std::vector<std::string> TranslateStringArray(const base::ListValue* list) {
   std::vector<std::string> strings;
   for (const base::Value& value : *list) {
@@ -165,7 +170,9 @@ void InitializeCorsExtraSafelistedRequestHeaderNamesForProfile(
 
   // We trust and append |pref|'s values only when they are set by the managed
   // policy. Chrome does not have any interface to set this preference manually.
-  if (has_managed_mitigation_list) {
+  if (!base::FeatureList::IsEnabled(
+          features::kHideCorsMitigationListPolicySupport) &&
+      has_managed_mitigation_list) {
     for (const auto& header_name_value :
          *pref->GetList(prefs::kCorsMitigationList)) {
       extra_safelisted_request_header_names->push_back(
@@ -294,11 +301,14 @@ ProfileNetworkContextService::CreateNetworkContext(
   if ((!in_memory && !profile_->IsOffTheRecord())) {
     // TODO(jam): delete this code 1 year after Network Service shipped to all
     // stable users, which would be after M83 branches.
-    base::FilePath media_cache_path = GetPartitionPath(relative_partition_path)
-                                          .Append(chrome::kMediaCacheDirname);
-    base::PostTask(
+    base::FilePath base_cache_path;
+    chrome::GetUserCacheDirectory(GetPartitionPath(relative_partition_path),
+                                  &base_cache_path);
+    base::FilePath media_cache_path =
+        base_cache_path.Append(chrome::kMediaCacheDirname);
+    base::ThreadPool::PostTask(
         FROM_HERE,
-        {base::ThreadPool(), base::TaskPriority::BEST_EFFORT, base::MayBlock(),
+        {base::TaskPriority::BEST_EFFORT, base::MayBlock(),
          base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
         base::BindOnce(base::IgnoreResult(&base::DeleteFile), media_cache_path,
                        true /* recursive */));
@@ -344,6 +354,10 @@ void ProfileNetworkContextService::RegisterLocalStatePrefs(
   registry->RegisterIntegerPref(
       prefs::kAmbientAuthenticationInPrivateModesEnabled,
       static_cast<int>(net::AmbientAuthAllowedProfileTypes::REGULAR_ONLY));
+
+  // For information about whether to reset the HTTP Cache or not, defaults
+  // to the empty string, which does not prompt a reset.
+  registry->RegisterStringPref(kHttpCacheFinchExperimentGroups, "");
 }
 
 void ProfileNetworkContextService::DisableQuicIfNotAllowed() {
@@ -592,6 +606,31 @@ ProfileNetworkContextService::CreateClientCertStore() {
 #endif
 }
 
+bool GetHttpCacheBackendResetParam(PrefService* local_state) {
+  // Get the field trial groups.  If the server cannot be reached, then
+  // this corresponds to "None" for each experiment.
+  base::FieldTrial* field_trial = base::FeatureList::GetFieldTrial(
+      net::features::kSplitCacheByNetworkIsolationKey);
+  std::string current_field_trial_status =
+      (field_trial ? field_trial->group_name() : "None") + " ";
+  field_trial = base::FeatureList::GetFieldTrial(
+      net::features::kAppendFrameOriginToNetworkIsolationKey);
+  current_field_trial_status +=
+      (field_trial ? field_trial->group_name() : "None") + " ";
+  field_trial = base::FeatureList::GetFieldTrial(
+      net::features::kUseRegistrableDomainInNetworkIsolationKey);
+  current_field_trial_status +=
+      (field_trial ? field_trial->group_name() : "None");
+
+  std::string previous_field_trial_status =
+      local_state->GetString(kHttpCacheFinchExperimentGroups);
+  local_state->SetString(kHttpCacheFinchExperimentGroups,
+                         current_field_trial_status);
+
+  return !previous_field_trial_status.empty() &&
+         current_field_trial_status != previous_field_trial_status;
+}
+
 network::mojom::NetworkContextParamsPtr
 ProfileNetworkContextService::CreateNetworkContextParams(
     bool in_memory,
@@ -667,6 +706,10 @@ ProfileNetworkContextService::CreateNetworkContextParams(
     cookie_path = cookie_path.Append(chrome::kCookieFilename);
     network_context_params->cookie_path = cookie_path;
 
+    base::FilePath trust_token_path = path;
+    trust_token_path = trust_token_path.Append(chrome::kTrustTokenFilename);
+    network_context_params->trust_token_path = std::move(trust_token_path);
+
 #if BUILDFLAG(ENABLE_REPORTING)
     base::FilePath reporting_and_nel_store_path = path;
     reporting_and_nel_store_path = reporting_and_nel_store_path.Append(
@@ -713,7 +756,14 @@ ProfileNetworkContextService::CreateNetworkContextParams(
   network_context_params->enable_expect_ct_reporting = true;
 
 #if BUILDFLAG(TRIAL_COMPARISON_CERT_VERIFIER_SUPPORTED)
-  if (!in_memory && !network_context_params->use_builtin_cert_verifier &&
+  // Require the use_builtin_cert_verifier to be explicitly initialized, as
+  // using the TrialComparisonCertVerifier requires knowing whether Chrome is
+  // using the system verifier.
+  DCHECK_NE(network_context_params->use_builtin_cert_verifier,
+            network::mojom::NetworkContextParams::CertVerifierImpl::kDefault);
+  if (!in_memory &&
+      network_context_params->use_builtin_cert_verifier ==
+          network::mojom::NetworkContextParams::CertVerifierImpl::kSystem &&
       TrialComparisonCertVerifierController::MaybeAllowedForProfile(profile_)) {
     mojo::PendingRemote<network::mojom::TrialComparisonCertVerifierConfigClient>
         config_client;
@@ -767,7 +817,9 @@ ProfileNetworkContextService::CreateNetworkContextParams(
   // Note: On non-ChromeOS platforms, the |use_builtin_cert_verifier| param
   // value is inherited from CreateDefaultNetworkContextParams.
   network_context_params->use_builtin_cert_verifier =
-      using_builtin_cert_verifier_;
+      using_builtin_cert_verifier_
+          ? network::mojom::NetworkContextParams::CertVerifierImpl::kBuiltin
+          : network::mojom::NetworkContextParams::CertVerifierImpl::kSystem;
 
   bool profile_supports_policy_certs = false;
   if (chromeos::ProfileHelper::IsSigninProfile(profile_))
@@ -802,6 +854,9 @@ ProfileNetworkContextService::CreateNetworkContextParams(
       profile_->GetSharedCorsOriginAccessList()
           ->GetOriginAccessList()
           .CreateCorsOriginAccessPatternsList();
+
+  network_context_params->reset_http_cache_backend =
+      GetHttpCacheBackendResetParam(g_browser_process->local_state());
 
   return network_context_params;
 }

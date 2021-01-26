@@ -106,7 +106,7 @@ QT_BEGIN_NAMESPACE
     classObject.callMethod<void>("printFromJava",
                                  "(Ljava/lang/String;)V",
                                  javaMessage.object<jstring>());
-    \badcode
+    \endcode
 
     \since Qt 5.12
  */

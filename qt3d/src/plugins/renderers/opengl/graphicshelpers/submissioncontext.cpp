@@ -621,7 +621,7 @@ QSize SubmissionContext::renderTargetSize(const QSize &surfaceSize) const
                 return renderTargetSize;
         }
     } else {
-        renderTargetSize = surfaceSize;
+        renderTargetSize = m_surface->size().isValid() ? m_surface->size() : surfaceSize;
         if (m_surface->surfaceClass() == QSurface::Window) {
             const float dpr = static_cast<QWindow *>(m_surface)->devicePixelRatio();
             renderTargetSize *= dpr;
@@ -1186,8 +1186,10 @@ void SubmissionContext::setUpdatedTexture(const Qt3DCore::QNodeIdVector &updated
 // than the other way around
 bool SubmissionContext::setParameters(ShaderParameterPack &parameterPack, GLShader *shader)
 {
-    static const int irradianceId = StringToInt::lookupId(QLatin1String("envLight.irradiance"));
-    static const int specularId = StringToInt::lookupId(QLatin1String("envLight.specular"));
+    static const int irradianceStructId = StringToInt::lookupId(QLatin1String("envLight.irradiance"));
+    static const int specularStructId = StringToInt::lookupId(QLatin1String("envLight.specular"));
+    static const int irradianceId = StringToInt::lookupId(QLatin1String("envLightIrradiance"));
+    static const int specularId = StringToInt::lookupId(QLatin1String("envLightSpecular"));
     // Activate textures and update TextureUniform in the pack
     // with the correct textureUnit
 
@@ -1211,9 +1213,11 @@ bool SubmissionContext::setParameters(ShaderParameterPack &parameterPack, GLShad
                     texUniform.data<int>()[namedTex.uniformArrayIndex] = texUnit;
                     if (texUnit == -1) {
                         if (namedTex.glslNameId != irradianceId &&
-                            namedTex.glslNameId != specularId) {
+                            namedTex.glslNameId != specularId &&
+                            namedTex.glslNameId != irradianceStructId &&
+                            namedTex.glslNameId != specularStructId) {
                             // Only return false if we are not dealing with env light textures
-                            qCWarning(Backend) << "Unable to find suitable Texture Unit";
+                            qCWarning(Backend) << "Unable to find suitable Texture Unit for" << StringToInt::lookupString(namedTex.glslNameId);
                             return false;
                         }
                     }

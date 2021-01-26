@@ -457,12 +457,11 @@ void tst_QLocale::defaulted_ctor()
     TEST_CTOR("eo", Esperanto, World)
     TEST_CTOR("yi", Yiddish, World)
 
-    QVERIFY(QLocale::Norwegian == QLocale::NorwegianBokmal);
-    TEST_CTOR("no", Norwegian, Norway)
-    TEST_CTOR("nb", Norwegian, Norway)
+    TEST_CTOR("no", NorwegianBokmal, Norway)
+    TEST_CTOR("nb", NorwegianBokmal, Norway)
     TEST_CTOR("nn", NorwegianNynorsk, Norway)
-    TEST_CTOR("no_NO", Norwegian, Norway)
-    TEST_CTOR("nb_NO", Norwegian, Norway)
+    TEST_CTOR("no_NO", NorwegianBokmal, Norway)
+    TEST_CTOR("nb_NO", NorwegianBokmal, Norway)
     TEST_CTOR("nn_NO", NorwegianNynorsk, Norway)
     TEST_CTOR("es_ES", Spanish, Spain)
     TEST_CTOR("es_419", Spanish, LatinAmerica)
@@ -648,9 +647,9 @@ void tst_QLocale::emptyCtor()
 
 void tst_QLocale::legacyNames()
 {
-    QVERIFY(QLocale::Norwegian == QLocale::NorwegianBokmal);
     QLocale::setDefault(QLocale(QLocale::C));
 
+#if QT_DEPRECATED_SINCE(5, 15)
 #define TEST_CTOR(req_lang, req_country, exp_lang, exp_country) \
     { \
         QLocale l(QLocale::req_lang, QLocale::req_country); \
@@ -664,6 +663,7 @@ void tst_QLocale::legacyNames()
     TEST_CTOR(Tagalog, AnyCountry, Filipino, Philippines)
 
 #undef TEST_CTOR
+#endif
 
 #define TEST_CTOR(req_lc, exp_lang, exp_country) \
     { \
@@ -677,7 +677,7 @@ void tst_QLocale::legacyNames()
     }
 
     TEST_CTOR("mo_MD", Romanian, Moldova)
-    TEST_CTOR("no", Norwegian, Norway)
+    TEST_CTOR("no", NorwegianBokmal, Norway)
     TEST_CTOR("sh_ME", Serbian, Montenegro)
     TEST_CTOR("tl", Filipino, Philippines)
     TEST_CTOR("iw", Hebrew, Israel)
@@ -2779,13 +2779,23 @@ void tst_QLocale::textDirection_data()
         bool rightToLeft = false;
         switch (language) {
         // based on likelySubtags for RTL scripts
-        case QLocale::AncientGreek:
+#if QT_DEPRECATED_SINCE(5, 15)
         case QLocale::AncientNorthArabian:
+        case QLocale::ClassicalMandaic:
+        case QLocale::Lydian:
+        case QLocale::ManichaeanMiddlePersian:
+        case QLocale::Meroitic:
+        case QLocale::OldTurkish:
+        case QLocale::Parthian:
+        case QLocale::PrakritLanguage:
+        case QLocale::Sabaean:
+        case QLocale::Samaritan:
+#endif
+        case QLocale::AncientGreek:
         case QLocale::Arabic:
         case QLocale::Aramaic:
         case QLocale::Avestan:
         case QLocale::CentralKurdish:
-        case QLocale::ClassicalMandaic:
         case QLocale::Divehi:
 //        case QLocale::Fulah:
 //        case QLocale::Hausa:
@@ -2793,23 +2803,15 @@ void tst_QLocale::textDirection_data()
 //        case QLocale::Hungarian:
         case QLocale::Kashmiri:
 //        case QLocale::Kurdish:
-        case QLocale::Lydian:
         case QLocale::Mandingo:
-        case QLocale::ManichaeanMiddlePersian:
         case QLocale::Mazanderani:
         case QLocale::Mende:
-        case QLocale::Meroitic:
         case QLocale::Nko:
         case QLocale::NorthernLuri:
-        case QLocale::OldTurkish:
         case QLocale::Pahlavi:
-        case QLocale::Parthian:
         case QLocale::Pashto:
         case QLocale::Persian:
         case QLocale::Phoenician:
-        case QLocale::PrakritLanguage:
-        case QLocale::Sabaean:
-        case QLocale::Samaritan:
         case QLocale::Sindhi:
         case QLocale::SouthernKurdish:
         case QLocale::Syriac:

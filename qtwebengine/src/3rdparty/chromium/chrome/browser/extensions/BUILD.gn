@@ -182,6 +182,8 @@ jumbo_static_library("extensions") {
     "api/i18n/i18n_api.h",
     "api/identity/extension_token_key.cc",
     "api/identity/extension_token_key.h",
+    "api/identity/gaia_remote_consent_flow.cc",
+    "api/identity/gaia_remote_consent_flow.h",
     "api/identity/gaia_web_auth_flow.cc",
     "api/identity/gaia_web_auth_flow.h",
     "api/identity/identity_api.cc",
@@ -198,6 +200,8 @@ jumbo_static_library("extensions") {
     "api/identity/identity_launch_web_auth_flow_function.h",
     "api/identity/identity_mint_queue.cc",
     "api/identity/identity_mint_queue.h",
+    "api/identity/identity_private_api.cc",
+    "api/identity/identity_private_api.h",
     "api/identity/identity_remove_cached_auth_token_function.cc",
     "api/identity/identity_remove_cached_auth_token_function.h",
     "api/identity/web_auth_flow.cc",
@@ -270,6 +274,8 @@ jumbo_static_library("extensions") {
     "api/omnibox/omnibox_api.h",
     "api/page_capture/page_capture_api.cc",
     "api/page_capture/page_capture_api.h",
+    "api/passwords_private/password_check_delegate.cc",
+    "api/passwords_private/password_check_delegate.h",
     "api/passwords_private/passwords_private_api.cc",
     "api/passwords_private/passwords_private_api.h",
     "api/passwords_private/passwords_private_delegate.h",
@@ -283,6 +289,8 @@ jumbo_static_library("extensions") {
     "api/passwords_private/passwords_private_event_router_factory.h",
     "api/passwords_private/passwords_private_utils.cc",
     "api/passwords_private/passwords_private_utils.h",
+    "api/passwords_private/test_passwords_private_delegate.cc",
+    "api/passwords_private/test_passwords_private_delegate.h",
     "api/permissions/permissions_api.cc",
     "api/permissions/permissions_api.h",
     "api/permissions/permissions_api_helpers.cc",
@@ -414,8 +422,6 @@ jumbo_static_library("extensions") {
     "api/webstore_private/extension_install_status.h",
     "api/webstore_private/webstore_private_api.cc",
     "api/webstore_private/webstore_private_api.h",
-    "app_data_migrator.cc",
-    "app_data_migrator.h",
     "blacklist.cc",
     "blacklist.h",
     "blacklist_check.cc",
@@ -466,8 +472,6 @@ jumbo_static_library("extensions") {
     "chrome_extensions_browser_client.h",
     "chrome_extensions_browser_interface_binders.cc",
     "chrome_extensions_browser_interface_binders.h",
-    "chrome_extensions_interface_registration.cc",
-    "chrome_extensions_interface_registration.h",
     "chrome_kiosk_delegate.h",
     "chrome_process_manager_delegate.cc",
     "chrome_process_manager_delegate.h",
@@ -611,6 +615,8 @@ jumbo_static_library("extensions") {
     "external_provider_impl.h",
     "external_registry_loader_win.cc",
     "external_registry_loader_win.h",
+    "forced_extensions/installation_metrics.cc",
+    "forced_extensions/installation_metrics.h",
     "forced_extensions/installation_reporter.cc",
     "forced_extensions/installation_reporter.h",
     "forced_extensions/installation_reporter_factory.cc",
@@ -626,6 +632,8 @@ jumbo_static_library("extensions") {
     "install_gate.h",
     "install_observer.cc",
     "install_observer.h",
+    "install_prompt_permissions.cc",
+    "install_prompt_permissions.h",
     "install_signer.cc",
     "install_signer.h",
     "install_tracker.cc",
@@ -660,8 +668,6 @@ jumbo_static_library("extensions") {
     "permissions_based_management_policy_provider.h",
     "permissions_updater.cc",
     "permissions_updater.h",
-    "plugin_manager.cc",
-    "plugin_manager.h",
     "policy_extension_reinstaller.cc",
     "policy_extension_reinstaller.h",
     "policy_handlers.cc",
@@ -766,9 +772,9 @@ jumbo_static_library("extensions") {
     "//chrome/browser/extensions/api:api_registration",
     "//chrome/common",
     "//chrome/common/extensions/api",
-    "//components/safe_browsing:csd_proto",
-    "//components/safe_browsing:webprotect_proto",
-    "//components/safe_browsing/db:util",
+    "//components/safe_browsing/core:csd_proto",
+    "//components/safe_browsing/core:webprotect_proto",
+    "//components/safe_browsing/core/db:util",
     "//components/signin/core/browser",
     "//content/public/browser",
     "//mojo/public/cpp/bindings",
@@ -788,6 +794,7 @@ jumbo_static_library("extensions") {
     "//chrome/browser:theme_properties",
     "//chrome/browser/devtools",
     "//chrome/browser/engagement:mojo_bindings",
+    "//chrome/browser/image_decoder",
     "//chrome/browser/media/router",
     "//chrome/browser/media/router/discovery",
     "//chrome/browser/resource_coordinator:mojo_bindings",
@@ -797,13 +804,11 @@ jumbo_static_library("extensions") {
     "//chrome/common/extensions/api:extensions_features",
     "//chrome/common/safe_browsing:proto",
     "//chrome/services/removable_storage_writer/public/mojom",
-    "//components/app_modal",
     "//components/autofill/content/browser",
     "//components/bookmarks/browser",
     "//components/bookmarks/managed",
     "//components/browser_sync",
     "//components/browsing_data/core",
-    "//components/bubble",
     "//components/content_settings/core/browser",
     "//components/cookie_config:cookie_config",
     "//components/crx_file",
@@ -812,12 +817,14 @@ jumbo_static_library("extensions") {
     "//components/download/content/public",
     "//components/download/public/common:public",
     "//components/drive",
+    "//components/embedder_support",
     "//components/favicon/content",
     "//components/feedback",
     "//components/gcm_driver",
     "//components/guest_view/browser",
     "//components/history/core/browser",
     "//components/infobars/core",
+    "//components/javascript_dialogs",
     "//components/keyed_service/content",
     "//components/language/core/browser",
     "//components/language/core/common",
@@ -826,11 +833,14 @@ jumbo_static_library("extensions") {
     "//components/net_log",
     "//components/omnibox/browser",
     "//components/onc",
+    "//components/page_load_metrics/browser:browser",
     "//components/password_manager/core/browser",
     "//components/password_manager/core/browser:affiliation",
+    "//components/password_manager/core/browser/leak_detection",
     "//components/payments/core",
     "//components/pdf/browser",
     "//components/performance_manager",
+    "//components/permissions",
     "//components/policy:generated",
     "//components/policy/core/browser",
     "//components/pref_registry",
@@ -838,10 +848,11 @@ jumbo_static_library("extensions") {
     "//components/rappor",
     "//components/resources",
     "//components/safe_browsing:buildflags",
-    "//components/safe_browsing:csd_proto",
-    "//components/safe_browsing:features",
-    "//components/safe_browsing/common:safe_browsing_prefs",
-    "//components/safe_browsing/db:database_manager",
+    "//components/safe_browsing/content/web_ui:web_ui",
+    "//components/safe_browsing/core:csd_proto",
+    "//components/safe_browsing/core:features",
+    "//components/safe_browsing/core/common:safe_browsing_prefs",
+    "//components/safe_browsing/core/db:database_manager",
     "//components/search_engines",
     "//components/services/patch/content",
     "//components/services/unzip/content",
@@ -885,8 +896,6 @@ jumbo_static_library("extensions") {
     "//services/audio/public/cpp",
     "//services/data_decoder/public/cpp",
     "//services/device/public/mojom",
-    "//services/identity/public/cpp:cpp_types",
-    "//services/identity/public/mojom",
     "//services/network/public/mojom",
     "//services/service_manager/public/cpp",
     "//services/service_manager/public/mojom",
@@ -920,6 +929,16 @@ jumbo_static_library("extensions") {
     "//ui/strings",
     "//url",
   ]
+
+  if (enable_autofill_assistant_api) {
+    sources += [
+      "api/autofill_assistant_private/autofill_assistant_private_api.cc",
+      "api/autofill_assistant_private/autofill_assistant_private_api.h",
+      "api/autofill_assistant_private/extension_access_token_fetcher.cc",
+      "api/autofill_assistant_private/extension_access_token_fetcher.h",
+    ]
+    deps += [ "//components/autofill_assistant/browser" ]
+  }
 
   if (is_chromeos) {
     sources += [
@@ -1032,6 +1051,8 @@ jumbo_static_library("extensions") {
       "api/enterprise_reporting_private/chrome_desktop_report_request_helper.h",
       "api/enterprise_reporting_private/device_info_fetcher.cc",
       "api/enterprise_reporting_private/device_info_fetcher.h",
+      "api/enterprise_reporting_private/device_info_fetcher_linux.cc",
+      "api/enterprise_reporting_private/device_info_fetcher_linux.h",
       "api/enterprise_reporting_private/device_info_fetcher_mac.h",
       "api/enterprise_reporting_private/device_info_fetcher_mac.mm",
       "api/enterprise_reporting_private/device_info_fetcher_win.cc",
@@ -1057,6 +1078,9 @@ jumbo_static_library("extensions") {
     deps += [ "//components/keep_alive_registry" ]
     if (is_posix) {
       sources += [ "api/messaging/native_process_launcher_posix.cc" ]
+    }
+    if (use_gio) {
+      configs += [ "//build/linux:gio_config" ]
     }
   }
 
@@ -1143,6 +1167,13 @@ jumbo_static_library("extensions") {
       "api/input_ime/input_ime_api_nonchromeos.h",
       "api/input_ime/input_ime_event_router_base.cc",
       "api/input_ime/input_ime_event_router_base.h",
+    ]
+  }
+
+  if (enable_plugins) {
+    sources += [
+      "plugin_manager.cc",
+      "plugin_manager.h",
     ]
   }
 

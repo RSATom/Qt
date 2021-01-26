@@ -37,7 +37,7 @@ public:
     FixedFunctionFlags fixedFunctionFlags() const override { return FixedFunctionFlags::kNone; }
     GrProcessorSet::Analysis finalize(const GrCaps&, const GrAppliedClip*,
                                       bool hasMixedSampledCoverage, GrClampType) override;
-    CombineResult onCombineIfPossible(GrOp*, const GrCaps&) override;
+    CombineResult onCombineIfPossible(GrOp*, GrRecordingContext::Arenas*, const GrCaps&) override;
     void visitProxies(const VisitProxyFunc& fn) const override {
         for (const auto& range : fInstanceRanges) {
             fn(range.fAtlasProxy, GrMipMapped::kNo);
@@ -71,6 +71,11 @@ public:
     void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
 
 private:
+    void onPrePrepare(GrRecordingContext*,
+                      const GrSurfaceProxyView* outputView,
+                      GrAppliedClip*,
+                      const GrXferProcessor::DstProxyView&) override {}
+
     friend class GrOpMemoryPool;
 
     static std::unique_ptr<GrCCDrawPathsOp> InternalMake(GrRecordingContext*,

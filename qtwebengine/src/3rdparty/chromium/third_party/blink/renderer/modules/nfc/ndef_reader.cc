@@ -8,17 +8,22 @@
 
 #include "services/device/public/mojom/nfc.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/core/v8/source_location.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_ndef_scan_options.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
+#include "third_party/blink/renderer/core/dom/dom_exception.h"
+#include "third_party/blink/renderer/core/events/error_event.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
-#include "third_party/blink/renderer/modules/nfc/ndef_error_event.h"
 #include "third_party/blink/renderer/modules/nfc/ndef_message.h"
 #include "third_party/blink/renderer/modules/nfc/ndef_reading_event.h"
-#include "third_party/blink/renderer/modules/nfc/ndef_scan_options.h"
 #include "third_party/blink/renderer/modules/nfc/nfc_proxy.h"
 #include "third_party/blink/renderer/modules/nfc/nfc_utils.h"
 #include "third_party/blink/renderer/modules/permissions/permission_utils.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
+#include "third_party/blink/renderer/platform/scheduler/public/scheduling_policy.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
 namespace blink {
@@ -29,10 +34,14 @@ using mojom::blink::PermissionStatus;
 
 namespace {
 
+constexpr char kNotSupportedOrPermissionDenied[] =
+    "WebNFC feature is unavailable or permission denied.";
+
 void OnScanRequestCompleted(ScriptPromiseResolver* resolver,
                             device::mojom::blink::NDEFErrorPtr error) {
   if (error) {
-    resolver->Reject(NDEFErrorTypeToDOMException(error->error_type));
+    resolver->Reject(
+        NDEFErrorTypeToDOMException(error->error_type, error->error_message));
     return;
   }
   resolver->Resolve();
@@ -42,11 +51,14 @@ void OnScanRequestCompleted(ScriptPromiseResolver* resolver,
 
 // static
 NDEFReader* NDEFReader::Create(ExecutionContext* context) {
+  context->GetScheduler()->RegisterStickyFeature(
+      SchedulingPolicy::Feature::kWebNfc,
+      {SchedulingPolicy::RecordMetricsForBackForwardCache()});
   return MakeGarbageCollected<NDEFReader>(context);
 }
 
 NDEFReader::NDEFReader(ExecutionContext* context)
-    : ContextLifecycleObserver(context) {
+    : ExecutionContextLifecycleObserver(context) {
   // Call GetNFCProxy to create a proxy. This guarantees no allocation will
   // be needed when calling HasPendingActivity later during gc tracing.
   GetNfcProxy();
@@ -59,7 +71,7 @@ const AtomicString& NDEFReader::InterfaceName() const {
 }
 
 ExecutionContext* NDEFReader::GetExecutionContext() const {
-  return ContextLifecycleObserver::GetExecutionContext();
+  return ExecutionContextLifecycleObserver::GetExecutionContext();
 }
 
 bool NDEFReader::HasPendingActivity() const {
@@ -72,7 +84,7 @@ ScriptPromise NDEFReader::scan(ScriptState* script_state,
                                const NDEFScanOptions* options,
                                ExceptionState& exception_state) {
   ExecutionContext* execution_context = GetExecutionContext();
-  Document* document = To<Document>(execution_context);
+  Document* document = Document::From(execution_context);
   // https://w3c.github.io/web-nfc/#security-policies
   // WebNFC API must be only accessible from top level browsing context.
   if (!execution_context || !document->IsInMainFrame()) {
@@ -88,20 +100,6 @@ ScriptPromise NDEFReader::scan(ScriptState* script_state,
     exception_state.ThrowDOMException(DOMExceptionCode::kAbortError,
                                       "The NFC operation was cancelled.");
     return ScriptPromise();
-  }
-
-  // 9.4 If the reader.[[Id]] is not an empty string and it is not a valid URL
-  // pattern, then reject p with a "SyntaxError" DOMException and return p.
-  // TODO(https://crbug.com/520391): Instead of NDEFScanOptions#url, introduce
-  // and use NDEFScanOptions#id to do the filtering after we add support for
-  // writing NDEFRecord#id.
-  if (options->hasId() && !options->id().IsEmpty()) {
-    KURL pattern_url(options->id());
-    if (!pattern_url.IsValid() || pattern_url.Protocol() != "https") {
-      exception_state.ThrowDOMException(DOMExceptionCode::kSyntaxError,
-                                        "Invalid URL pattern was provided.");
-      return ScriptPromise();
-    }
   }
 
   // TODO(https://crbug.com/520391): With the note in
@@ -157,17 +155,19 @@ void NDEFReader::OnRequestPermission(ScriptPromiseResolver* resolver,
   }
 
   UseCounter::Count(GetExecutionContext(), WebFeature::kWebNfcNdefReaderScan);
+  // TODO(https://crbug.com/994936) remove when origin trial is complete.
+  UseCounter::Count(GetExecutionContext(), WebFeature::kWebNfcAPI);
 
   GetNfcProxy()->StartReading(
       this, options,
       WTF::Bind(&OnScanRequestCompleted, WrapPersistent(resolver)));
 }
 
-void NDEFReader::Trace(blink::Visitor* visitor) {
+void NDEFReader::Trace(Visitor* visitor) {
   visitor->Trace(resolver_);
   EventTargetWithInlineData::Trace(visitor);
   ActiveScriptWrappable::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 void NDEFReader::OnReading(const String& serial_number,
@@ -178,22 +178,25 @@ void NDEFReader::OnReading(const String& serial_number,
       MakeGarbageCollected<NDEFMessage>(message)));
 }
 
-void NDEFReader::OnError(device::mojom::blink::NDEFErrorType error) {
-  DispatchEvent(*MakeGarbageCollected<NDEFErrorEvent>(
-      event_type_names::kError, NDEFErrorTypeToDOMException(error)));
+void NDEFReader::OnError(const String& message) {
+  ErrorEvent* event = ErrorEvent::Create(
+      message, SourceLocation::Capture(GetExecutionContext()), nullptr);
+  DispatchEvent(*event);
 }
 
 void NDEFReader::OnMojoConnectionError() {
   // If |resolver_| has already settled this rejection is silently ignored.
   if (resolver_) {
     resolver_->Reject(NDEFErrorTypeToDOMException(
-        device::mojom::blink::NDEFErrorType::NOT_SUPPORTED));
+        device::mojom::blink::NDEFErrorType::NOT_SUPPORTED,
+        kNotSupportedOrPermissionDenied));
   }
+
   // Dispatches an error event.
-  OnError(device::mojom::blink::NDEFErrorType::NOT_SUPPORTED);
+  OnError(kNotSupportedOrPermissionDenied);
 }
 
-void NDEFReader::ContextDestroyed(ExecutionContext*) {
+void NDEFReader::ContextDestroyed() {
   // If |resolver_| has already settled this rejection is silently ignored.
   if (resolver_) {
     resolver_->Reject(MakeGarbageCollected<DOMException>(
@@ -212,7 +215,7 @@ void NDEFReader::Abort(ScriptPromiseResolver* resolver) {
 
 NFCProxy* NDEFReader::GetNfcProxy() const {
   DCHECK(GetExecutionContext());
-  return NFCProxy::From(*To<Document>(GetExecutionContext()));
+  return NFCProxy::From(*To<LocalDOMWindow>(GetExecutionContext()));
 }
 
 }  // namespace blink

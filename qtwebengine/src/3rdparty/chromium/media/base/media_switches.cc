@@ -98,6 +98,8 @@ const char kUnsafelyAllowProtectedMediaIdentifierForDomain[] =
     "unsafely-allow-protected-media-identifier-for-domain";
 
 // Use fake device for Media Stream to replace actual camera and microphone.
+// For the list of allowed parameters, see
+// FakeVideoCaptureDeviceFactory::ParseFakeDevicesConfigFromOptionsString().
 const char kUseFakeDeviceForMediaStream[] = "use-fake-device-for-media-stream";
 
 // Use an .y4m file to play as the webcam. See the comments in
@@ -182,9 +184,11 @@ const char kOverrideEnabledCdmInterfaceVersion[] =
 const char kOverrideHardwareSecureCodecsForTesting[] =
     "override-hardware-secure-codecs-for-testing";
 
-// Enables GpuMemoryBuffer-based buffer pool.
-const char kVideoCaptureUseGpuMemoryBuffer[] =
-    "video-capture-use-gpu-memory-buffer";
+#if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
+// Force to disable kChromeosVideoDecoder feature, used for unsupported boards.
+const char kForceDisableNewAcceleratedVideoDecoder[] =
+    "force-disable-new-accelerated-video-decoder";
+#endif  // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
 
 namespace autoplay {
 
@@ -255,6 +259,11 @@ const base::Feature kUseAndroidOverlayAggressively{
 const base::Feature kBackgroundVideoPauseOptimization{
     "BackgroundVideoPauseOptimization", base::FEATURE_ENABLED_BY_DEFAULT};
 
+// CDM host verification is enabled by default. Can be disabled for testing.
+// Has no effect if ENABLE_CDM_HOST_VERIFICATION buildflag is false.
+const base::Feature kCdmHostVerification{"CdmHostVerification",
+                                         base::FEATURE_ENABLED_BY_DEFAULT};
+
 // Make MSE garbage collection algorithm more aggressive when we are under
 // moderate or critical memory pressure. This will relieve memory pressure by
 // releasing stale data from MSE buffers.
@@ -283,10 +292,6 @@ const base::Feature kRevokeMediaSourceObjectURLOnAttach{
 // MojoVideoDecoderService, replacing VdaVideoDecoder at Chrome OS platform.
 const base::Feature kChromeosVideoDecoder{"ChromeosVideoDecoder",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Don't allow use of 11.1 devices, even if supported. They might be more crashy
-const base::Feature kD3D11LimitTo11_0{"D3D11VideoDecoderLimitTo11_0",
-                                      base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enable saving playback information in a crash trace, to see if some codecs
 // are crashier than others.
@@ -333,9 +338,24 @@ const base::Feature kD3D11VideoDecoderAllowOverlay{
 const base::Feature kFallbackAfterDecodeError{"FallbackAfterDecodeError",
                                               base::FEATURE_ENABLED_BY_DEFAULT};
 
+// Use Gav1VideoDecoder to decode AV1 streams.
+const base::Feature kGav1VideoDecoder{"Gav1VideoDecoder",
+                                      base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Show toolbar button that opens dialog for controlling media sessions.
-const base::Feature kGlobalMediaControls{"GlobalMediaControls",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kGlobalMediaControls {
+  "GlobalMediaControls",
+#if defined(OS_WIN) || defined(OS_MACOSX) || \
+    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+      base::FEATURE_ENABLED_BY_DEFAULT
+#else
+      base::FEATURE_DISABLED_BY_DEFAULT
+#endif
+};
+
+// Auto-dismiss global media controls.
+const base::Feature kGlobalMediaControlsAutoDismiss{
+    "GlobalMediaControlsAutoDismiss", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Show Cast sessions in Global Media Controls. It is no-op if
 // kGlobalMediaControls is not enabled.
@@ -346,6 +366,10 @@ const base::Feature kGlobalMediaControlsForCast{
 // notifications. It is no-op if kGlobalMediaControls is not enabled.
 const base::Feature kGlobalMediaControlsOverlayControls{
     "GlobalMediaControlsOverlayControls", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Show picture-in-picture button in Global Media Controls.
+const base::Feature kGlobalMediaControlsPictureInPicture{
+    "GlobalMediaControlsPictureInPicture", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enable new cpu load estimator. Intended for evaluation in local
 // testing and origin-trial.
@@ -366,6 +390,12 @@ const base::Feature kUseNewMediaCache{"use-new-media-cache",
 const base::Feature kUseMediaHistoryStore{"UseMediaHistoryStore",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Causes video.requestAniationFrame to use a microtask instead of running with
+// the rendering steps. TODO(crbug.com/1012063): Remove this once we figure out
+// which implementation to use.
+const base::Feature kUseMicrotaskForVideoRAF{"UseMicrotaskForVideoRAF",
+                                             base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Use R16 texture for 9-16 bit channel instead of half-float conversion by CPU.
 const base::Feature kUseR16Texture{"use-r16-texture",
                                    base::FEATURE_DISABLED_BY_DEFAULT};
@@ -377,7 +407,7 @@ const base::Feature kUnifiedAutoplay{"UnifiedAutoplay",
 
 // Enable VA-API hardware encode acceleration for H264 on AMD.
 const base::Feature kVaapiH264AMDEncoder{"VaapiH264AMDEncoder",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
+                                         base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enable VA-API hardware low power encoder for all codecs.
 const base::Feature kVaapiLowPowerEncoder{"VaapiLowPowerEncoder",
@@ -406,6 +436,10 @@ const base::Feature kVideoBlitColorAccuracy{"video-blit-color-accuracy",
 // no effect.
 const base::Feature kExternalClearKeyForTesting{
     "ExternalClearKeyForTesting", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Enables the LiveCaption feature.
+const base::Feature kLiveCaption{"LiveCaption",
+                                 base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Prevents UrlProvisionFetcher from making a provisioning request. If
 // specified, any provisioning request made will not be sent to the provisioning
@@ -494,10 +528,6 @@ const base::Feature kMediaDrmPreprovisioning{"MediaDrmPreprovisioning",
 const base::Feature kMediaDrmPreprovisioningAtStartup{
     "MediaDrmPreprovisioningAtStartup", base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Enables the Android Image Reader path for Video decoding(for AVDA and MCVD)
-const base::Feature kAImageReaderVideoOutput{"AImageReaderVideoOutput",
-                                             base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Enable picture in picture web api for android.
 const base::Feature kPictureInPictureAPI{"PictureInPictureAPI",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
@@ -510,6 +540,11 @@ const base::Feature kCanPlayHls{"CanPlayHls", base::FEATURE_ENABLED_BY_DEFAULT};
 // Enables the use of MediaPlayerRenderer for HLS playback. When disabled,
 // HLS manifests will fail to load (triggering source fallback or load error).
 const base::Feature kHlsPlayer{"HlsPlayer", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// When enabled, Playing media sessions will request audio focus from the
+// Android system.
+const base::Feature kRequestSystemAudioFocus{"RequestSystemAudioFocus",
+                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Use the (hacky) AudioManager.getOutputLatency() call to get the estimated
 // hardware latency for a stream for OpenSLES playback.  This is normally not
@@ -537,6 +572,10 @@ const base::Feature kMediaFoundationH264Encoding{
 // Enables MediaFoundation based video capture
 const base::Feature kMediaFoundationVideoCapture{
     "MediaFoundationVideoCapture", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Enables VP8 decode acceleration for Windows.
+const base::Feature MEDIA_EXPORT kMediaFoundationVP8Decoding{
+    "MediaFoundationVP8Decoding", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enables DirectShow GetPhotoState implementation
 // Created to act as a kill switch by disabling it, in the case of the
@@ -598,6 +637,15 @@ const base::Feature kPreloadMediaEngagementData{
 const base::Feature kMediaEngagementHTTPSOnly{
     "MediaEngagementHTTPSOnly", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Enables Media Feeds to allow sites to provide specific recommendations for
+// users.
+const base::Feature kMediaFeeds{"MediaFeeds",
+                                base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Enables checking Media Feeds against safe search to prevent adult content.
+const base::Feature kMediaFeedsSafeSearch{"MediaFeedsSafeSearch",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Send events to devtools rather than to chrome://media-internals
 const base::Feature kMediaInspectorLogging{"MediaInspectorLogging",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
@@ -611,6 +659,11 @@ const base::Feature kMediaLearningExperiment{"MediaLearningExperiment",
 // only; does not change media behavior.
 const base::Feature kMediaLearningFramework{"MediaLearningFramework",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Enables the smoothness prediction experiment.  Requires
+// kMediaLearningFramework to be enabled also, else it does nothing.
+const base::Feature kMediaLearningSmoothnessExperiment{
+    "MediaLearningSmoothnessExperiment", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Enable aggregate power measurement for media playback.
 const base::Feature kMediaPowerExperiment{"MediaPowerExperiment",
@@ -645,8 +698,16 @@ const base::Feature kInternalMediaSession {
 #endif
 };
 
+const base::Feature kKaleidoscope{"Kaleidoscope",
+                                  base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kUseFakeDeviceForMediaStream{
     "use-fake-device-for-media-stream", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Makes VideoCadenceEstimator use Bresenham-like algorithm for frame cadence
+// estimations.
+const base::Feature kBresenhamCadence{"BresenhamCadence",
+                                      base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsVideoCaptureAcceleratedJpegDecodingEnabled() {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(

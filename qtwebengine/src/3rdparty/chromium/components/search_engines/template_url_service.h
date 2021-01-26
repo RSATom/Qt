@@ -365,7 +365,7 @@ class TemplateURLService : public WebDataServiceConsumer,
 
   // Returns all syncable TemplateURLs from this model as SyncData. This should
   // include every search engine and no Extension keywords.
-  syncer::SyncDataList GetAllSyncData(syncer::ModelType type) const override;
+  syncer::SyncDataList GetAllSyncData(syncer::ModelType type) const;
   // Process new search engine changes from Sync, merging them into our local
   // data. This may send notifications if local search engines are added,
   // updated or removed.
@@ -812,6 +812,10 @@ class TemplateURLService : public WebDataServiceConsumer,
   // Whether we're currently processing changes from the syncer. While this is
   // true, we ignore any local search engine changes, since we triggered them.
   bool processing_syncer_changes_ = false;
+
+  // We never want reentrancy while applying a default search engine change.
+  // This can happen when deleting keyword conflicts. crbug.com/1031506
+  bool applying_default_search_engine_change_ = false;
 
   // Sync's syncer::SyncChange handler. We push all our changes through this.
   std::unique_ptr<syncer::SyncChangeProcessor> sync_processor_;

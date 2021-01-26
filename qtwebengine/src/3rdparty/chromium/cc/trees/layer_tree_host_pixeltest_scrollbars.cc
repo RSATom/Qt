@@ -27,9 +27,9 @@ class LayerTreeHostScrollbarsPixelTest
     : public LayerTreePixelTest,
       public ::testing::WithParamInterface<LayerTreeTest::RendererType> {
  protected:
-  LayerTreeHostScrollbarsPixelTest() = default;
+  LayerTreeHostScrollbarsPixelTest() : LayerTreePixelTest(renderer_type()) {}
 
-  RendererType renderer_type() { return GetParam(); }
+  RendererType renderer_type() const { return GetParam(); }
 
   void SetupTree() override {
     SetInitialDeviceScaleFactor(device_scale_factor_);
@@ -41,12 +41,9 @@ class LayerTreeHostScrollbarsPixelTest
 
 class PaintedScrollbar : public FakeScrollbar {
  public:
-  explicit PaintedScrollbar(const gfx::Size& size)
-      : FakeScrollbar(/*paint*/ true,
-                      /*has_thumb*/ false,
-                      HORIZONTAL,
-                      /*is_left_side_vertical_scrollbar*/ false,
-                      /*is_overlay*/ false) {
+  explicit PaintedScrollbar(const gfx::Size& size) {
+    set_should_paint(true);
+    set_has_thumb(false);
     set_track_rect(gfx::Rect(size));
   }
 
@@ -76,17 +73,21 @@ class PaintedScrollbar : public FakeScrollbar {
   SkColor color_ = SK_ColorGREEN;
 };
 
+#if !defined(GL_NOT_ON_PLATFORM) || defined(ENABLE_CC_VULKAN_TESTS)
 LayerTreeTest::RendererType const kRendererTypes[] = {
+#if !defined(GL_NOT_ON_PLATFORM)
     LayerTreeTest::RENDERER_GL,
     LayerTreeTest::RENDERER_SKIA_GL,
+#endif  // !defined(GL_NOT_ON_PLATFORM)
 #if defined(ENABLE_CC_VULKAN_TESTS)
     LayerTreeTest::RENDERER_SKIA_VK,
-#endif
+#endif  // defined(ENABLE_CC_VULKAN_TESTS)
 };
 
 INSTANTIATE_TEST_SUITE_P(All,
                          LayerTreeHostScrollbarsPixelTest,
                          ::testing::ValuesIn(kRendererTypes));
+#endif  //  !defined(GL_NOT_ON_PLATFORM) || defined(ENABLE_CC_VULKAN_TESTS)
 
 TEST_P(LayerTreeHostScrollbarsPixelTest, NoScale) {
   scoped_refptr<SolidColorLayer> background =
@@ -99,8 +100,7 @@ TEST_P(LayerTreeHostScrollbarsPixelTest, NoScale) {
   layer->SetBounds(gfx::Size(200, 200));
   background->AddChild(layer);
 
-  RunPixelTest(renderer_type(), background,
-               base::FilePath(FILE_PATH_LITERAL("spiral.png")));
+  RunPixelTest(background, base::FilePath(FILE_PATH_LITERAL("spiral.png")));
 }
 
 TEST_P(LayerTreeHostScrollbarsPixelTest, DeviceScaleFactor) {
@@ -118,7 +118,7 @@ TEST_P(LayerTreeHostScrollbarsPixelTest, DeviceScaleFactor) {
   layer->SetBounds(gfx::Size(100, 100));
   background->AddChild(layer);
 
-  RunPixelTest(renderer_type(), background,
+  RunPixelTest(background,
                base::FilePath(FILE_PATH_LITERAL("spiral_double_scale.png")));
 }
 
@@ -139,7 +139,7 @@ TEST_P(LayerTreeHostScrollbarsPixelTest, TransformScale) {
   scale_transform.Scale(2.0, 2.0);
   layer->SetTransform(scale_transform);
 
-  RunPixelTest(renderer_type(), background,
+  RunPixelTest(background,
                base::FilePath(FILE_PATH_LITERAL("spiral_double_scale.png")));
 }
 
@@ -162,6 +162,7 @@ TEST_P(LayerTreeHostScrollbarsPixelTest, MAYBE_HugeTransformScale) {
   background->AddChild(layer);
 
   auto context = base::MakeRefCounted<viz::TestInProcessContextProvider>(
+      /*enable_gpu_rasterization=*/false,
       /*enable_oop_rasterization=*/false,
       /*support_locking=*/false);
   gpu::ContextResult result = context->BindToCurrentThread();
@@ -183,12 +184,13 @@ TEST_P(LayerTreeHostScrollbarsPixelTest, MAYBE_HugeTransformScale) {
   scale_transform.Scale(scale, scale);
   layer->SetTransform(scale_transform);
 
-  if (renderer_type() == RENDERER_SKIA_GL ||
-      renderer_type() == RENDERER_SKIA_VK)
+  if (renderer_type_ == RENDERER_SKIA_GL)
     pixel_comparator_ = std::make_unique<FuzzyPixelOffByOneComparator>(true);
 
-  RunPixelTest(renderer_type(), background,
-               base::FilePath(FILE_PATH_LITERAL("spiral_64_scale.png")));
+  RunPixelTest(background,
+               use_vulkan()
+                   ? base::FilePath(FILE_PATH_LITERAL("spiral_64_scale_vk.png"))
+                   : base::FilePath(FILE_PATH_LITERAL("spiral_64_scale.png")));
 }
 
 class LayerTreeHostOverlayScrollbarsPixelTest
@@ -208,12 +210,11 @@ class LayerTreeHostOverlayScrollbarsPixelTest
 
 class PaintedOverlayScrollbar : public FakeScrollbar {
  public:
-  PaintedOverlayScrollbar()
-      : FakeScrollbar(/*paint*/ true,
-                      /*has_thumb*/ true,
-                      VERTICAL,
-                      /*is_left_side_vertical_scrollbar*/ false,
-                      /*is_overlay*/ true) {
+  PaintedOverlayScrollbar() {
+    set_should_paint(true);
+    set_has_thumb(true);
+    set_orientation(VERTICAL);
+    set_is_overlay(true);
     set_thumb_size(gfx::Size(15, 50));
     set_track_rect(gfx::Rect(0, 0, 15, 400));
   }
@@ -255,9 +256,11 @@ class PaintedOverlayScrollbar : public FakeScrollbar {
   ~PaintedOverlayScrollbar() override = default;
 };
 
+#if !defined(GL_NOT_ON_PLATFORM) || defined(ENABLE_CC_VULKAN_TESTS)
 INSTANTIATE_TEST_SUITE_P(All,
                          LayerTreeHostOverlayScrollbarsPixelTest,
                          ::testing::ValuesIn(kRendererTypes));
+#endif  //  !defined(GL_NOT_ON_PLATFORM) || defined(ENABLE_CC_VULKAN_TESTS)
 
 // Simulate increasing the thickness of a painted overlay scrollbar. Ensure that
 // the scrollbar border remains crisp.
@@ -279,7 +282,7 @@ TEST_P(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledUp) {
   layer->SetPosition(gfx::PointF(185, 10));
 
   RunPixelTest(
-      renderer_type(), background,
+      background,
       base::FilePath(FILE_PATH_LITERAL("overlay_scrollbar_scaled_up.png")));
 }
 
@@ -303,7 +306,7 @@ TEST_P(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledDown) {
   layer->SetPosition(gfx::PointF(185, 10));
 
   RunPixelTest(
-      renderer_type(), background,
+      background,
       base::FilePath(FILE_PATH_LITERAL("overlay_scrollbar_scaled_down.png")));
 }
 

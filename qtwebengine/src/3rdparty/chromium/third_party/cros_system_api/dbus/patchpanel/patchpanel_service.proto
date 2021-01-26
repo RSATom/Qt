@@ -1,0 +1,147 @@
+// Copyright 2019 The Chromium OS Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+syntax = "proto3";
+option optimize_for = LITE_RUNTIME;
+
+// This file defines messages for notifying the networking daemon about guest
+// lifetime (startup, teardown) events.
+package patchpanel;
+
+// Notification that the ARC++ container is starting up.
+// This is informational. The ARC boot and setup sequences do not require
+// any information or permission from networking to continue.
+message ArcStartupRequest {
+  // The PID of the ARC++ container.
+  // Required.
+  int32 pid = 1;
+}
+
+// This is an intentionally empty mesage. ARC++ startup does not require
+// any information from networking to proceed.
+message ArcStartupResponse {
+}
+
+// Notification that the ARC++ container is shutting down.
+message ArcShutdownRequest {
+  // The PID of the ARC++ container; must match the PID that was sent at
+  // startup.
+  // Required.
+  int32 pid = 1;
+}
+
+// This is an intentionally empty message. ARC++ startup does not require
+// any information from networking to proceed.
+message ArcShutdownResponse {
+}
+
+// Notification that the ARC VM is starting up.
+// Unlike in the container case, Concierge needs to know which TAP devices
+// it can use.
+message ArcVmStartupRequest {
+  // The content ID of the VM.
+  uint32 cid = 1;
+}
+
+// Represents an IPv4 subnet given a base address and prefix length.
+message IPv4Subnet {
+  // The base address in network order.
+  uint32 base_addr = 1;
+
+  // The prefix length of the subnet.
+  uint32 prefix_len = 2;
+}
+
+// Represents a network device (physical or virtual) managed by the networking
+// daemon.
+message Device {
+  // The name of the host device interface.
+  string ifname = 1;
+
+  // The assigned IPv4 address in network order.
+  uint32 ipv4_addr = 2;
+
+  // The subnet allocated for this device
+  IPv4Subnet ipv4_subnet = 3;
+}
+
+// Information required by Concierge to continue the ARC VM startup process.
+message ArcVmStartupResponse {
+  // The list of TAP devices to be used in the VM.
+  repeated Device devices = 1;
+}
+
+// Notification that the ARC VM is shutting down.
+// This message should also be sent if the startup process fails so any
+// allocated resources are properly freed.
+message ArcVmShutdownRequest {
+  // The CID of the ARC VM; must match the CID that was sent at
+  // startup.
+  // Required.
+  uint32 cid = 1;
+}
+
+// Intentionally empty response.
+message ArcVmShutdownResponse {
+}
+
+// Notification that a Termina VM is starting up.
+message TerminaVmStartupRequest {
+  // The content ID of the VM.
+  uint32 cid = 1;
+}
+
+// Information required by Concierge to continue the Termina VM startup.
+message TerminaVmStartupResponse {
+  // The TAP device to be used for the VM.
+  Device device = 1;
+
+  // The container subnet to be used for the lxd bridge.
+  IPv4Subnet container_subnet = 2;
+};
+
+// Notification that the Termina VM is shutting down.
+// This message must also be sent if the startup process fails so any
+// allocated resources, including the subnets, are properly freed.
+message TerminaVmShutdownRequest {
+  // The CID of the Termina VM; must match the PID that was sent at
+  // startup.
+  // Required.
+  uint32 cid = 1;
+}
+
+// Intentionally empty response.
+message TerminaVmShutdownResponse {
+}
+
+// Notification that a Plugin VM is starting up.
+message PluginVmStartupRequest {
+  // The unique ID of the VM.
+  uint64 id = 1;
+
+  // The 1-based index of the desired subnet to allocate for use.
+  // Optional.
+  int32 subnet_index = 2;
+}
+
+// Information required by Concierge to continue the Plugin VM startup.
+message PluginVmStartupResponse {
+  // The TAP device to be used for the VM.
+  Device device = 1;
+};
+
+// Notification that the Plugin VM is shutting down.
+// This message must also be sent if the startup process fails so any
+// allocated resources, including the subnets, are properly freed.
+message PluginVmShutdownRequest {
+  // The unique ID of the Plugin VM; must match what was sent at startup.
+  // Required.
+  uint64 id = 1;
+}
+
+// Intentionally empty response.
+message PluginVmShutdownResponse {
+}
+
+

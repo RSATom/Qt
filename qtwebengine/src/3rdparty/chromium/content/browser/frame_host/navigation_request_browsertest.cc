@@ -1625,6 +1625,28 @@ IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
   }
 }
 
+class NavigationRequestHostResolutionFailureTest : public ContentBrowserTest {
+ protected:
+  void SetUpOnMainThread() override {
+    host_resolver()->AddSimulatedTimeoutFailure("*");
+    ASSERT_TRUE(embedded_test_server()->Start());
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(NavigationRequestHostResolutionFailureTest,
+                       HostResolutionFailure) {
+  GURL url(embedded_test_server()->GetURL("example.com", "/title1.html"));
+
+  NavigationHandleObserver observer(shell()->web_contents(), url);
+
+  EXPECT_FALSE(NavigateToURL(shell(), url));
+
+  EXPECT_TRUE(observer.has_committed());
+  EXPECT_TRUE(observer.is_error());
+  EXPECT_EQ(net::ERR_NAME_NOT_RESOLVED, observer.net_error_code());
+  EXPECT_EQ(net::ERR_DNS_TIMED_OUT, observer.resolve_error_info().error);
+}
+
 // Record and list the navigations that are started and finished.
 class NavigationLogger : public WebContentsObserver {
  public:
@@ -2053,7 +2075,7 @@ IN_PROC_BROWSER_TEST_F(NavigationRequestBrowserTest,
       {GURL("http://user:pass@a.com/frame_tree/page_with_one_frame.html"),
        GURL("http://user:pass@b.com/title1.html"), true},
   };
-  for (const auto test_case : kTestCases) {
+  for (const auto& test_case : kTestCases) {
     // Modify the URLs port to use the embedded test server's port.
     std::string port_str(std::to_string(embedded_test_server()->port()));
     GURL::Replacements set_port;
@@ -2526,7 +2548,7 @@ IN_PROC_BROWSER_TEST_P(NavigationRequestThrottleResultWithErrorPageBrowserTest,
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    /* no prefix */,
+    All,
     NavigationRequestThrottleResultWithErrorPageBrowserTest,
     testing::Range(NavigationThrottle::ThrottleAction::FIRST,
                    NavigationThrottle::ThrottleAction::LAST));

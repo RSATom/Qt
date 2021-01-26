@@ -28,6 +28,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/os_crypt/os_crypt.h"
@@ -39,6 +40,7 @@
 #include "components/password_manager/core/browser/psl_matching_helper.h"
 #include "components/password_manager/core/browser/sql_table_builder.h"
 #include "components/password_manager/core/common/password_manager_features.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/sync/protocol/entity_metadata.pb.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "google_apis/gaia/gaia_auth_util.h"
@@ -49,7 +51,6 @@
 #include "third_party/re2/src/re2/re2.h"
 #include "url/origin.h"
 #include "url/url_constants.h"
-#include "components/safe_browsing/features.h"
 
 using autofill::PasswordForm;
 
@@ -112,6 +113,8 @@ enum LoginDatabaseTableColumns {
   COLUMN_PASSWORD_VALUE,
   COLUMN_SUBMIT_ELEMENT,
   COLUMN_SIGNON_REALM,
+  // TODO(crbug.com/999949): The "preferred" column isn't used anymore and
+  // should be dropped from the schema in M84.
   COLUMN_PREFERRED,
   COLUMN_DATE_CREATED,
   COLUMN_BLACKLISTED_BY_USER,
@@ -169,7 +172,8 @@ void BindAddStatement(const PasswordForm& form,
               static_cast<int>(encrypted_password.length()));
   s->BindString16(COLUMN_SUBMIT_ELEMENT, form.submit_element);
   s->BindString(COLUMN_SIGNON_REALM, form.signon_realm);
-  s->BindInt(COLUMN_PREFERRED, form.preferred);
+  // The "preferred" column has been deprecated in M81.
+  s->BindInt(COLUMN_PREFERRED, 0);
   s->BindInt64(COLUMN_DATE_CREATED, form.date_created.ToInternalValue());
   s->BindInt(COLUMN_BLACKLISTED_BY_USER, form.blacklisted_by_user);
   s->BindInt(COLUMN_SCHEME, static_cast<int>(form.scheme));
@@ -177,8 +181,7 @@ void BindAddStatement(const PasswordForm& form,
   s->BindInt(COLUMN_TIMES_USED, form.times_used);
   base::Pickle form_data_pickle;
   autofill::SerializeFormData(form.form_data, &form_data_pickle);
-  s->BindBlob(COLUMN_FORM_DATA,
-              form_data_pickle.data(),
+  s->BindBlob(COLUMN_FORM_DATA, form_data_pickle.data(),
               form_data_pickle.size());
   s->BindInt64(COLUMN_DATE_SYNCED, form.date_synced.ToInternalValue());
   s->BindString16(COLUMN_DISPLAY_NAME, form.display_name);
@@ -240,143 +243,6 @@ void LogNumberOfAccountsForScheme(const std::string& scheme, int sample) {
   base::UmaHistogramCustomCounts(
       "PasswordManager.TotalAccountsHiRes.WithScheme." + scheme, sample, 1,
       1000, 100);
-}
-
-void LogNumberOfAccountsReusingPassword(const std::string& suffix,
-                                        int sample,
-                                        HistogramSize histogram_size) {
-  int max = histogram_size == HistogramSize::LARGE ? 500 : 100;
-  int bucket_count = histogram_size == HistogramSize::LARGE ? 50 : 20;
-  base::UmaHistogramCustomCounts(
-      "PasswordManager.AccountsReusingPassword." + suffix, sample, 1, max,
-      bucket_count);
-}
-
-// Records password reuse metrics given the |signon_realms| corresponding to a
-// set of accounts that reuse the same password. See histograms.xml for details.
-void LogPasswordReuseMetrics(const std::vector<std::string>& signon_realms) {
-  struct StatisticsPerScheme {
-    StatisticsPerScheme() : num_total_accounts(0) {}
-
-    // The number of accounts for each registry controlled domain.
-    std::map<std::string, int> num_accounts_per_registry_controlled_domain;
-
-    // The number of accounts for each domain.
-    std::map<std::string, int> num_accounts_per_domain;
-
-    // Total number of accounts with this scheme. This equals the sum of counts
-    // in either of the above maps.
-    int num_total_accounts;
-  };
-
-  // The scheme (i.e. protocol) of the origin, not PasswordForm::scheme.
-  enum Scheme { SCHEME_HTTP, SCHEME_HTTPS };
-  const Scheme kAllSchemes[] = {SCHEME_HTTP, SCHEME_HTTPS};
-
-  StatisticsPerScheme statistics[base::size(kAllSchemes)];
-  std::map<std::string, std::string> domain_to_registry_controlled_domain;
-
-  for (const std::string& signon_realm : signon_realms) {
-    const GURL signon_realm_url(signon_realm);
-    const std::string domain = signon_realm_url.host();
-    if (domain.empty())
-      continue;
-
-    if (!domain_to_registry_controlled_domain.count(domain)) {
-      domain_to_registry_controlled_domain[domain] =
-          GetRegistryControlledDomain(signon_realm_url);
-      if (domain_to_registry_controlled_domain[domain].empty())
-        domain_to_registry_controlled_domain[domain] = domain;
-    }
-    const std::string& registry_controlled_domain =
-        domain_to_registry_controlled_domain[domain];
-
-    Scheme scheme = SCHEME_HTTP;
-    static_assert(base::size(kAllSchemes) == 2, "Update this logic");
-    if (signon_realm_url.SchemeIs(url::kHttpsScheme))
-      scheme = SCHEME_HTTPS;
-    else if (!signon_realm_url.SchemeIs(url::kHttpScheme))
-      continue;
-
-    statistics[scheme].num_accounts_per_domain[domain]++;
-    statistics[scheme].num_accounts_per_registry_controlled_domain
-        [registry_controlled_domain]++;
-    statistics[scheme].num_total_accounts++;
-  }
-
-  // For each "source" account of either scheme, count the number of "target"
-  // accounts reusing the same password (of either scheme).
-  for (const Scheme scheme : kAllSchemes) {
-    for (const auto& kv : statistics[scheme].num_accounts_per_domain) {
-      const std::string& domain(kv.first);
-      const int num_accounts_per_domain(kv.second);
-      const std::string& registry_controlled_domain =
-          domain_to_registry_controlled_domain[domain];
-
-      Scheme other_scheme = scheme == SCHEME_HTTP ? SCHEME_HTTPS : SCHEME_HTTP;
-      static_assert(base::size(kAllSchemes) == 2, "Update |other_scheme|");
-
-      // Discount the account at hand from the number of accounts with the same
-      // domain and scheme.
-      int num_accounts_for_same_domain[base::size(kAllSchemes)] = {};
-      num_accounts_for_same_domain[scheme] =
-          statistics[scheme].num_accounts_per_domain[domain] - 1;
-      num_accounts_for_same_domain[other_scheme] =
-          statistics[other_scheme].num_accounts_per_domain[domain];
-
-      // By definition, a PSL match requires the scheme to be the same.
-      int num_psl_matching_accounts =
-          statistics[scheme].num_accounts_per_registry_controlled_domain
-              [registry_controlled_domain] -
-          statistics[scheme].num_accounts_per_domain[domain];
-
-      // Discount PSL matches from the number of accounts with different domains
-      // but the same scheme.
-      int num_accounts_for_different_domain[base::size(kAllSchemes)] = {};
-      num_accounts_for_different_domain[scheme] =
-          statistics[scheme].num_total_accounts -
-          statistics[scheme].num_accounts_per_registry_controlled_domain
-              [registry_controlled_domain];
-      num_accounts_for_different_domain[other_scheme] =
-          statistics[other_scheme].num_total_accounts -
-          statistics[other_scheme].num_accounts_per_domain[domain];
-
-      std::string source_realm_kind =
-          scheme == SCHEME_HTTP ? "FromHttpRealm" : "FromHttpsRealm";
-      static_assert(base::size(kAllSchemes) == 2, "Update |source_realm_kind|");
-
-      // So far, the calculation has been carried out once per "source" domain,
-      // but the metrics need to be recorded on a per-account basis. The set of
-      // metrics are the same for all accounts for the same domain, so simply
-      // report them as many times as accounts.
-      for (int i = 0; i < num_accounts_per_domain; ++i) {
-        LogNumberOfAccountsReusingPassword(
-            source_realm_kind + ".OnHttpRealmWithSameHost",
-            num_accounts_for_same_domain[SCHEME_HTTP], HistogramSize::SMALL);
-        LogNumberOfAccountsReusingPassword(
-            source_realm_kind + ".OnHttpsRealmWithSameHost",
-            num_accounts_for_same_domain[SCHEME_HTTPS], HistogramSize::SMALL);
-        LogNumberOfAccountsReusingPassword(
-            source_realm_kind + ".OnPSLMatchingRealm",
-            num_psl_matching_accounts, HistogramSize::SMALL);
-
-        LogNumberOfAccountsReusingPassword(
-            source_realm_kind + ".OnHttpRealmWithDifferentHost",
-            num_accounts_for_different_domain[SCHEME_HTTP],
-            HistogramSize::LARGE);
-        LogNumberOfAccountsReusingPassword(
-            source_realm_kind + ".OnHttpsRealmWithDifferentHost",
-            num_accounts_for_different_domain[SCHEME_HTTPS],
-            HistogramSize::LARGE);
-
-        LogNumberOfAccountsReusingPassword(
-            source_realm_kind + ".OnAnyRealmWithDifferentHost",
-            num_accounts_for_different_domain[SCHEME_HTTP] +
-                num_accounts_for_different_domain[SCHEME_HTTPS],
-            HistogramSize::LARGE);
-      }
-    }
-  }
 }
 
 bool ClearAllSyncMetadata(sql::Database* db) {
@@ -695,10 +561,10 @@ LoginDatabase::LoginDatabase(const base::FilePath& db_path,
                              IsAccountStore is_account_store)
     : db_path_(db_path), is_account_store_(is_account_store) {}
 
-LoginDatabase::~LoginDatabase() {
-}
+LoginDatabase::~LoginDatabase() = default;
 
 bool LoginDatabase::Init() {
+  TRACE_EVENT0("passwords", "LoginDatabase::Init");
   // Set pragmas for a small, private database (based on WebDatabase).
   db_.set_page_size(2048);
   db_.set_cache_size(32);
@@ -826,7 +692,8 @@ bool LoginDatabase::Init() {
     }
   }
 
-  if (base::FeatureList::IsEnabled(password_manager::features::kLeakHistory) ||
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::kPasswordCheck) ||
       base::FeatureList::IsEnabled(
           safe_browsing::kPasswordProtectionShowDomainsForSavedPasswords)) {
     if (!compromised_credentials_table_.CreateTableIfNecessary()) {
@@ -865,7 +732,9 @@ void LoginDatabase::InitPasswordRecoveryUtil(
 #endif
 
 void LoginDatabase::ReportMetrics(const std::string& sync_username,
-                                  bool custom_passphrase_sync_enabled) {
+                                  bool custom_passphrase_sync_enabled,
+                                  BulkCheckDone bulk_check_done) {
+  TRACE_EVENT0("passwords", "LoginDatabase::ReportMetrics");
   sql::Statement s(db_.GetCachedStatement(
       SQL_FROM_HERE,
       "SELECT signon_realm, password_type, blacklisted_by_user,"
@@ -966,10 +835,10 @@ void LoginDatabase::ReportMetrics(const std::string& sync_username,
 
   bool syncing_account_saved = false;
   if (!sync_username.empty()) {
-    sql::Statement sync_statement(db_.GetCachedStatement(
-        SQL_FROM_HERE,
-        "SELECT username_value FROM logins "
-        "WHERE signon_realm == ?"));
+    sql::Statement sync_statement(
+        db_.GetCachedStatement(SQL_FROM_HERE,
+                               "SELECT username_value FROM logins "
+                               "WHERE signon_realm == ?"));
     sync_statement.BindString(
         0, GaiaUrls::GetInstance()->gaia_url().GetOrigin().spec());
 
@@ -989,8 +858,9 @@ void LoginDatabase::ReportMetrics(const std::string& sync_username,
                             4);
 
   sql::Statement empty_usernames_statement(db_.GetCachedStatement(
-      SQL_FROM_HERE, "SELECT COUNT(*) FROM logins "
-                     "WHERE blacklisted_by_user=0 AND username_value=''"));
+      SQL_FROM_HERE,
+      "SELECT COUNT(*) FROM logins "
+      "WHERE blacklisted_by_user=0 AND username_value=''"));
   if (empty_usernames_statement.Step()) {
     int empty_forms = empty_usernames_statement.ColumnInt(0);
     UMA_HISTOGRAM_COUNTS_100("PasswordManager.EmptyUsernames.CountInDatabase",
@@ -1051,34 +921,20 @@ void LoginDatabase::ReportMetrics(const std::string& sync_username,
       stats_table_.GetNumAccounts());
 #endif  // !defined(OS_IOS) && !defined(OS_ANDROID)
 
-  sql::Statement saved_passwords_statement(
-      db_.GetUniqueStatement("SELECT signon_realm, password_value, scheme "
+  sql::Statement get_passwords_statement(
+      db_.GetUniqueStatement("SELECT password_value "
                              "FROM logins WHERE blacklisted_by_user = 0"));
 
-  std::map<base::string16, std::vector<std::string>> passwords_to_realms;
   size_t failed_encryption = 0;
-  while (saved_passwords_statement.Step()) {
+  while (get_passwords_statement.Step()) {
     base::string16 decrypted_password;
-    // Note that CryptProtectData() is non-deterministic, so passwords must be
-    // decrypted before checking equality.
-    if (DecryptedString(saved_passwords_statement.ColumnString(1),
-                        &decrypted_password) == ENCRYPTION_RESULT_SUCCESS) {
-      std::string signon_realm = saved_passwords_statement.ColumnString(0);
-      if (saved_passwords_statement.ColumnInt(2) == 0 &&
-          !decrypted_password.empty() &&
-          !IsValidAndroidFacetURI(signon_realm)) {
-        passwords_to_realms[decrypted_password].push_back(
-            std::move(signon_realm));
-      }
-    } else {
+    if (DecryptedString(get_passwords_statement.ColumnString(0),
+                        &decrypted_password) != ENCRYPTION_RESULT_SUCCESS) {
       ++failed_encryption;
     }
   }
   UMA_HISTOGRAM_COUNTS_100("PasswordManager.InaccessiblePasswords",
                            failed_encryption);
-
-  for (const auto& password_to_realms : passwords_to_realms)
-    LogPasswordReuseMetrics(password_to_realms.second);
 
   {
     sql::Statement duplicates_statement(db_.GetUniqueStatement(
@@ -1136,10 +992,12 @@ void LoginDatabase::ReportMetrics(const std::string& sync_username,
     LogAccountStat("PasswordManager.CredentialsWithMismatchedDuplicates",
                    credentials_with_mismatched_duplicates);
   }
+  compromised_credentials_table_.ReportMetrics(bulk_check_done);
 }
 
 PasswordStoreChangeList LoginDatabase::AddLogin(const PasswordForm& form,
                                                 AddLoginError* error) {
+  TRACE_EVENT0("passwords", "LoginDatabase::AddLogin");
   if (error) {
     *error = AddLoginError::kNone;
   }
@@ -1219,6 +1077,7 @@ PasswordStoreChangeList LoginDatabase::AddBlacklistedLoginForTesting(
 
 PasswordStoreChangeList LoginDatabase::UpdateLogin(const PasswordForm& form,
                                                    UpdateLoginError* error) {
+  TRACE_EVENT0("passwords", "LoginDatabase::UpdateLogin");
   if (error) {
     *error = UpdateLoginError::kNone;
   }
@@ -1248,7 +1107,8 @@ PasswordStoreChangeList LoginDatabase::UpdateLogin(const PasswordForm& form,
   s.BindBlob(next_param++, encrypted_password.data(),
              static_cast<int>(encrypted_password.length()));
   s.BindString16(next_param++, form.submit_element);
-  s.BindInt(next_param++, form.preferred);
+  // This is the "preferred" column which has been deprecated in M81.
+  s.BindInt(next_param++, 0);
   s.BindInt64(next_param++, form.date_created.ToInternalValue());
   s.BindInt(next_param++, form.blacklisted_by_user);
   s.BindInt(next_param++, static_cast<int>(form.scheme));
@@ -1303,13 +1163,9 @@ PasswordStoreChangeList LoginDatabase::UpdateLogin(const PasswordForm& form,
 
 bool LoginDatabase::RemoveLogin(const PasswordForm& form,
                                 PasswordStoreChangeList* changes) {
+  TRACE_EVENT0("passwords", "LoginDatabase::RemoveLogin");
   if (changes) {
     changes->clear();
-  }
-  if (form.is_public_suffix_match) {
-    // TODO(dvadym): Discuss whether we should allow to remove PSL matched
-    // credentials.
-    return false;
   }
 #if defined(OS_IOS)
   DeleteEncryptedPassword(form);
@@ -1337,6 +1193,7 @@ bool LoginDatabase::RemoveLogin(const PasswordForm& form,
 
 bool LoginDatabase::RemoveLoginByPrimaryKey(int primary_key,
                                             PasswordStoreChangeList* changes) {
+  TRACE_EVENT0("passwords", "LoginDatabase::RemoveLoginByPrimaryKey");
   PasswordForm form;
   if (changes) {
     changes->clear();
@@ -1374,6 +1231,7 @@ bool LoginDatabase::RemoveLoginsCreatedBetween(
     base::Time delete_begin,
     base::Time delete_end,
     PasswordStoreChangeList* changes) {
+  TRACE_EVENT0("passwords", "LoginDatabase::RemoveLoginsCreatedBetween");
   if (changes) {
     changes->clear();
   }
@@ -1389,9 +1247,10 @@ bool LoginDatabase::RemoveLoginsCreatedBetween(
   }
 #endif
 
-  sql::Statement s(db_.GetCachedStatement(SQL_FROM_HERE,
-      "DELETE FROM logins WHERE "
-      "date_created >= ? AND date_created < ?"));
+  sql::Statement s(
+      db_.GetCachedStatement(SQL_FROM_HERE,
+                             "DELETE FROM logins WHERE "
+                             "date_created >= ? AND date_created < ?"));
   s.BindInt64(0, delete_begin.ToInternalValue());
   s.BindInt64(1, delete_end.is_null() ? std::numeric_limits<int64_t>::max()
                                       : delete_end.ToInternalValue());
@@ -1411,6 +1270,7 @@ bool LoginDatabase::RemoveLoginsCreatedBetween(
 }
 
 bool LoginDatabase::GetAutoSignInLogins(PrimaryKeyToFormMap* key_to_form_map) {
+  TRACE_EVENT0("passwords", "LoginDatabase::GetAutoSignInLogins");
   DCHECK(key_to_form_map);
   DCHECK(!autosignin_statement_.empty());
   key_to_form_map->clear();
@@ -1460,7 +1320,6 @@ LoginDatabase::EncryptionResult LoginDatabase::InitPasswordFormFromStatement(
   form->submit_element = s.ColumnString16(COLUMN_SUBMIT_ELEMENT);
   tmp = s.ColumnString(COLUMN_SIGNON_REALM);
   form->signon_realm = tmp;
-  form->preferred = (s.ColumnInt(COLUMN_PREFERRED) > 0);
   form->date_created =
       base::Time::FromInternalValue(s.ColumnInt64(COLUMN_DATE_CREATED));
   form->blacklisted_by_user = (s.ColumnInt(COLUMN_BLACKLISTED_BY_USER) > 0);
@@ -1510,6 +1369,7 @@ LoginDatabase::EncryptionResult LoginDatabase::InitPasswordFormFromStatement(
 bool LoginDatabase::GetLogins(
     const PasswordStore::FormDigest& form,
     std::vector<std::unique_ptr<PasswordForm>>* forms) {
+  TRACE_EVENT0("passwords", "LoginDatabase::GetLogins");
   DCHECK(forms);
   forms->clear();
 
@@ -1575,12 +1435,6 @@ bool LoginDatabase::GetLogins(
     s.BindString(placeholder++, expression);
   }
 
-  if (!should_PSL_matching_apply && !should_federated_apply) {
-    // Otherwise the histogram is reported in StatementToForms.
-    UMA_HISTOGRAM_ENUMERATION("PasswordManager.PslDomainMatchTriggering",
-                              PSL_DOMAIN_MATCH_NOT_USED,
-                              PSL_DOMAIN_MATCH_COUNT);
-  }
   PrimaryKeyToFormMap key_to_form_map;
   FormRetrievalResult result = StatementToForms(
       &s, should_PSL_matching_apply || should_federated_apply ? &form : nullptr,
@@ -1597,6 +1451,7 @@ bool LoginDatabase::GetLogins(
 bool LoginDatabase::GetLoginsByPassword(
     const base::string16& plain_text_password,
     std::vector<std::unique_ptr<autofill::PasswordForm>>* forms) {
+  TRACE_EVENT0("passwords", "LoginDatabase::GetLoginsByPassword");
   DCHECK(forms);
   forms->clear();
 
@@ -1627,6 +1482,7 @@ bool LoginDatabase::GetLoginsCreatedBetween(
     const base::Time begin,
     const base::Time end,
     PrimaryKeyToFormMap* key_to_form_map) {
+  TRACE_EVENT0("passwords", "LoginDatabase::GetLoginsCreatedBetween");
   DCHECK(key_to_form_map);
   DCHECK(!created_statement_.empty());
   sql::Statement s(
@@ -1641,6 +1497,7 @@ bool LoginDatabase::GetLoginsCreatedBetween(
 
 FormRetrievalResult LoginDatabase::GetAllLogins(
     PrimaryKeyToFormMap* key_to_form_map) {
+  TRACE_EVENT0("passwords", "LoginDatabase::GetAllLogins");
   DCHECK(key_to_form_map);
   key_to_form_map->clear();
 
@@ -1652,11 +1509,13 @@ FormRetrievalResult LoginDatabase::GetAllLogins(
 
 bool LoginDatabase::GetAutofillableLogins(
     std::vector<std::unique_ptr<PasswordForm>>* forms) {
+  TRACE_EVENT0("passwords", "LoginDatabase::GetAutofillableLogins");
   return GetAllLoginsWithBlacklistSetting(false, forms);
 }
 
 bool LoginDatabase::GetBlacklistLogins(
     std::vector<std::unique_ptr<PasswordForm>>* forms) {
+  TRACE_EVENT0("passwords", "LoginDatabase::GetBlacklistLogins");
   return GetAllLoginsWithBlacklistSetting(true, forms);
 }
 
@@ -1691,6 +1550,7 @@ bool LoginDatabase::IsEmpty() {
 }
 
 bool LoginDatabase::DeleteAndRecreateDatabaseFile() {
+  TRACE_EVENT0("passwords", "LoginDatabase::DeleteAndRecreateDatabaseFile");
   DCHECK(db_.is_open());
   meta_table_.Reset();
   db_.Close();
@@ -1700,6 +1560,7 @@ bool LoginDatabase::DeleteAndRecreateDatabaseFile() {
 
 DatabaseCleanupResult LoginDatabase::DeleteUndecryptableLogins() {
 #if defined(OS_MACOSX) && !defined(OS_IOS)
+  TRACE_EVENT0("passwords", "LoginDatabase::DeleteUndecryptableLogins");
   // If the Keychain is unavailable, don't delete any logins.
   if (!OSCrypt::IsEncryptionAvailable()) {
     metrics_util::LogDeleteUndecryptableLoginsReturnValue(
@@ -1755,6 +1616,7 @@ DatabaseCleanupResult LoginDatabase::DeleteUndecryptableLogins() {
 
 std::string LoginDatabase::GetEncryptedPassword(
     const PasswordForm& form) const {
+  TRACE_EVENT0("passwords", "LoginDatabase::GetEncryptedPassword");
   DCHECK(!encrypted_statement_.empty());
   sql::Statement s(
       db_.GetCachedStatement(SQL_FROM_HERE, encrypted_statement_.c_str()));
@@ -1773,6 +1635,7 @@ std::string LoginDatabase::GetEncryptedPassword(
 }
 
 std::unique_ptr<syncer::MetadataBatch> LoginDatabase::GetAllSyncMetadata() {
+  TRACE_EVENT0("passwords", "LoginDatabase::GetAllSyncMetadata");
   std::unique_ptr<syncer::MetadataBatch> metadata_batch =
       GetAllSyncEntityMetadata();
   if (metadata_batch == nullptr) {
@@ -1790,6 +1653,7 @@ std::unique_ptr<syncer::MetadataBatch> LoginDatabase::GetAllSyncMetadata() {
 }
 
 void LoginDatabase::DeleteAllSyncMetadata() {
+  TRACE_EVENT0("passwords", "LoginDatabase::DeleteAllSyncMetadata");
   ClearAllSyncMetadata(&db_);
 }
 
@@ -1797,6 +1661,7 @@ bool LoginDatabase::UpdateSyncMetadata(
     syncer::ModelType model_type,
     const std::string& storage_key,
     const sync_pb::EntityMetadata& metadata) {
+  TRACE_EVENT0("passwords", "LoginDatabase::UpdateSyncMetadata");
   DCHECK_EQ(model_type, syncer::PASSWORDS);
 
   int storage_key_int = 0;
@@ -1826,6 +1691,7 @@ bool LoginDatabase::UpdateSyncMetadata(
 
 bool LoginDatabase::ClearSyncMetadata(syncer::ModelType model_type,
                                       const std::string& storage_key) {
+  TRACE_EVENT0("passwords", "LoginDatabase::ClearSyncMetadata");
   DCHECK_EQ(model_type, syncer::PASSWORDS);
 
   int storage_key_int = 0;
@@ -1847,6 +1713,7 @@ bool LoginDatabase::ClearSyncMetadata(syncer::ModelType model_type,
 bool LoginDatabase::UpdateModelTypeState(
     syncer::ModelType model_type,
     const sync_pb::ModelTypeState& model_type_state) {
+  TRACE_EVENT0("passwords", "LoginDatabase::UpdateModelTypeState");
   DCHECK_EQ(model_type, syncer::PASSWORDS);
 
   // Make sure only one row is left by storing it in the entry with id=1
@@ -1861,6 +1728,7 @@ bool LoginDatabase::UpdateModelTypeState(
 }
 
 bool LoginDatabase::ClearModelTypeState(syncer::ModelType model_type) {
+  TRACE_EVENT0("passwords", "LoginDatabase::ClearModelTypeState");
   DCHECK_EQ(model_type, syncer::PASSWORDS);
 
   sql::Statement s(db_.GetCachedStatement(
@@ -1870,14 +1738,17 @@ bool LoginDatabase::ClearModelTypeState(syncer::ModelType model_type) {
 }
 
 bool LoginDatabase::BeginTransaction() {
+  TRACE_EVENT0("passwords", "LoginDatabase::BeginTransaction");
   return db_.BeginTransaction();
 }
 
 void LoginDatabase::RollbackTransaction() {
+  TRACE_EVENT0("passwords", "LoginDatabase::RollbackTransaction");
   db_.RollbackTransaction();
 }
 
 bool LoginDatabase::CommitTransaction() {
+  TRACE_EVENT0("passwords", "LoginDatabase::CommitTransaction");
   return db_.CommitTransaction();
 }
 
@@ -1906,7 +1777,8 @@ LoginDatabase::GetAllSyncEntityMetadata() {
                                           "sync_entities_metadata"));
 
   while (s.Step()) {
-    std::string storage_key = s.ColumnString(0);
+    int storage_key_int = s.ColumnInt(0);
+    std::string storage_key = base::NumberToString(storage_key_int);
     std::string encrypted_serialized_metadata = s.ColumnString(1);
     std::string decrypted_serialized_metadata;
     if (!OSCrypt::DecryptString(encrypted_serialized_metadata,
@@ -1955,8 +1827,6 @@ FormRetrievalResult LoginDatabase::StatementToForms(
     sql::Statement* statement,
     const PasswordStore::FormDigest* matched_form,
     PrimaryKeyToFormMap* key_to_form_map) {
-  PSLDomainMatchMetric psl_domain_match_metric = PSL_DOMAIN_MATCH_NONE;
-
   std::vector<PasswordForm> forms_to_be_deleted;
 
   key_to_form_map->clear();
@@ -1983,26 +1853,16 @@ FormRetrievalResult LoginDatabase::StatementToForms(
         case MatchResult::NO_MATCH:
           continue;
         case MatchResult::EXACT_MATCH:
-          break;
-        case MatchResult::PSL_MATCH:
-          psl_domain_match_metric = PSL_DOMAIN_MATCH_FOUND;
-          new_form->is_public_suffix_match = true;
-          break;
         case MatchResult::FEDERATED_MATCH:
           break;
+        case MatchResult::PSL_MATCH:
         case MatchResult::FEDERATED_PSL_MATCH:
-          psl_domain_match_metric = PSL_DOMAIN_MATCH_FOUND_FEDERATED;
           new_form->is_public_suffix_match = true;
           break;
       }
     }
 
     key_to_form_map->emplace(primary_key, std::move(new_form));
-  }
-
-  if (matched_form) {
-    UMA_HISTOGRAM_ENUMERATION("PasswordManager.PslDomainMatchTriggering",
-                              psl_domain_match_metric, PSL_DOMAIN_MATCH_COUNT);
   }
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)

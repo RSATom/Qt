@@ -18,7 +18,7 @@ if (use_system_libjpeg) {
     packages = [ "libjpeg" ]
   }
   shim_headers("libjpeg_shim") {
-    root_path = "libjpeg"
+    root_path = "libjpeg_turbo"
     headers = [
       "jpeglib.h"
     ]
@@ -46,14 +46,10 @@ group("jpeg") {
   if (use_system_libjpeg) {
     public_deps = [ ":libjpeg" ]
   } else if (use_libjpeg_turbo) {
-    public_deps = [
-      "//third_party/libjpeg_turbo:libjpeg",
-    ]
+    public_deps = [ "//third_party/libjpeg_turbo:libjpeg" ]
     public_configs = [ ":libjpeg_turbo_config" ]
   } else {
-    public_deps = [
-      "//third_party/libjpeg:libjpeg",
-    ]
+    public_deps = [ "//third_party/libjpeg:libjpeg" ]
   }
 }
 

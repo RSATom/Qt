@@ -82,6 +82,8 @@ namespace dawn_native {
 
         void DestroyInternal();
 
+        bool IsMapped() const;
+
       private:
         virtual MaybeError MapAtCreationImpl(uint8_t** mappedPointer) = 0;
         virtual MaybeError SetSubDataImpl(uint32_t start, uint32_t count, const void* data);
@@ -94,7 +96,8 @@ namespace dawn_native {
         MaybeError CopyFromStagingBuffer();
 
         MaybeError ValidateSetSubData(uint32_t start, uint32_t count) const;
-        MaybeError ValidateMap(wgpu::BufferUsage requiredUsage) const;
+        MaybeError ValidateMap(wgpu::BufferUsage requiredUsage,
+                               WGPUBufferMapAsyncStatus* status) const;
         MaybeError ValidateUnmap() const;
         MaybeError ValidateDestroy() const;
 

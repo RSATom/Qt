@@ -20,9 +20,9 @@ ColorRecipe::ColorRecipe(const ColorRecipe&) = default;
 
 ColorRecipe& ColorRecipe::operator=(const ColorRecipe&) = default;
 
-ColorRecipe::ColorRecipe(ColorRecipe&&) noexcept = default;
+ColorRecipe::ColorRecipe(ColorRecipe&&) = default;
 
-ColorRecipe& ColorRecipe::operator=(ColorRecipe&&) noexcept = default;
+ColorRecipe& ColorRecipe::operator=(ColorRecipe&&) = default;
 
 ColorRecipe::~ColorRecipe() = default;
 

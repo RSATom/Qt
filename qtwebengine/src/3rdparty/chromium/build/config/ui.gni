@@ -22,8 +22,7 @@ import("//build/config/features.gni")
 
 declare_args() {
   # Indicates if Ozone is enabled. Ozone is a low-level library layer for Linux
-  # that does not require X11. Enabling this feature disables use of glib, x11,
-  # Pango, and Cairo.
+  # that does not require X11. Enabling this feature disables use of x11.
   use_ozone = is_chromeos || (is_chromecast && !is_android) || is_fuchsia
 
   # Indicates if Aura is enabled. Aura is a low-level windowing library, sort
@@ -41,7 +40,7 @@ declare_args() {
   toolkit_views = is_mac || is_win || is_linux || (is_fuchsia && is_chromecast)
 
   # Whether we should use glib, a low level C utility library.
-  use_glib = is_linux && !use_ozone
+  use_glib = is_desktop_linux && !is_chromecast
 
   use_xscrnsaver = !is_chromeos && use_x11
 }

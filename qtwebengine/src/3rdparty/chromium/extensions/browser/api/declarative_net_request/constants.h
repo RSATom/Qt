@@ -16,13 +16,12 @@ namespace declarative_net_request {
 // The result of parsing JSON rules provided by an extension. Can correspond to
 // a single or multiple rules.
 enum class ParseResult {
+  NONE,
   SUCCESS,
   ERROR_RESOURCE_TYPE_DUPLICATED,
-  ERROR_EMPTY_REDIRECT_RULE_PRIORITY,
-  ERROR_EMPTY_UPGRADE_RULE_PRIORITY,
   ERROR_INVALID_RULE_ID,
-  ERROR_INVALID_REDIRECT_RULE_PRIORITY,
-  ERROR_INVALID_UPGRADE_RULE_PRIORITY,
+  ERROR_EMPTY_RULE_PRIORITY,
+  ERROR_INVALID_RULE_PRIORITY,
   ERROR_NO_APPLICABLE_RESOURCE_TYPES,
   ERROR_EMPTY_DOMAINS_LIST,
   ERROR_EMPTY_RESOURCE_TYPES_LIST,
@@ -49,9 +48,16 @@ enum class ParseResult {
   ERROR_EMPTY_REGEX_FILTER,
   ERROR_NON_ASCII_REGEX_FILTER,
   ERROR_INVALID_REGEX_FILTER,
+  ERROR_REGEX_TOO_LARGE,
   ERROR_MULTIPLE_FILTERS_SPECIFIED,
   ERROR_REGEX_SUBSTITUTION_WITHOUT_FILTER,
   ERROR_INVALID_REGEX_SUBSTITUTION,
+  ERROR_INVALID_ALLOW_ALL_REQUESTS_RESOURCE_TYPE,
+
+  ERROR_NO_HEADERS_SPECIFIED,
+  ERROR_EMPTY_REQUEST_HEADERS_LIST,
+  ERROR_EMPTY_RESPONSE_HEADERS_LIST,
+  ERROR_INVALID_HEADER_NAME
 };
 
 // Describes the ways in which updating dynamic rules can fail.
@@ -72,10 +78,12 @@ enum class UpdateDynamicRulesStatus {
   kErrorCreateMatcher_FileReadError = 11,
   kErrorCreateMatcher_ChecksumMismatch = 12,
   kErrorCreateMatcher_VersionMismatch = 13,
+  kErrorRegexTooLarge = 14,
+  kErrorRegexRuleCountExceeded = 15,
 
   // Magic constant used by histograms code. Should be equal to the largest enum
   // value.
-  kMaxValue = kErrorCreateMatcher_VersionMismatch,
+  kMaxValue = kErrorRegexRuleCountExceeded,
 };
 
 // Schemes which can be used as part of url transforms.
@@ -83,9 +91,8 @@ extern const char* const kAllowedTransformSchemes[4];
 
 // Rule parsing errors.
 extern const char kErrorResourceTypeDuplicated[];
-extern const char kErrorEmptyRedirectRuleKey[];
-extern const char kErrorEmptyUpgradeRulePriority[];
 extern const char kErrorInvalidRuleKey[];
+extern const char kErrorEmptyRulePriority[];
 extern const char kErrorNoApplicableResourceTypes[];
 extern const char kErrorEmptyList[];
 extern const char kErrorEmptyKey[];
@@ -100,11 +107,17 @@ extern const char kErrorQueryAndTransformBothSpecified[];
 extern const char kErrorJavascriptRedirect[];
 extern const char kErrorMultipleFilters[];
 extern const char kErrorRegexSubstitutionWithoutFilter[];
+extern const char kErrorInvalidAllowAllRequestsResourceType[];
+extern const char kErrorRegexTooLarge[];
+extern const char kErrorRegexesTooLarge[];
+extern const char kErrorNoHeaderListsSpecified[];
+extern const char kErrorInvalidHeaderName[];
 
 extern const char kErrorListNotPassed[];
 
 // Rule indexing install warnings.
 extern const char kRuleCountExceeded[];
+extern const char kRegexRuleCountExceeded[];
 extern const char kRuleNotParsedWarning[];
 extern const char kTooManyParseFailuresWarning[];
 
@@ -112,16 +125,22 @@ extern const char kTooManyParseFailuresWarning[];
 extern const char kInternalErrorUpdatingDynamicRules[];
 extern const char kInternalErrorGettingDynamicRules[];
 extern const char kDynamicRuleCountExceeded[];
+extern const char kDynamicRegexRuleCountExceeded[];
 
 // Histogram names.
 extern const char kIndexAndPersistRulesTimeHistogram[];
 extern const char kManifestRulesCountHistogram[];
 extern const char kUpdateDynamicRulesStatusHistogram[];
 extern const char kReadDynamicRulesJSONStatusHistogram[];
+extern const char kIsLargeRegexHistogram[];
 
 // Placeholder text to use for getBadgeText extension function call, when the
 // badge text is set to the DNR action count.
 extern const char kActionCountPlaceholderBadgeText[];
+
+// Error returned for the getMatchedRules extension function call, if the
+// extension does not have sufficient permissions to make the call.
+extern const char kErrorGetMatchedRulesMissingPermissions[];
 
 }  // namespace declarative_net_request
 }  // namespace extensions

@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 
 namespace perfetto {
@@ -43,18 +44,34 @@ class PERFETTO_EXPORT DebugAnnotation {
 namespace internal {
 
 // Overloads for all the supported built in debug annotation types.
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, bool);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, uint64_t);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, unsigned);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, int64_t);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, int);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, double);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, float);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, const char*);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, const std::string&);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*, const void*);
-void WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
-                          const DebugAnnotation&);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          bool);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          uint64_t);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          unsigned);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          int64_t);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          int);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          double);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          float);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          const char*);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          const std::string&);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          const void*);
+void PERFETTO_EXPORT WriteDebugAnnotation(protos::pbzero::DebugAnnotation*,
+                                          const DebugAnnotation&);
+
+template <typename T>
+void WriteDebugAnnotation(protos::pbzero::DebugAnnotation* annotation,
+                          const std::unique_ptr<T>& value) {
+  WriteDebugAnnotation(annotation, *value);
+}
 
 }  // namespace internal
 }  // namespace perfetto

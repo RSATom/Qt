@@ -6,6 +6,9 @@
 #include <string>
 
 #include "build/build_config.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fpdfapi/parser/cpdf_parser.h"
 #include "core/fxcrt/fx_system.h"
 #include "public/cpp/fpdf_scopers.h"
 #include "public/fpdf_edit.h"
@@ -34,7 +37,88 @@ const char kHotelLatin1[] =
 
 }  // namespace
 
-class CPDFSecurityHandlerEmbedderTest : public EmbedderTest {};
+class CPDFSecurityHandlerEmbedderTest : public EmbedderTest {
+ protected:
+  void OpenAndVerifyHelloWorldDocumentWithPassword(const char* filename,
+                                                   const char* password) {
+    ASSERT_TRUE(OpenDocumentWithPassword(filename, password));
+    FPDF_PAGE page = LoadPage(0);
+    VerifyHelloWorldPage(page);
+    UnloadPage(page);
+  }
+
+  void VerifySavedHelloWorldDocumentWithPassword(const char* password) {
+    ASSERT_TRUE(OpenSavedDocumentWithPassword(password));
+    FPDF_PAGE page = LoadSavedPage(0);
+    VerifyHelloWorldPage(page);
+    CloseSavedPage(page);
+    CloseSavedDocument();
+  }
+
+  void VerifySavedModifiedHelloWorldDocumentWithPassword(const char* password) {
+    ASSERT_TRUE(OpenSavedDocumentWithPassword(password));
+    FPDF_PAGE page = LoadSavedPage(0);
+    VerifyModifiedHelloWorldPage(page);
+    CloseSavedPage(page);
+    CloseSavedDocument();
+  }
+
+  void RemoveTrailerIdFromDocument() {
+    // This is cheating slightly to avoid a layering violation, since this file
+    // cannot include fpdfsdk/cpdfsdk_helpers.h to get access to
+    // CPDFDocumentFromFPDFDocument().
+    CPDF_Document* doc = reinterpret_cast<CPDF_Document*>((document()));
+    ASSERT_TRUE(doc);
+    CPDF_Parser* parser = doc->GetParser();
+    ASSERT_TRUE(parser);
+    CPDF_Dictionary* trailer = parser->GetMutableTrailerForTesting();
+    ASSERT_TRUE(trailer);
+    ASSERT_TRUE(trailer->RemoveFor("ID"));
+  }
+
+  void RemoveGoodbyeObject() {
+    FPDF_PAGE page = LoadPage(0);
+    {
+      ScopedFPDFPageObject goodbye_object(FPDFPage_GetObject(page, 1));
+      ASSERT_TRUE(goodbye_object);
+      ASSERT_TRUE(FPDFPage_RemoveObject(page, goodbye_object.get()));
+    }
+    ASSERT_TRUE(FPDFPage_GenerateContent(page));
+    VerifyModifiedHelloWorldPage(page);
+    UnloadPage(page);
+  }
+
+ private:
+  void VerifyHelloWorldPage(FPDF_PAGE page) {
+    ASSERT_TRUE(page);
+
+#if defined(OS_WIN)
+    const char kExpectedHash[] = "795b7ce1626931aa06af0fa23b7d80bb";
+#elif defined(OS_MACOSX)
+    const char kExpectedHash[] = "c38b75e16a13852aee3b97d77a0f0ee7";
+#else
+    const char kExpectedHash[] = "2baa4c0e1758deba1b9c908e1fbd04ed";
+#endif
+
+    ScopedFPDFBitmap page_bitmap = RenderPage(page);
+    CompareBitmap(page_bitmap.get(), 200, 200, kExpectedHash);
+  }
+
+  void VerifyModifiedHelloWorldPage(FPDF_PAGE page) {
+    ASSERT_TRUE(page);
+
+#if defined(OS_WIN)
+    const char kExpectedHash[] = "93db13099042bafefb3c22a165bad684";
+#elif defined(OS_MACOSX)
+    const char kExpectedHash[] = "572b1022bb3e8f43dc671162fc62cf7f";
+#else
+    const char kExpectedHash[] = "93dcc09055f87a2792c8e3065af99a1b";
+#endif
+
+    ScopedFPDFBitmap page_bitmap = RenderPage(page);
+    CompareBitmap(page_bitmap.get(), 200, 200, kExpectedHash);
+  }
+};
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, Unencrypted) {
   ASSERT_TRUE(OpenDocument("about_blank.pdf"));
@@ -74,7 +158,7 @@ TEST_F(CPDFSecurityHandlerEmbedderTest, MAYBE_PasswordAfterGenerateSave) {
 #if _FX_PLATFORM_ == _FX_PLATFORM_LINUX_
   const char md5[] = "7048dca58e2ed8f93339008b91e4eb4e";
 #elif defined(OS_MACOSX)
-  const char md5[] = "6951b6c9891dfe0332a5b1983e484400";
+  const char md5[] = "1ace03eb7c466c132aacf319cb9d69d3";
 #else
   const char md5[] = "041c2fb541c8907cc22ce101b686c79e";
 #endif  // _FX_PLATFORM_ == _FX_PLATFORM_LINUX_
@@ -138,108 +222,460 @@ TEST_F(CPDFSecurityHandlerEmbedderTest, UserPasswordVersion5) {
   EXPECT_EQ(0xFFFFFFFC, FPDF_GetDocPermissions(document()));
 }
 
+// Should not crash. https://crbug.com/pdfium/1436
+TEST_F(CPDFSecurityHandlerEmbedderTest, BadOkeyVersion2) {
+  EXPECT_FALSE(
+      OpenDocumentWithPassword("encrypted_hello_world_r2_bad_okey.pdf", "a"));
+}
+
+// Should not crash. https://crbug.com/pdfium/1436
+TEST_F(CPDFSecurityHandlerEmbedderTest, BadOkeyVersion3) {
+  EXPECT_FALSE(
+      OpenDocumentWithPassword("encrypted_hello_world_r3_bad_okey.pdf", "a"));
+}
+
 TEST_F(CPDFSecurityHandlerEmbedderTest, OwnerPasswordVersion2UTF8) {
   // The password is "age", where the 'a' has a circumflex. Encoding the
   // password as UTF-8 works.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r2.pdf", kAgeUTF8));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r2.pdf",
+                                              kAgeUTF8);
+  EXPECT_EQ(2, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  // With revision 2 and 3, the owner password is not tied to the document ID in
+  // the trailer, so the owner password entry remains in the copy and is still
+  // valid, even though the document ID has changed.
+  // The user password is tied to the document ID, so without an existing ID,
+  // the user password entry has to be regenerated with the owner password.
+  // Since the user password was not used to decrypt the document, it cannot be
+  // recovered. Thus only verify the owner password, which is now also the user
+  // password.
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, OwnerPasswordVersion2Latin1) {
   // The same password encoded as Latin-1 also works at revision 2.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r2.pdf", kAgeLatin1));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r2.pdf",
+                                              kAgeLatin1);
   EXPECT_EQ(2, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, OwnerPasswordVersion3UTF8) {
   // Same as OwnerPasswordVersion2UTF8 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r3.pdf", kAgeUTF8));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r3.pdf",
+                                              kAgeUTF8);
+  EXPECT_EQ(3, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, OwnerPasswordVersion3Latin1) {
   // Same as OwnerPasswordVersion2Latin1 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r3.pdf", kAgeLatin1));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r3.pdf",
+                                              kAgeLatin1);
   EXPECT_EQ(3, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, OwnerPasswordVersion5UTF8) {
   // Same as OwnerPasswordVersion2UTF8 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r5.pdf", kAgeUTF8));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r5.pdf",
+                                              kAgeUTF8);
   EXPECT_EQ(5, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, OwnerPasswordVersion5Latin1) {
   // Same as OwnerPasswordVersion2Latin1 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r5.pdf", kAgeLatin1));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r5.pdf",
+                                              kAgeLatin1);
+  EXPECT_EQ(5, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, OwnerPasswordVersion6UTF8) {
   // Same as OwnerPasswordVersion2UTF8 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r6.pdf", kAgeUTF8));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r6.pdf",
+                                              kAgeUTF8);
   EXPECT_EQ(6, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, OwnerPasswordVersion6Latin1) {
   // Same as OwnerPasswordVersion2Latin1 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r6.pdf", kAgeLatin1));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r6.pdf",
+                                              kAgeLatin1);
+  EXPECT_EQ(6, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, UserPasswordVersion2UTF8) {
   // The password is "hotel", where the 'o' has a circumflex. Encoding the
   // password as UTF-8 works.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r2.pdf", kHotelUTF8));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r2.pdf",
+                                              kHotelUTF8);
+  EXPECT_EQ(2, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  // Unlike the OwnerPasswordVersion2UTF8 test case, the user password was used
+  // to decrypt the document, so it is available to regenerated the user
+  // password entry. Thus it is possible to verify with both the unmodified
+  // owner password, and the updated user password.
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, UserPasswordVersion2Latin1) {
   // The same password encoded as Latin-1 also works at revision 2.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r2.pdf", kHotelLatin1));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r2.pdf",
+                                              kHotelLatin1);
   EXPECT_EQ(2, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, UserPasswordVersion3UTF8) {
   // Same as UserPasswordVersion2UTF8 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r3.pdf", kHotelUTF8));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r3.pdf",
+                                              kHotelUTF8);
+  EXPECT_EQ(3, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, UserPasswordVersion3Latin1) {
   // Same as UserPasswordVersion2Latin1 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r3.pdf", kHotelLatin1));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r3.pdf",
+                                              kHotelLatin1);
   EXPECT_EQ(3, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, UserPasswordVersion5UTF8) {
   // Same as UserPasswordVersion2UTF8 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r5.pdf", kHotelUTF8));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r5.pdf",
+                                              kHotelUTF8);
   EXPECT_EQ(5, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, UserPasswordVersion5Latin1) {
   // Same as UserPasswordVersion2Latin1 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r5.pdf", kHotelLatin1));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r5.pdf",
+                                              kHotelLatin1);
+  EXPECT_EQ(5, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, UserPasswordVersion6UTF8) {
   // Same as UserPasswordVersion2UTF8 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r6.pdf", kHotelUTF8));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r6.pdf",
+                                              kHotelUTF8);
   EXPECT_EQ(6, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }
 
 TEST_F(CPDFSecurityHandlerEmbedderTest, UserPasswordVersion6Latin1) {
   // Same as UserPasswordVersion2Latin1 test above.
-  ASSERT_TRUE(
-      OpenDocumentWithPassword("encrypted_hello_world_r6.pdf", kHotelLatin1));
+  OpenAndVerifyHelloWorldDocumentWithPassword("encrypted_hello_world_r6.pdf",
+                                              kHotelLatin1);
+  EXPECT_EQ(6, FPDF_GetSecurityHandlerRevision(document()));
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveTrailerIdFromDocument();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedHelloWorldDocumentWithPassword(kHotelUTF8);
+
+  ClearString();
+  RemoveGoodbyeObject();
+  EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kAgeUTF8);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelLatin1);
+  VerifySavedModifiedHelloWorldDocumentWithPassword(kHotelUTF8);
 }

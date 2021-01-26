@@ -64,11 +64,6 @@ public:
     virtual const GrShaderVar& getUniformVariable(UniformHandle u) const = 0;
 
     /**
-     * 'Or's the visibility parameter with the current uniform visibililty.
-     */
-    virtual void updateUniformVisibility(UniformHandle u, uint32_t visibility) = 0;
-
-    /**
      * Shortcut for getUniformVariable(u).c_str()
      */
     virtual const char* getUniformCStr(UniformHandle u) const = 0;
@@ -84,7 +79,7 @@ private:
     // Only called if GrShaderCaps(:textureSwizzleAppliedInShader() == true.
     virtual GrSwizzle samplerSwizzle(SamplerHandle) const = 0;
 
-    virtual SamplerHandle addSampler(const GrSurfaceProxy*, const GrSamplerState&, const GrSwizzle&,
+    virtual SamplerHandle addSampler(const GrBackendFormat&, GrSamplerState, const GrSwizzle&,
                                      const char* name, const GrShaderCaps*) = 0;
 
     virtual UniformHandle internalAddUniformArray(uint32_t visibility,

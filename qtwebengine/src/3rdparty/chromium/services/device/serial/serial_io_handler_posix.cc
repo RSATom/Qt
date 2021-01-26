@@ -126,7 +126,11 @@ scoped_refptr<SerialIoHandler> SerialIoHandler::Create(
 void SerialIoHandlerPosix::ReadImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(pending_read_buffer());
-  DCHECK(file().IsValid());
+
+  if (!file().IsValid()) {
+    QueueReadCompleted(0, mojom::SerialReceiveError::DISCONNECTED);
+    return;
+  }
 
   // Try to read immediately. This is needed because on some platforms
   // (e.g., OSX) there may not be a notification from the message loop
@@ -138,20 +142,24 @@ void SerialIoHandlerPosix::ReadImpl() {
 void SerialIoHandlerPosix::WriteImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(pending_write_buffer());
-  DCHECK(file().IsValid());
+
+  if (!file().IsValid()) {
+    QueueWriteCompleted(0, mojom::SerialSendError::DISCONNECTED);
+    return;
+  }
 
   EnsureWatchingWrites();
 }
 
 void SerialIoHandlerPosix::CancelReadImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  file_read_watcher_.reset();
+  StopWatchingFileRead();
   QueueReadCompleted(0, read_cancel_reason());
 }
 
 void SerialIoHandlerPosix::CancelWriteImpl() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  file_write_watcher_.reset();
+  StopWatchingFileWrite();
   QueueWriteCompleted(0, write_cancel_reason());
 }
 
@@ -295,6 +303,11 @@ bool SerialIoHandlerPosix::PostOpen() {
 #endif
 }
 
+void SerialIoHandlerPosix::PreClose() {
+  StopWatchingFileRead();
+  StopWatchingFileWrite();
+}
+
 SerialIoHandlerPosix::SerialIoHandlerPosix(
     const base::FilePath& port,
     scoped_refptr<base::SingleThreadTaskRunner> ui_thread_task_runner)
@@ -343,7 +356,7 @@ void SerialIoHandlerPosix::AttemptRead(bool within_read) {
   } else {
     // Stop watching the fd if we get notifications with no pending
     // reads or writes to avoid starving the message loop.
-    file_read_watcher_.reset();
+    StopWatchingFileRead();
   }
 }
 
@@ -353,7 +366,7 @@ void SerialIoHandlerPosix::RunReadCompleted(bool within_read,
   if (within_read) {
     // Stop watching the fd to avoid more reads until the queued ReadCompleted()
     // completes and releases the pending_read_buffer.
-    file_read_watcher_.reset();
+    StopWatchingFileRead();
 
     QueueReadCompleted(bytes_read, error);
   } else {
@@ -376,7 +389,7 @@ void SerialIoHandlerPosix::OnFileCanWriteWithoutBlocking() {
   } else {
     // Stop watching the fd if we get notifications with no pending
     // writes to avoid starving the message loop.
-    file_write_watcher_.reset();
+    StopWatchingFileWrite();
   }
 }
 
@@ -400,6 +413,26 @@ void SerialIoHandlerPosix::EnsureWatchingWrites() {
         base::BindRepeating(
             &SerialIoHandlerPosix::OnFileCanWriteWithoutBlocking,
             base::Unretained(this)));
+  }
+}
+
+void SerialIoHandlerPosix::StopWatchingFileRead() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (file_read_watcher_) {
+    // Check that file is valid before stopping the watch, to avoid getting a
+    // hard to diagnose crash in MessagePumpLibEvent. https://crbug.com/996777
+    CHECK(file().IsValid());
+    file_read_watcher_.reset();
+  }
+}
+
+void SerialIoHandlerPosix::StopWatchingFileWrite() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (file_write_watcher_) {
+    // Check that file is valid before stopping the watch, to avoid getting a
+    // hard to diagnose crash in MessagePumpLibEvent. https://crbug.com/996777
+    CHECK(file().IsValid());
+    file_write_watcher_.reset();
   }
 }
 

@@ -31,12 +31,14 @@
 #if defined(OS_ANDROID)
 #include "base/android/apk_assets.h"
 #include "base/android/bundle_utils.h"
+#include "base/android/java_exception_reporter.h"
 #include "base/android/locale_utils.h"
 #include "base/i18n/rtl.h"
 #include "base/posix/global_descriptors.h"
 #include "content/public/browser/android/compositor.h"
 #include "ui/base/resource/resource_bundle_android.h"
 #include "ui/base/ui_base_switches.h"
+#include "weblayer/browser/android/exception_filter.h"
 #include "weblayer/browser/android_descriptors.h"
 #include "weblayer/common/crash_reporter/crash_keys.h"
 #include "weblayer/common/crash_reporter/crash_reporter_client.h"
@@ -114,17 +116,26 @@ bool ContentMainDelegateImpl::BasicStartupComplete(int* exit_code) {
   // sites to do feature detection, and prevents crashes in some not fully
   // implemented features.
   base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
+  // TODO(crbug.com/1025610): make notifications work with WebLayer.
   cl->AppendSwitch(switches::kDisableNotifications);
+  // TODO(crbug.com/1025626): and crbug.com/1051752, make speech work with
+  // WebLayer.
   cl->AppendSwitch(switches::kDisableSpeechSynthesisAPI);
   cl->AppendSwitch(switches::kDisableSpeechAPI);
-  cl->AppendSwitch(switches::kDisablePermissionsAPI);
+  // TODO(crbug.com/1057099): make presentation-api work with WebLayer.
   cl->AppendSwitch(switches::kDisablePresentationAPI);
+  // TODO(crbug.com/1057100): make remote-playback-api work with WebLayer.
   cl->AppendSwitch(switches::kDisableRemotePlaybackAPI);
 #if defined(OS_ANDROID)
+  // TODO(crbug.com/1066263): make MediaSession work with WebLayer.
   cl->AppendSwitch(switches::kDisableMediaSessionAPI);
 #endif
   DisableFeaturesIfNotSet({
-    ::features::kWebPayments, ::features::kWebAuth, ::features::kSmsReceiver,
+    // TODO(crbug.com/1025619): make web-payments work with WebLayer.
+    ::features::kWebPayments,
+        // TODO(crbug.com/1025627): make webauth work with WebLayer.
+        ::features::kWebAuth, ::features::kSmsReceiver,
+        // TODO(crbug.com/1057106): make web-xr work with WebLayer.
         ::features::kWebXr,
 #if defined(OS_ANDROID)
         media::kPictureInPictureAPI,
@@ -137,11 +148,19 @@ bool ContentMainDelegateImpl::BasicStartupComplete(int* exit_code) {
 
   InitLogging(&params_);
 
-  content_client_ = std::make_unique<ContentClientImpl>();
-  SetContentClient(content_client_.get());
   RegisterPathProvider();
 
   return false;
+}
+
+bool ContentMainDelegateImpl::ShouldCreateFeatureList() {
+#if defined(OS_ANDROID)
+  // On android WebLayer is in charge of creating its own FeatureList.
+  return false;
+#else
+  // TODO(weblayer-dev): Support feature lists on desktop.
+  return true;
+#endif
 }
 
 void ContentMainDelegateImpl::PreSandboxStartup() {
@@ -153,7 +172,7 @@ void ContentMainDelegateImpl::PreSandboxStartup() {
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  bool is_browser_process =
+  const bool is_browser_process =
       command_line.GetSwitchValueASCII(switches::kProcessType).empty();
   if (is_browser_process &&
       command_line.HasSwitch(switches::kWebLayerUserDataDir)) {
@@ -176,8 +195,16 @@ void ContentMainDelegateImpl::PreSandboxStartup() {
 
 #if defined(OS_ANDROID)
   EnableCrashReporter(command_line.GetSwitchValueASCII(switches::kProcessType));
+  if (is_browser_process) {
+    base::android::SetJavaExceptionFilter(
+        base::BindRepeating(&WebLayerJavaExceptionFilter));
+  }
   SetWebLayerCrashKeys();
 #endif
+}
+
+void ContentMainDelegateImpl::PostEarlyInitialization(bool is_running_tests) {
+  browser_client_->CreateFeatureListAndFieldTrials();
 }
 
 int ContentMainDelegateImpl::RunProcess(
@@ -290,6 +317,11 @@ void ContentMainDelegateImpl::InitializeResourceBundle() {
   pak_file = pak_file.AppendASCII(params_.pak_name);
   ui::ResourceBundle::InitSharedInstanceWithPakPath(pak_file);
 #endif
+}
+
+content::ContentClient* ContentMainDelegateImpl::CreateContentClient() {
+  content_client_ = std::make_unique<ContentClientImpl>();
+  return content_client_.get();
 }
 
 content::ContentBrowserClient*

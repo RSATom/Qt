@@ -236,7 +236,10 @@ QString DumpAstVisitor::parsePatternElement(PatternElement *element, bool scope)
             }
         }
 
-        result += element->bindingIdentifier.toString();
+        if (element->bindingIdentifier.isEmpty())
+            result += parseExpression(element->bindingTarget);
+        else
+            result += element->bindingIdentifier.toString();
 
         if (element->typeAnnotation != nullptr)
             result += ": " + parseType(element->typeAnnotation->type);
@@ -295,7 +298,11 @@ QString DumpAstVisitor::parsePatternProperty(PatternProperty *property)
     case PatternElement::Setter:
         return "set "+parseFunctionExpression(cast<FunctionExpression *>(property->initializer), true);
     default:
-        return escapeString(property->name->asString())+": "+parsePatternElement(property, false);
+        if (property->name->kind == Node::Kind_ComputedPropertyName) {
+            return "["+parseExpression(cast<ComputedPropertyName *>(property->name)->expression)+"]: "+parsePatternElement(property, false);
+        } else {
+            return escapeString(property->name->asString())+": "+parsePatternElement(property, false);
+        }
     }
 }
 
@@ -418,6 +425,12 @@ QString DumpAstVisitor::parseExpression(ExpressionNode *expression)
         return "--"+parseExpression(cast<PreDecrementExpression *>(expression)->expression);
     case Node::Kind_NumericLiteral:
         return QString::number(cast<NumericLiteral *>(expression)->value);
+    case Node::Kind_TemplateLiteral: {
+        auto firstSrcLoc = cast<TemplateLiteral *>(expression)->firstSourceLocation();
+        auto lastSrcLoc = cast<TemplateLiteral *>(expression)->lastSourceLocation();
+        return m_engine->code().mid(static_cast<int>(firstSrcLoc.begin()),
+                                    static_cast<int>(lastSrcLoc.end() - firstSrcLoc.begin()));
+    }
     case Node::Kind_StringLiteral: {
         auto srcLoc = cast<StringLiteral *>(expression)->firstSourceLocation();
         return m_engine->code().mid(static_cast<int>(srcLoc.begin()),
@@ -1038,43 +1051,8 @@ QHash<QString, UiObjectMember*> findBindings(UiObjectMemberList *list) {
 
 bool DumpAstVisitor::visit(UiInlineComponent *node)
 {
-    if (scope().m_firstObject) {
-        if (scope().m_firstOfAll)
-            scope().m_firstOfAll = false;
-        else
-            addNewLine();
-
-        scope().m_firstObject = false;
-    }
-
-    addLine(getComment(node, Comment::Location::Front));
-    addLine(getComment(node, Comment::Location::Front_Inline));
-    addLine("component " + node->name + ": "
-            + parseUiQualifiedId(node->component->qualifiedTypeNameId) + " {");
-
-    m_indentLevel++;
-
-    ScopeProperties props;
-    props.m_bindings = findBindings(node->component->initializer->members);
-    m_scope_properties.push(props);
-
-    m_result += getOrphanedComments(node);
-
+    m_component_name = node->name.toString();
     return true;
-}
-
-void DumpAstVisitor::endVisit(UiInlineComponent *node)
-{
-    m_indentLevel--;
-
-    m_scope_properties.pop();
-
-    bool need_comma = scope().m_inArrayBinding && scope().m_lastInArrayBinding != node;
-
-    addLine(need_comma ? "}," : "}");
-    addLine(getComment(node, Comment::Location::Back));
-    if (!scope().m_inArrayBinding)
-        addNewLine();
 }
 
 bool DumpAstVisitor::visit(UiObjectDefinition *node) {
@@ -1089,7 +1067,15 @@ bool DumpAstVisitor::visit(UiObjectDefinition *node) {
 
     addLine(getComment(node, Comment::Location::Front));
     addLine(getComment(node, Comment::Location::Front_Inline));
-    addLine(parseUiQualifiedId(node->qualifiedTypeNameId) + " {");
+
+    QString component = "";
+
+    if (!m_component_name.isEmpty()) {
+        component = "component "+m_component_name+": ";
+        m_component_name = "";
+    }
+
+    addLine(component + parseUiQualifiedId(node->qualifiedTypeNameId) + " {");
 
     m_indentLevel++;
 

@@ -295,9 +295,11 @@ QDesignerActions::QDesignerActions(QDesignerWorkbench *workbench)
 
     m_editActions->addAction(createSeparator(this));
 
+#if QT_CONFIG(clipboard)
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::CutAction));
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::CopyAction));
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::PasteAction));
+#endif
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::DeleteAction));
 
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::SelectAllAction));
@@ -441,7 +443,7 @@ QActionGroup *QDesignerActions::createHelpActions()
     QAction *mainHelpAction = new QAction(tr("Qt Designer &Help"), this);
     mainHelpAction->setObjectName(QStringLiteral("__qt_designer_help_action"));
     connect(mainHelpAction, &QAction::triggered, this, &QDesignerActions::showDesignerHelp);
-    mainHelpAction->setShortcut(Qt::CTRL + Qt::Key_Question);
+    mainHelpAction->setShortcut(Qt::CTRL | Qt::Key_Question);
     helpActions->addAction(mainHelpAction);
 
     helpActions->addAction(createSeparator(this));
@@ -1333,7 +1335,9 @@ void QDesignerActions::printPreviewImage()
         return;
 
     const QSizeF pixmapSize = pixmap.size();
-    m_printer->setOrientation( pixmapSize.width() > pixmapSize.height() ?  QPrinter::Landscape :  QPrinter::Portrait);
+
+    m_printer->setPageOrientation(pixmapSize.width() > pixmapSize.height() ?
+                                  QPageLayout::Landscape : QPageLayout::Portrait);
 
     // Printer parameters
     QPrintDialog dialog(m_printer, fw);

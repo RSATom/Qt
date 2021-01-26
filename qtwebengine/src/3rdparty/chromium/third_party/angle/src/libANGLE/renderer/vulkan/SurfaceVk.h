@@ -10,7 +10,7 @@
 #ifndef LIBANGLE_RENDERER_VULKAN_SURFACEVK_H_
 #define LIBANGLE_RENDERER_VULKAN_SURFACEVK_H_
 
-#include <vulkan/vulkan.h>
+#include "volk.h"
 
 #include "libANGLE/renderer/SurfaceImpl.h"
 #include "libANGLE/renderer/vulkan/RenderTargetVk.h"
@@ -60,6 +60,7 @@ class OffscreenSurfaceVk : public SurfaceVk
                             EGLint buffer) override;
     egl::Error releaseTexImage(const gl::Context *context, EGLint buffer) override;
     egl::Error getSyncValues(EGLuint64KHR *ust, EGLuint64KHR *msc, EGLuint64KHR *sbc) override;
+    egl::Error getMscRate(EGLint *numerator, EGLint *denominator) override;
     void setSwapInterval(EGLint interval) override;
 
     // width and height can change with client window resizing
@@ -74,7 +75,7 @@ class OffscreenSurfaceVk : public SurfaceVk
 
     vk::ImageHelper *getColorAttachmentImage();
 
-  private:
+  protected:
     struct AttachmentImage final : angle::NonCopyable
     {
         AttachmentImage();
@@ -85,13 +86,21 @@ class OffscreenSurfaceVk : public SurfaceVk
                                  EGLint height,
                                  const vk::Format &vkFormat,
                                  GLint samples);
+
+        angle::Result initializeWithExternalMemory(DisplayVk *displayVk,
+                                                   EGLint width,
+                                                   EGLint height,
+                                                   const vk::Format &vkFormat,
+                                                   GLint samples,
+                                                   void *buffer);
+
         void destroy(const egl::Display *display);
 
         vk::ImageHelper image;
         vk::ImageViewHelper imageViews;
     };
 
-    angle::Result initializeImpl(DisplayVk *displayVk);
+    virtual angle::Result initializeImpl(DisplayVk *displayVk);
 
     EGLint mWidth;
     EGLint mHeight;
@@ -196,6 +205,7 @@ class WindowSurfaceVk : public SurfaceVk
                             EGLint buffer) override;
     egl::Error releaseTexImage(const gl::Context *context, EGLint buffer) override;
     egl::Error getSyncValues(EGLuint64KHR *ust, EGLuint64KHR *msc, EGLuint64KHR *sbc) override;
+    egl::Error getMscRate(EGLint *numerator, EGLint *denominator) override;
     void setSwapInterval(EGLint interval) override;
 
     // width and height can change with client window resizing
@@ -213,6 +223,8 @@ class WindowSurfaceVk : public SurfaceVk
                                         vk::Framebuffer **framebufferOut);
 
     vk::Semaphore getAcquireImageSemaphore();
+
+    VkSurfaceTransformFlagBitsKHR getPreTransform() { return mPreTransform; }
 
   protected:
     angle::Result swapImpl(const gl::Context *context,

@@ -31,31 +31,41 @@ LICENSES = [
 # List all DEPS here.
 DEPS = {
     "@types/chai": "4.2.0",
+    "@types/filesystem": "0.0.29",
     "@types/mocha": "5.2.7",
+    "@types/puppeteer": "2.0.0",
+    "@typescript-eslint/parser": "2.16.0",
+    "@typescript-eslint/eslint-plugin": "2.16.0",
     "chai": "4.2.0",
     "escodegen": "1.12.0",
     "eslint": "6.0.1",
+    "eslint-plugin-mocha": "6.2.2",
+    "eslint-plugin-rulesdir": "0.1.0",
     "esprima": "git+https://git@github.com/ChromeDevTools/esprima.git#4d0f0e18bd8d3731e5f931bf573af3394cbf7cbe",
     "handlebars": "4.3.1",
+    "istanbul-diff": "2.0.0",
     "karma": "4.2.0",
     "karma-chai": "0.1.0",
     "karma-chrome-launcher": "3.1.0",
     "karma-coverage-istanbul-instrumenter": "1.0.1",
     "karma-coverage-istanbul-reporter": "2.1.0",
     "karma-mocha": "1.3.0",
+    "karma-sourcemap-loader": "0.3.0",
     "karma-typescript": "4.1.1",
     "license-checker": "25.0.1",
     "mocha": "6.2.0",
     "puppeteer": "2.0.0",
+    "recast": "0.18.2",
+    "rimraf": "3.0.2",
     "rollup": "1.23.1",
-    "typescript": "3.5.3",
+    "typescript": "3.8.3",
     "yargs": "15.0.2"
 }
 
 def exec_command(cmd):
     try:
         cmd_proc_result = subprocess.check_call(cmd, cwd=devtools_paths.root_path())
-    except CalledProcessError as error:
+    except Error as error:
         print(error.output)
         return True
 
@@ -96,7 +106,7 @@ def strip_private_fields():
 
                 pkg_file.truncate(0)
                 pkg_file.seek(0)
-                json.dump(pkg_data, pkg_file, indent=2, sort_keys=True)
+                json.dump(pkg_data, pkg_file, indent=2, sort_keys=True, separators=(',', ': '))
                 print("(%s): %s" % (prop_removal_count, pkg))
             except:
                 print('Unable to fix: %s' % pkg)
@@ -140,7 +150,7 @@ def append_package_json_entries():
 
             pkg_file.truncate(0)
             pkg_file.seek(0)
-            json.dump(pkg_data, pkg_file, indent=2, sort_keys=True)
+            json.dump(pkg_data, pkg_file, indent=2, sort_keys=True, separators=(',', ': '))
 
         except:
             print('Unable to fix: %s' % sys.exc_info()[0])
@@ -161,9 +171,19 @@ def remove_package_json_entries():
 
             pkg_file.truncate(0)
             pkg_file.seek(0)
-            json.dump(pkg_data, pkg_file, indent=2, sort_keys=True)
+            json.dump(pkg_data, pkg_file, indent=2, sort_keys=True, separators=(',', ': '))
         except:
             print('Unable to fix: %s' % pkg)
+            return True
+    return False
+
+
+def addClangFormat():
+    with open(path.join(devtools_paths.node_modules_path(), '.clang-format'), 'w+') as clang_format_file:
+        try:
+            clang_format_file.write('DisableFormat: true')
+        except:
+            print('Unable to write .clang-format file')
             return True
     return False
 
@@ -188,6 +208,9 @@ def install_deps():
         return True
 
     if remove_package_json_entries():
+        return True
+
+    if addClangFormat():
         return True
 
     return ensure_licenses()

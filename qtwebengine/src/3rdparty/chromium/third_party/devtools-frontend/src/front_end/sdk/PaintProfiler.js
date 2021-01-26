@@ -28,9 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-export class PaintProfilerModel extends SDK.SDKModel {
+import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+
+export class PaintProfilerModel extends SDKModel {
   /**
-   * @param {!SDK.Target} target
+   * @param {!Target} target
    */
   constructor(target) {
     super(target);
@@ -38,7 +40,7 @@ export class PaintProfilerModel extends SDK.SDKModel {
   }
 
   /**
-   * @param {!Array.<!SDK.PictureFragment>} fragments
+   * @param {!Array.<!PictureFragment>} fragments
    * @return {!Promise<?PaintProfilerSnapshot>}
    */
   async loadSnapshotFromFragments(fragments) {
@@ -112,7 +114,7 @@ export class PaintProfilerSnapshot {
   async commandLog() {
     const log = await this._paintProfilerModel._layerTreeAgent.snapshotCommandLog(this._id);
     return log &&
-        log.map((entry, index) => new PaintProfilerLogItem(/** @type {!SDK.RawPaintProfilerLogItem} */ (entry), index));
+        log.map((entry, index) => new PaintProfilerLogItem(/** @type {!RawPaintProfilerLogItem} */ (entry), index));
   }
 }
 
@@ -121,7 +123,7 @@ export class PaintProfilerSnapshot {
  */
 export class PaintProfilerLogItem {
   /**
-   * @param {!SDK.RawPaintProfilerLogItem} rawEntry
+   * @param {!RawPaintProfilerLogItem} rawEntry
    * @param {number} commandIndex
    */
   constructor(rawEntry, commandIndex) {
@@ -131,29 +133,21 @@ export class PaintProfilerLogItem {
   }
 }
 
-/* Legacy exported object */
-self.SDK = self.SDK || {};
+SDKModel.register(PaintProfilerModel, Capability.DOM, false);
 
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.PaintProfilerModel = PaintProfilerModel;
-
-/** @constructor */
-SDK.PaintProfilerSnapshot = PaintProfilerSnapshot;
-
-/** @constructor */
-SDK.PaintProfilerLogItem = PaintProfilerLogItem;
+/** @typedef {!{
+        rect: !Protocol.DOM.Rect,
+        snapshot: !PaintProfilerSnapshot
+    }}
+*/
+export let SnapshotWithRect;
 
 /**
  * @typedef {!{x: number, y: number, picture: string}}
  */
-SDK.PictureFragment;
+export let PictureFragment;
 
 /**
  * @typedef {!{method: string, params: ?Object<string, *>}}
  */
-SDK.RawPaintProfilerLogItem;
-
-SDK.SDKModel.register(PaintProfilerModel, SDK.Target.Capability.DOM, false);
+export let RawPaintProfilerLogItem;

@@ -11,11 +11,14 @@
 
 namespace blink {
 
+std::atomic_int IntegerObject::destructor_calls{0};
+
 // static
 void TestSupportingGC::PreciselyCollectGarbage(
     BlinkGC::SweepingType sweeping_type) {
   ThreadState::Current()->CollectGarbage(
-      BlinkGC::kNoHeapPointersOnStack, BlinkGC::kAtomicMarking, sweeping_type,
+      BlinkGC::CollectionType::kMajor, BlinkGC::kNoHeapPointersOnStack,
+      BlinkGC::kAtomicMarking, sweeping_type,
       BlinkGC::GCReason::kForcedGCForTesting);
 }
 
@@ -23,8 +26,14 @@ void TestSupportingGC::PreciselyCollectGarbage(
 void TestSupportingGC::ConservativelyCollectGarbage(
     BlinkGC::SweepingType sweeping_type) {
   ThreadState::Current()->CollectGarbage(
-      BlinkGC::kHeapPointersOnStack, BlinkGC::kAtomicMarking, sweeping_type,
+      BlinkGC::CollectionType::kMajor, BlinkGC::kHeapPointersOnStack,
+      BlinkGC::kAtomicMarking, sweeping_type,
       BlinkGC::GCReason::kForcedGCForTesting);
+}
+
+TestSupportingGC::~TestSupportingGC() {
+  // Complete sweeping before |task_environment_| is destroyed.
+  CompleteSweepingIfNeeded();
 }
 
 void TestSupportingGC::ClearOutOldGarbage() {

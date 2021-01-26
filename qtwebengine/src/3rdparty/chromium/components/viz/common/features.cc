@@ -5,8 +5,9 @@
 #include "components/viz/common/features.h"
 
 #include "base/command_line.h"
-#include "build/build_config.h"
+#include "build/chromecast_buildflags.h"
 #include "components/viz/common/switches.h"
+#include "components/viz/common/viz_utils.h"
 #include "gpu/config/gpu_finch_features.h"
 
 #if defined(OS_ANDROID)
@@ -15,18 +16,11 @@
 
 namespace features {
 
-// Enables running the display compositor as part of the viz service in the GPU
-// process. This is also referred to as out-of-process display compositor
-// (OOP-D).
-const base::Feature kVizDisplayCompositor{"VizDisplayCompositor",
+const base::Feature kUseSkiaForGLReadback{"UseSkiaForGLReadback",
                                           base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Use Skia's readback API instead of GLRendererCopier.
-const base::Feature kUseSkiaForGLReadback{"UseSkiaForGLReadback",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Use the SkiaRenderer.
-#if defined(OS_LINUX) && !(defined(OS_CHROMEOS) || defined(IS_CHROMECAST))
+#if defined(OS_LINUX) && !(defined(OS_CHROMEOS) || BUILDFLAG(IS_CHROMECAST))
 const base::Feature kUseSkiaRenderer{"UseSkiaRenderer",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
 #else
@@ -43,17 +37,37 @@ const base::Feature kRecordSkPicture{"RecordSkPicture",
 const base::Feature kDisableDeJelly{"DisableDeJelly",
                                     base::FEATURE_DISABLED_BY_DEFAULT};
 
+#if defined(OS_ANDROID)
+// When wide color gamut content from the web is encountered, promote our
+// display to wide color gamut if supported.
+const base::Feature kDynamicColorGamut{"DynamicColorGamut",
+                                       base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
+
 // Viz for WebView architecture.
 const base::Feature kVizForWebView{"VizForWebView",
                                    base::FEATURE_DISABLED_BY_DEFAULT};
 
-bool IsVizDisplayCompositorEnabled() {
-#if defined(OS_ANDROID)
-  if (features::IsAndroidSurfaceControlEnabled())
-    return true;
-#endif
-  return base::FeatureList::IsEnabled(kVizDisplayCompositor);
-}
+// Submit CompositorFrame from SynchronousLayerTreeFrameSink directly to viz in
+// WebView.
+const base::Feature kVizFrameSubmissionForWebView{
+    "VizFrameSubmissionForWebView", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Whether we should use the real buffers corresponding to overlay candidates in
+// order to do a pageflip test rather than allocating test buffers.
+const base::Feature kUseRealBuffersForPageFlipTest{
+    "UseRealBuffersForPageFlipTest", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Whether we should split partially occluded quads to reduce overdraw.
+const base::Feature kSplitPartiallyOccludedQuads{
+    "SplitPartiallyOccludedQuads", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kUsePreferredIntervalForVideo{
+    "UsePreferredIntervalForVideo", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Whether we should log extra debug information to webrtc native log.
+const base::Feature kWebRtcLogCapturePipeline{
+    "WebRtcLogCapturePipeline", base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsVizHitTestingDebugEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -61,6 +75,10 @@ bool IsVizHitTestingDebugEnabled() {
 }
 
 bool IsUsingSkiaForGLReadback() {
+  // Viz for webview requires Skia Readback.
+  if (IsUsingVizForWebView())
+    return true;
+
   return base::FeatureList::IsEnabled(kUseSkiaForGLReadback);
 }
 
@@ -73,14 +91,12 @@ bool IsUsingSkiaRenderer() {
     return false;
 #endif
 
-  // We require OOP-D everywhere but WebView.
-  bool enabled = base::FeatureList::IsEnabled(kUseSkiaRenderer) ||
-                 base::FeatureList::IsEnabled(kVulkan);
-  if (enabled && !IsVizDisplayCompositorEnabled()) {
-    DLOG(ERROR) << "UseSkiaRenderer requires VizDisplayCompositor.";
-    return false;
-  }
-  return enabled;
+  // Viz for webview requires SkiaRenderer.
+  if (IsUsingVizForWebView())
+    return true;
+
+  return base::FeatureList::IsEnabled(kUseSkiaRenderer) ||
+         base::FeatureList::IsEnabled(kVulkan);
 }
 
 bool IsRecordingSkPicture() {
@@ -88,13 +104,45 @@ bool IsRecordingSkPicture() {
          base::FeatureList::IsEnabled(kRecordSkPicture);
 }
 
+#if defined(OS_ANDROID)
+bool IsDynamicColorGamutEnabled() {
+  if (viz::AlwaysUseWideColorGamut())
+    return false;
+  return base::FeatureList::IsEnabled(kDynamicColorGamut);
+}
+#endif
+
 bool IsUsingVizForWebView() {
-  if (base::FeatureList::IsEnabled(kVizForWebView)) {
-    DCHECK(IsVizDisplayCompositorEnabled())
-        << "Enabling VizForWebView requires VizDisplayCompositor";
+  // Viz for WebView requires shared images to be enabled.
+  if (!base::FeatureList::IsEnabled(kEnableSharedImageForWebview))
+    return false;
+
+  return base::FeatureList::IsEnabled(kVizForWebView);
+}
+
+bool IsUsingVizFrameSubmissionForWebView() {
+  if (base::FeatureList::IsEnabled(kVizFrameSubmissionForWebView)) {
+    DCHECK(IsUsingVizForWebView())
+        << "kVizFrameSubmissionForWebView requires kVizForWebView";
     return true;
   }
   return false;
+}
+
+bool IsUsingPreferredIntervalForVideo() {
+  return base::FeatureList::IsEnabled(kUsePreferredIntervalForVideo);
+}
+
+bool ShouldUseRealBuffersForPageFlipTest() {
+  return base::FeatureList::IsEnabled(kUseRealBuffersForPageFlipTest);
+}
+
+bool ShouldSplitPartiallyOccludedQuads() {
+  return base::FeatureList::IsEnabled(kSplitPartiallyOccludedQuads);
+}
+
+bool ShouldWebRtcLogCapturePipeline() {
+  return base::FeatureList::IsEnabled(kWebRtcLogCapturePipeline);
 }
 
 }  // namespace features

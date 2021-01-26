@@ -17,8 +17,11 @@
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_node_position.h"
 #include "ui/accessibility/ax_serializable_tree.h"
+#include "ui/accessibility/ax_tree_data.h"
+#include "ui/accessibility/ax_tree_id.h"
 #include "ui/accessibility/ax_tree_observer.h"
 #include "ui/accessibility/ax_tree_serializer.h"
+#include "ui/accessibility/test_ax_tree_manager.h"
 #include "ui/gfx/transform.h"
 
 // Helper macro for testing selection values and maintain
@@ -30,8 +33,8 @@
     tree_update.tree_data.sel_anchor_offset = input.anchor_offset; \
     tree_update.tree_data.sel_focus_object_id = input.focus_id;    \
     tree_update.tree_data.sel_focus_offset = input.focus_offset;   \
-    EXPECT_TRUE(tree.Unserialize(tree_update));                    \
-    ui::AXTree::Selection actual = tree.GetUnignoredSelection();   \
+    EXPECT_TRUE(tree->Unserialize(tree_update));                   \
+    AXTree::Selection actual = tree->GetUnignoredSelection();      \
     EXPECT_EQ(expected.anchor_id, actual.anchor_object_id);        \
     EXPECT_EQ(expected.anchor_offset, actual.anchor_offset);       \
     EXPECT_EQ(expected.focus_id, actual.focus_object_id);          \
@@ -98,6 +101,7 @@ class TestAXTreeObserver : public AXTreeObserver {
     // When this observer function is called in an update, the actual node
     // deletion has not happened yet. Verify that node still exists in the tree.
     ASSERT_NE(nullptr, tree->GetFromId(node->id()));
+    node_will_be_deleted_ids_.push_back(node->id());
 
     if (unignored_parent_id_before_node_deleted) {
       ASSERT_NE(nullptr, node->GetUnignoredParent());
@@ -252,6 +256,9 @@ class TestAXTreeObserver : public AXTreeObserver {
   const std::vector<int32_t>& node_will_be_reparented_ids() {
     return node_will_be_reparented_ids_;
   }
+  const std::vector<int32_t>& node_will_be_deleted_ids() {
+    return node_will_be_deleted_ids_;
+  }
   const std::vector<int32_t>& node_reparented_ids() {
     return node_reparented_ids_;
   }
@@ -275,6 +282,7 @@ class TestAXTreeObserver : public AXTreeObserver {
   std::vector<int32_t> changed_ids_;
   std::vector<int32_t> subtree_will_be_reparented_ids_;
   std::vector<int32_t> node_will_be_reparented_ids_;
+  std::vector<int32_t> node_will_be_deleted_ids_;
   std::vector<int32_t> node_creation_finished_ids_;
   std::vector<int32_t> subtree_creation_finished_ids_;
   std::vector<int32_t> node_reparented_ids_;
@@ -557,10 +565,109 @@ TEST(AXTreeTest, NoReparentingIfOnlyRemovedAndChangedNotReAdded) {
   EXPECT_EQ(0U, test_observer.node_creation_finished_ids().size());
   EXPECT_EQ(0U, test_observer.subtree_creation_finished_ids().size());
   EXPECT_EQ(0U, test_observer.node_will_be_reparented_ids().size());
+  EXPECT_EQ(2U, test_observer.node_will_be_deleted_ids().size());
   EXPECT_EQ(0U, test_observer.subtree_will_be_reparented_ids().size());
   EXPECT_EQ(0U, test_observer.node_reparented_ids().size());
   EXPECT_EQ(0U, test_observer.node_reparented_finished_ids().size());
-  ASSERT_EQ(0U, test_observer.subtree_reparented_finished_ids().size());
+  EXPECT_EQ(0U, test_observer.subtree_reparented_finished_ids().size());
+
+  EXPECT_FALSE(test_observer.root_changed());
+  EXPECT_FALSE(test_observer.tree_data_changed());
+}
+
+// Tests a fringe scenario that may happen if multiple AXTreeUpdates are merged.
+// Make sure that when a node is reparented then removed from the tree
+// that it notifies OnNodeDeleted rather than OnNodeReparented.
+TEST(AXTreeTest, NoReparentingIfRemovedMultipleTimesAndNotInFinalTree) {
+  AXTreeUpdate initial_state;
+  initial_state.root_id = 1;
+  initial_state.nodes.resize(4);
+  initial_state.nodes[0].id = 1;
+  initial_state.nodes[0].child_ids = {2, 4};
+  initial_state.nodes[1].id = 2;
+  initial_state.nodes[1].child_ids = {3};
+  initial_state.nodes[2].id = 3;
+  initial_state.nodes[3].id = 4;
+
+  AXTree tree(initial_state);
+
+  AXTreeUpdate update;
+  update.nodes.resize(4);
+  // Delete AXID 3
+  update.nodes[0].id = 2;
+  // Reparent AXID 3 onto AXID 4
+  update.nodes[1].id = 4;
+  update.nodes[1].child_ids = {3};
+  update.nodes[2].id = 3;
+  // Delete AXID 3
+  update.nodes[3].id = 4;
+
+  TestAXTreeObserver test_observer(&tree);
+  ASSERT_TRUE(tree.Unserialize(update)) << tree.error();
+
+  EXPECT_EQ(1U, test_observer.deleted_ids().size());
+  EXPECT_EQ(1U, test_observer.subtree_deleted_ids().size());
+  EXPECT_EQ(0U, test_observer.created_ids().size());
+
+  EXPECT_EQ(0U, test_observer.node_creation_finished_ids().size());
+  EXPECT_EQ(0U, test_observer.subtree_creation_finished_ids().size());
+  EXPECT_EQ(0U, test_observer.node_will_be_reparented_ids().size());
+  EXPECT_EQ(1U, test_observer.node_will_be_deleted_ids().size());
+  EXPECT_EQ(0U, test_observer.subtree_will_be_reparented_ids().size());
+  EXPECT_EQ(0U, test_observer.node_reparented_ids().size());
+  EXPECT_EQ(0U, test_observer.node_reparented_finished_ids().size());
+  EXPECT_EQ(0U, test_observer.subtree_reparented_finished_ids().size());
+
+  EXPECT_FALSE(test_observer.root_changed());
+  EXPECT_FALSE(test_observer.tree_data_changed());
+}
+
+// Tests a fringe scenario that may happen if multiple AXTreeUpdates are merged.
+// Make sure that when a node is reparented multiple times and exists in the
+// final tree that it notifies OnNodeReparented rather than OnNodeDeleted.
+TEST(AXTreeTest, ReparentIfRemovedMultipleTimesButExistsInFinalTree) {
+  AXTreeUpdate initial_state;
+  initial_state.root_id = 1;
+  initial_state.nodes.resize(4);
+  initial_state.nodes[0].id = 1;
+  initial_state.nodes[0].child_ids = {2, 4};
+  initial_state.nodes[1].id = 2;
+  initial_state.nodes[1].child_ids = {3};
+  initial_state.nodes[2].id = 3;
+  initial_state.nodes[3].id = 4;
+
+  AXTree tree(initial_state);
+
+  AXTreeUpdate update;
+  update.nodes.resize(6);
+  // Delete AXID 3
+  update.nodes[0].id = 2;
+  // Reparent AXID 3 onto AXID 4
+  update.nodes[1].id = 4;
+  update.nodes[1].child_ids = {3};
+  update.nodes[2].id = 3;
+  // Delete AXID 3
+  update.nodes[3].id = 4;
+  // Reparent AXID 3 onto AXID 2
+  update.nodes[4].id = 2;
+  update.nodes[4].child_ids = {3};
+  update.nodes[5].id = 3;
+
+  TestAXTreeObserver test_observer(&tree);
+  ASSERT_TRUE(tree.Unserialize(update)) << tree.error();
+
+  EXPECT_EQ(0U, test_observer.deleted_ids().size());
+  EXPECT_EQ(0U, test_observer.subtree_deleted_ids().size());
+  EXPECT_EQ(0U, test_observer.created_ids().size());
+
+  EXPECT_EQ(0U, test_observer.node_creation_finished_ids().size());
+  EXPECT_EQ(0U, test_observer.subtree_creation_finished_ids().size());
+  EXPECT_EQ(1U, test_observer.node_will_be_reparented_ids().size());
+  EXPECT_EQ(0U, test_observer.node_will_be_deleted_ids().size());
+  EXPECT_EQ(1U, test_observer.subtree_will_be_reparented_ids().size());
+  EXPECT_EQ(1U, test_observer.node_reparented_ids().size());
+  EXPECT_EQ(0U, test_observer.node_reparented_finished_ids().size());
+  EXPECT_EQ(1U, test_observer.subtree_reparented_finished_ids().size());
 
   EXPECT_FALSE(test_observer.root_changed());
   EXPECT_FALSE(test_observer.tree_data_changed());
@@ -2317,13 +2424,11 @@ TEST(AXTreeTest, UnignoredSelection) {
 
   tree_update.nodes[2].id = 3;
   tree_update.nodes[2].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[2].AddStringAttribute(ax::mojom::StringAttribute::kName,
-                                          "text");
+  tree_update.nodes[2].SetName("text");
 
   tree_update.nodes[3].id = 4;
   tree_update.nodes[3].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[3].AddStringAttribute(ax::mojom::StringAttribute::kName,
-                                          "text");
+  tree_update.nodes[3].SetName("text");
 
   tree_update.nodes[4].id = 5;
   tree_update.nodes[4].role = ax::mojom::Role::kGenericContainer;
@@ -2344,8 +2449,7 @@ TEST(AXTreeTest, UnignoredSelection) {
 
   tree_update.nodes[8].id = 9;
   tree_update.nodes[8].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[8].AddStringAttribute(ax::mojom::StringAttribute::kName,
-                                          "text");
+  tree_update.nodes[8].SetName("text");
 
   tree_update.nodes[9].id = 10;
   tree_update.nodes[9].child_ids = {13};
@@ -2359,8 +2463,7 @@ TEST(AXTreeTest, UnignoredSelection) {
 
   tree_update.nodes[11].id = 12;
   tree_update.nodes[11].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[11].AddStringAttribute(ax::mojom::StringAttribute::kName,
-                                           "text");
+  tree_update.nodes[11].SetName("text");
 
   tree_update.nodes[12].id = 13;
   tree_update.nodes[12].child_ids = {16};
@@ -2369,22 +2472,19 @@ TEST(AXTreeTest, UnignoredSelection) {
 
   tree_update.nodes[13].id = 14;
   tree_update.nodes[13].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[13].AddStringAttribute(ax::mojom::StringAttribute::kName,
-                                           "text");
+  tree_update.nodes[13].SetName("text");
 
   tree_update.nodes[14].id = 15;
   tree_update.nodes[14].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[14].AddStringAttribute(ax::mojom::StringAttribute::kName,
-                                           "text");
+  tree_update.nodes[14].SetName("text");
 
   tree_update.nodes[15].id = 16;
   tree_update.nodes[15].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[15].AddStringAttribute(ax::mojom::StringAttribute::kName,
-                                           "text");
+  tree_update.nodes[15].SetName("text");
 
-  AXTree tree(tree_update);
-  AXNodePosition::SetTree(&tree);
-  AXTree::Selection unignored_selection = tree.GetUnignoredSelection();
+  TestAXTreeManager test_ax_tree_manager(std::make_unique<AXTree>(tree_update));
+  AXTree::Selection unignored_selection =
+      test_ax_tree_manager.GetTree()->GetUnignoredSelection();
 
   EXPECT_EQ(AXNode::kInvalidAXID, unignored_selection.anchor_object_id);
   EXPECT_EQ(-1, unignored_selection.anchor_offset);
@@ -2399,73 +2499,71 @@ TEST(AXTreeTest, UnignoredSelection) {
 
   SelectionData input = {1, 0, 1, 0};
   SelectionData expected = {9, 0, 9, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {1, 0, 2, 2};
   expected = {9, 0, 14, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {2, 1, 5, 0};
   expected = {16, 0, 5, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {5, 0, 9, 0};
   expected = {5, 0, 9, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {9, 0, 6, 0};
   expected = {9, 0, 16, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {6, 0, 10, 0};
   expected = {16, 0, 16, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {10, 0, 13, 0};
   expected = {16, 0, 16, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {13, 0, 16, 0};
   expected = {16, 0, 16, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {16, 0, 7, 0};
   expected = {16, 0, 14, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {7, 0, 11, 0};
   expected = {14, 0, 14, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {11, 1, 14, 2};
   expected = {15, 0, 14, 2};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {14, 2, 15, 3};
   expected = {14, 2, 15, 3};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {15, 0, 12, 0};
   expected = {15, 0, 12, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {12, 0, 8, 0};
   expected = {12, 0, 3, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {8, 0, 3, 0};
   expected = {12, 4, 3, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {3, 0, 4, 0};
   expected = {3, 0, 4, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 
   input = {4, 0, 4, 0};
   expected = {4, 0, 4, 0};
-  TEST_SELECTION(tree_update, tree, input, expected);
-
-  AXNodePosition::SetTree(nullptr);
+  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
 }
 
 TEST(AXTreeTest, ChildTreeIds) {
@@ -3860,7 +3958,7 @@ TEST(AXTreeTest, SingleUpdateTogglesIgnoredStateBeforeDestroyingNode) {
 }
 
 // Tests that the IsInListMarker() method returns true if the current node is a
-// list marker or if it's a descendant node of a list marker..
+// list marker or if it's a descendant node of a list marker.
 TEST(AXTreeTest, TestIsInListMarker) {
   // This test uses the template of a list of one element: "1. List item"
   AXTreeUpdate tree_update;

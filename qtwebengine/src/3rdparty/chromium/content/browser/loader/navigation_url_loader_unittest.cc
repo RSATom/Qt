@@ -60,6 +60,7 @@ class NavigationURLLoaderTest : public testing::Test {
             std::string() /* headers */, net::LOAD_NORMAL,
             false /* skip_service_worker */,
             blink::mojom::RequestContextType::LOCATION,
+            network::mojom::RequestDestination::kDocument,
             blink::WebMixedContentContextType::kBlockable,
             false /* is_form_submission */,
             false /* was_initiated_by_link_click */,
@@ -67,7 +68,8 @@ class NavigationURLLoaderTest : public testing::Test {
             std::string() /* searchable_form_encoding */,
             GURL() /* client_side_redirect_url */,
             base::nullopt /* devtools_initiator_info */,
-            false /* attach_same_site_cookies */);
+            false /* attach_same_site_cookies */,
+            nullptr /* trust_token_params */);
     auto common_params = CreateCommonNavigationParams();
     common_params->url = url;
     common_params->initiator_origin = url::Origin::Create(url);
@@ -75,7 +77,8 @@ class NavigationURLLoaderTest : public testing::Test {
     url::Origin origin = url::Origin::Create(url);
     std::unique_ptr<NavigationRequestInfo> request_info(
         new NavigationRequestInfo(
-            std::move(common_params), std::move(begin_params), url,
+            std::move(common_params), std::move(begin_params),
+            net::SiteForCookies::FromUrl(url),
             net::NetworkIsolationKey(origin, origin), true /* is_main_frame */,
             false /* parent_is_main_frame */, false /* are_ancestors_secure */,
             -1 /* frame_tree_node_id */, false /* is_for_guests_only */,
@@ -124,7 +127,7 @@ TEST_F(NavigationURLLoaderTest, RequestFailedCertError) {
 
   // Wait for the request to fail as expected.
   delegate.WaitForRequestFailed();
-  ASSERT_EQ(net::ERR_ABORTED, delegate.net_error());
+  ASSERT_EQ(net::ERR_CERT_COMMON_NAME_INVALID, delegate.net_error());
   net::SSLInfo ssl_info = delegate.ssl_info();
   EXPECT_TRUE(ssl_info.is_valid());
   EXPECT_TRUE(
@@ -158,7 +161,7 @@ TEST_F(NavigationURLLoaderTest, RequestFailedCertErrorFatal) {
 
   // Wait for the request to fail as expected.
   delegate.WaitForRequestFailed();
-  ASSERT_EQ(net::ERR_ABORTED, delegate.net_error());
+  ASSERT_EQ(net::ERR_CERT_COMMON_NAME_INVALID, delegate.net_error());
   net::SSLInfo ssl_info = delegate.ssl_info();
   EXPECT_TRUE(ssl_info.is_valid());
   EXPECT_TRUE(

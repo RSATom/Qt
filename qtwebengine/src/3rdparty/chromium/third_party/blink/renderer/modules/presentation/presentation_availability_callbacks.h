@@ -30,7 +30,7 @@ class MODULES_EXPORT PresentationAvailabilityCallbacks
   virtual void Resolve(bool value);
   virtual void RejectAvailabilityNotSupported();
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   Member<PresentationAvailabilityProperty> resolver_;

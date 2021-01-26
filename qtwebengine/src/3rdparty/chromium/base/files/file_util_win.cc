@@ -18,6 +18,7 @@
 #include <limits>
 #include <string>
 
+#include "base/debug/alias.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/memory_mapped_file.h"
@@ -28,6 +29,7 @@
 #include "base/process/process_handle.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -37,6 +39,7 @@
 #include "base/threading/scoped_thread_priority.h"
 #include "base/time/time.h"
 #include "base/win/scoped_handle.h"
+#include "base/win/windows_types.h"
 #include "base/win/windows_version.h"
 
 namespace base {
@@ -94,16 +97,16 @@ void RecordPostOperationState(const FilePath& path,
     }
   }
 
-  std::string histogram_name = "Windows.PostOperationState.";
-  operation.AppendToString(&histogram_name);
+  std::string histogram_name =
+      base::StrCat({"Windows.PostOperationState.", operation});
   UmaHistogramEnumeration(histogram_name, metric, PostOperationState::kCount);
 }
 
 // Records the sample |error| in a histogram named
 // "Windows.FilesystemError.|operation|".
 void RecordFilesystemError(StringPiece operation, DWORD error) {
-  std::string histogram_name = "Windows.FilesystemError.";
-  operation.AppendToString(&histogram_name);
+  std::string histogram_name =
+      base::StrCat({"Windows.FilesystemError.", operation});
   UmaHistogramSparse(histogram_name, error);
 }
 
@@ -185,7 +188,7 @@ bool DoCopyFile(const FilePath& from_path,
 
   // Mitigate the issues caused by loading DLLs on a background thread
   // (http://crbug/973868).
-  ScopedThreadMayLoadLibraryOnBackgroundThread priority_boost(FROM_HERE);
+  SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY();
 
   // Unlike the posix implementation that copies the file manually and discards
   // the ACL bits, CopyFile() copies the complete SECURITY_DESCRIPTOR and access
@@ -407,9 +410,18 @@ bool ReplaceFile(const FilePath& from_path,
     return true;
   File::Error move_error = File::OSErrorToFileError(GetLastError());
 
+  // Alias paths for investigation of shutdown hangs. crbug.com/1054164
+  FilePath::CharType from_path_str[MAX_PATH];
+  base::wcslcpy(from_path_str, from_path.value().c_str(),
+                base::size(from_path_str));
+  base::debug::Alias(from_path_str);
+  FilePath::CharType to_path_str[MAX_PATH];
+  base::wcslcpy(to_path_str, to_path.value().c_str(), base::size(to_path_str));
+  base::debug::Alias(to_path_str);
+
   // Try the full-blown replace if the move fails, as ReplaceFile will only
-  // succeed when |to_path| does exist. When writing to a network share, we may
-  // not be able to change the ACLs. Ignore ACL errors then
+  // succeed when |to_path| does exist. When writing to a network share, we
+  // may not be able to change the ACLs. Ignore ACL errors then
   // (REPLACEFILE_IGNORE_MERGE_ERRORS).
   if (::ReplaceFile(to_path.value().c_str(), from_path.value().c_str(), NULL,
                     REPLACEFILE_IGNORE_MERGE_ERRORS, NULL, NULL)) {
@@ -752,6 +764,12 @@ FilePath MakeLongFilePath(const FilePath& input) {
     return FilePath();
 
   return FilePath(path_long_str);
+}
+
+bool CreateWinHardLink(const FilePath& to_file, const FilePath& from_file) {
+  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
+  return ::CreateHardLink(to_file.value().c_str(), from_file.value().c_str(),
+                          nullptr);
 }
 
 // TODO(rkc): Work out if we want to handle NTFS junctions here or not, handle

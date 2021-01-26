@@ -12,9 +12,9 @@ namespace ui {
 ColorMixer::ColorMixer(const ColorMixer* previous_mixer)
     : previous_mixer_(previous_mixer) {}
 
-ColorMixer::ColorMixer(ColorMixer&&) noexcept = default;
+ColorMixer::ColorMixer(ColorMixer&&) = default;
 
-ColorMixer& ColorMixer::operator=(ColorMixer&&) noexcept = default;
+ColorMixer& ColorMixer::operator=(ColorMixer&&) = default;
 
 ColorMixer::~ColorMixer() = default;
 

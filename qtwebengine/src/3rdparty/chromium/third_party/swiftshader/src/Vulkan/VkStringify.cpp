@@ -11,8 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
 #include "VkStringify.hpp"
-#include "VkDebug.hpp"
+
+#include "System/Debug.hpp"
+
 #include "vulkan/vk_ext_provoking_vertex.h"
 
 #include <iostream>
@@ -33,7 +36,7 @@ std::string Stringify(VkStructureType value)
 	// becomes out of date, then this function will throw a warning if someone
 	// tries to stringify that enum value.
 	static const std::map<VkStructureType, const char *> strings = {
-#define INSERT_ELEMENT(p) std::make_pair(p, #p)
+#	define INSERT_ELEMENT(p) std::make_pair(p, #    p)
 		INSERT_ELEMENT(VK_STRUCTURE_TYPE_APPLICATION_INFO),
 		INSERT_ELEMENT(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO),
 		INSERT_ELEMENT(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO),
@@ -454,10 +457,10 @@ std::string Stringify(VkStructureType value)
 		INSERT_ELEMENT(VK_STRUCTURE_TYPE_END_RANGE),
 		INSERT_ELEMENT(VK_STRUCTURE_TYPE_RANGE_SIZE),
 		INSERT_ELEMENT(VK_STRUCTURE_TYPE_MAX_ENUM)
-#undef INSERT_ELEMENT
+#	undef INSERT_ELEMENT
 	};
 	auto it = strings.find(value);
-	if (it != strings.end())
+	if(it != strings.end())
 	{
 		return std::string(it->second);
 	}
@@ -466,9 +469,9 @@ std::string Stringify(VkStructureType value)
 		WARN("Stringify(VkStructureType v) is out of date. Please update it to match vulkan/vulkan_core.h");
 		return std::to_string(value);
 	}
-#else // if not debug:
+#else  // if not debug:
 	return std::to_string(value);
 #endif
 }
 
-}
+}  // namespace vk

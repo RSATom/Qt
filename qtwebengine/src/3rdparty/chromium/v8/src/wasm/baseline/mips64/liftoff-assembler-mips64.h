@@ -39,33 +39,26 @@ namespace liftoff {
 //  -----+--------------------+  <-- stack ptr (sp)
 //
 
-// fp-8 holds the stack marker, fp-16 is the instance parameter, first stack
-// slot is located at fp-16-offset.
-constexpr int32_t kConstantStackSpace = 16;
+// fp-8 holds the stack marker, fp-16 is the instance parameter.
+constexpr int kInstanceOffset = 16;
 
-inline int GetStackSlotOffset(uint32_t offset) {
-  return kConstantStackSpace + offset;
-}
+inline MemOperand GetStackSlot(int offset) { return MemOperand(fp, -offset); }
 
-inline MemOperand GetStackSlot(uint32_t offset) {
-  return MemOperand(fp, -GetStackSlotOffset(offset));
-}
-
-inline MemOperand GetInstanceOperand() { return MemOperand(fp, -16); }
+inline MemOperand GetInstanceOperand() { return GetStackSlot(kInstanceOffset); }
 
 inline void Load(LiftoffAssembler* assm, LiftoffRegister dst, MemOperand src,
                  ValueType type) {
-  switch (type) {
-    case kWasmI32:
+  switch (type.kind()) {
+    case ValueType::kI32:
       assm->lw(dst.gp(), src);
       break;
-    case kWasmI64:
+    case ValueType::kI64:
       assm->ld(dst.gp(), src);
       break;
-    case kWasmF32:
+    case ValueType::kF32:
       assm->lwc1(dst.fp(), src);
       break;
-    case kWasmF64:
+    case ValueType::kF64:
       assm->Ldc1(dst.fp(), src);
       break;
     default:
@@ -76,17 +69,17 @@ inline void Load(LiftoffAssembler* assm, LiftoffRegister dst, MemOperand src,
 inline void Store(LiftoffAssembler* assm, Register base, int32_t offset,
                   LiftoffRegister src, ValueType type) {
   MemOperand dst(base, offset);
-  switch (type) {
-    case kWasmI32:
+  switch (type.kind()) {
+    case ValueType::kI32:
       assm->Usw(src.gp(), dst);
       break;
-    case kWasmI64:
+    case ValueType::kI64:
       assm->Usd(src.gp(), dst);
       break;
-    case kWasmF32:
+    case ValueType::kF32:
       assm->Uswc1(src.fp(), dst, t8);
       break;
-    case kWasmF64:
+    case ValueType::kF64:
       assm->Usdc1(src.fp(), dst, t8);
       break;
     default:
@@ -95,19 +88,19 @@ inline void Store(LiftoffAssembler* assm, Register base, int32_t offset,
 }
 
 inline void push(LiftoffAssembler* assm, LiftoffRegister reg, ValueType type) {
-  switch (type) {
-    case kWasmI32:
+  switch (type.kind()) {
+    case ValueType::kI32:
       assm->daddiu(sp, sp, -kSystemPointerSize);
       assm->sw(reg.gp(), MemOperand(sp, 0));
       break;
-    case kWasmI64:
+    case ValueType::kI64:
       assm->push(reg.gp());
       break;
-    case kWasmF32:
+    case ValueType::kF32:
       assm->daddiu(sp, sp, -kSystemPointerSize);
       assm->swc1(reg.fp(), MemOperand(sp, 0));
       break;
-    case kWasmF64:
+    case ValueType::kF64:
       assm->daddiu(sp, sp, -kSystemPointerSize);
       assm->Sdc1(reg.fp(), MemOperand(sp, 0));
       break;
@@ -240,9 +233,7 @@ int LiftoffAssembler::PrepareStackFrame() {
   return offset;
 }
 
-void LiftoffAssembler::PatchPrepareStackFrame(int offset, uint32_t spill_size) {
-  uint64_t bytes = liftoff::kConstantStackSpace + spill_size;
-  DCHECK_LE(bytes, kMaxInt);
+void LiftoffAssembler::PatchPrepareStackFrame(int offset, int frame_size) {
   // We can't run out of space, just pass anything big enough to not cause the
   // assembler to try to grow the buffer.
   constexpr int kAvailableSpace = 256;
@@ -252,26 +243,50 @@ void LiftoffAssembler::PatchPrepareStackFrame(int offset, uint32_t spill_size) {
   // If bytes can be represented as 16bit, daddiu will be generated and two
   // nops will stay untouched. Otherwise, lui-ori sequence will load it to
   // register and, as third instruction, daddu will be generated.
-  patching_assembler.Daddu(sp, sp, Operand(-bytes));
+  patching_assembler.Daddu(sp, sp, Operand(-frame_size));
 }
 
 void LiftoffAssembler::FinishCode() {}
 
 void LiftoffAssembler::AbortCompilation() {}
 
+// static
+constexpr int LiftoffAssembler::StaticStackFrameSize() {
+  return liftoff::kInstanceOffset;
+}
+
+int LiftoffAssembler::SlotSizeForType(ValueType type) {
+  switch (type.kind()) {
+    case ValueType::kS128:
+      return type.element_size_bytes();
+    default:
+      return kStackSlotSize;
+  }
+}
+
+bool LiftoffAssembler::NeedsAlignment(ValueType type) {
+  switch (type.kind()) {
+    case ValueType::kS128:
+      return true;
+    default:
+      // No alignment because all other types are kStackSlotSize.
+      return false;
+  }
+}
+
 void LiftoffAssembler::LoadConstant(LiftoffRegister reg, WasmValue value,
                                     RelocInfo::Mode rmode) {
-  switch (value.type()) {
-    case kWasmI32:
+  switch (value.type().kind()) {
+    case ValueType::kI32:
       TurboAssembler::li(reg.gp(), Operand(value.to_i32(), rmode));
       break;
-    case kWasmI64:
+    case ValueType::kI64:
       TurboAssembler::li(reg.gp(), Operand(value.to_i64(), rmode));
       break;
-    case kWasmF32:
+    case ValueType::kF32:
       TurboAssembler::Move(reg.fp(), value.to_f32_boxed().get_bits());
       break;
-    case kWasmF64:
+    case ValueType::kF64:
       TurboAssembler::Move(reg.fp(), value.to_f64_boxed().get_bits());
       break;
     default:
@@ -427,6 +442,63 @@ void LiftoffAssembler::Store(Register dst_addr, Register offset_reg,
   }
 }
 
+void LiftoffAssembler::AtomicLoad(LiftoffRegister dst, Register src_addr,
+                                  Register offset_reg, uint32_t offset_imm,
+                                  LoadType type, LiftoffRegList pinned) {
+  bailout(kAtomics, "AtomicLoad");
+}
+
+void LiftoffAssembler::AtomicStore(Register dst_addr, Register offset_reg,
+                                   uint32_t offset_imm, LiftoffRegister src,
+                                   StoreType type, LiftoffRegList pinned) {
+  bailout(kAtomics, "AtomicStore");
+}
+
+void LiftoffAssembler::AtomicAdd(Register dst_addr, Register offset_reg,
+                                 uint32_t offset_imm, LiftoffRegister value,
+                                 StoreType type) {
+  bailout(kAtomics, "AtomicAdd");
+}
+
+void LiftoffAssembler::AtomicSub(Register dst_addr, Register offset_reg,
+                                 uint32_t offset_imm, LiftoffRegister value,
+                                 StoreType type) {
+  bailout(kAtomics, "AtomicSub");
+}
+
+void LiftoffAssembler::AtomicAnd(Register dst_addr, Register offset_reg,
+                                 uint32_t offset_imm, LiftoffRegister value,
+                                 StoreType type) {
+  bailout(kAtomics, "AtomicAnd");
+}
+
+void LiftoffAssembler::AtomicOr(Register dst_addr, Register offset_reg,
+                                uint32_t offset_imm, LiftoffRegister value,
+                                StoreType type) {
+  bailout(kAtomics, "AtomicOr");
+}
+
+void LiftoffAssembler::AtomicXor(Register dst_addr, Register offset_reg,
+                                 uint32_t offset_imm, LiftoffRegister value,
+                                 StoreType type) {
+  bailout(kAtomics, "AtomicXor");
+}
+
+void LiftoffAssembler::AtomicExchange(Register dst_addr, Register offset_reg,
+                                      uint32_t offset_imm,
+                                      LiftoffRegister value, StoreType type) {
+  bailout(kAtomics, "AtomicExchange");
+}
+
+void LiftoffAssembler::AtomicCompareExchange(
+    Register dst_addr, Register offset_reg, uint32_t offset_imm,
+    LiftoffRegister expected, LiftoffRegister new_value, LiftoffRegister result,
+    StoreType type) {
+  bailout(kAtomics, "AtomicCompareExchange");
+}
+
+void LiftoffAssembler::AtomicFence() { sync(); }
+
 void LiftoffAssembler::LoadCallerFrameSlot(LiftoffRegister dst,
                                            uint32_t caller_slot_idx,
                                            ValueType type) {
@@ -454,21 +526,20 @@ void LiftoffAssembler::Move(DoubleRegister dst, DoubleRegister src,
   TurboAssembler::Move(dst, src);
 }
 
-void LiftoffAssembler::Spill(uint32_t offset, LiftoffRegister reg,
-                             ValueType type) {
+void LiftoffAssembler::Spill(int offset, LiftoffRegister reg, ValueType type) {
   RecordUsedSpillOffset(offset);
   MemOperand dst = liftoff::GetStackSlot(offset);
-  switch (type) {
-    case kWasmI32:
+  switch (type.kind()) {
+    case ValueType::kI32:
       Sw(reg.gp(), dst);
       break;
-    case kWasmI64:
+    case ValueType::kI64:
       Sd(reg.gp(), dst);
       break;
-    case kWasmF32:
+    case ValueType::kF32:
       Swc1(reg.fp(), dst);
       break;
-    case kWasmF64:
+    case ValueType::kF64:
       TurboAssembler::Sdc1(reg.fp(), dst);
       break;
     default:
@@ -476,17 +547,17 @@ void LiftoffAssembler::Spill(uint32_t offset, LiftoffRegister reg,
   }
 }
 
-void LiftoffAssembler::Spill(uint32_t offset, WasmValue value) {
+void LiftoffAssembler::Spill(int offset, WasmValue value) {
   RecordUsedSpillOffset(offset);
   MemOperand dst = liftoff::GetStackSlot(offset);
-  switch (value.type()) {
-    case kWasmI32: {
+  switch (value.type().kind()) {
+    case ValueType::kI32: {
       LiftoffRegister tmp = GetUnusedRegister(kGpReg);
       TurboAssembler::li(tmp.gp(), Operand(value.to_i32()));
       sw(tmp.gp(), dst);
       break;
     }
-    case kWasmI64: {
+    case ValueType::kI64: {
       LiftoffRegister tmp = GetUnusedRegister(kGpReg);
       TurboAssembler::li(tmp.gp(), value.to_i64());
       sd(tmp.gp(), dst);
@@ -499,20 +570,19 @@ void LiftoffAssembler::Spill(uint32_t offset, WasmValue value) {
   }
 }
 
-void LiftoffAssembler::Fill(LiftoffRegister reg, uint32_t offset,
-                            ValueType type) {
+void LiftoffAssembler::Fill(LiftoffRegister reg, int offset, ValueType type) {
   MemOperand src = liftoff::GetStackSlot(offset);
-  switch (type) {
-    case kWasmI32:
+  switch (type.kind()) {
+    case ValueType::kI32:
       Lw(reg.gp(), src);
       break;
-    case kWasmI64:
+    case ValueType::kI64:
       Ld(reg.gp(), src);
       break;
-    case kWasmF32:
+    case ValueType::kF32:
       Lwc1(reg.fp(), src);
       break;
-    case kWasmF64:
+    case ValueType::kF64:
       TurboAssembler::Ldc1(reg.fp(), src);
       break;
     default:
@@ -520,32 +590,31 @@ void LiftoffAssembler::Fill(LiftoffRegister reg, uint32_t offset,
   }
 }
 
-void LiftoffAssembler::FillI64Half(Register, uint32_t offset, RegPairHalf) {
+void LiftoffAssembler::FillI64Half(Register, int offset, RegPairHalf) {
   UNREACHABLE();
 }
 
-void LiftoffAssembler::FillStackSlotsWithZero(uint32_t index, uint32_t count) {
-  DCHECK_LT(0, count);
-  uint32_t last_stack_slot = index + count - 1;
-  RecordUsedSpillOffset(GetStackOffsetFromIndex(last_stack_slot));
+void LiftoffAssembler::FillStackSlotsWithZero(int start, int size) {
+  DCHECK_LT(0, size);
+  RecordUsedSpillOffset(start + size);
 
-  if (count <= 12) {
+  if (size <= 12 * kStackSlotSize) {
     // Special straight-line code for up to 12 slots. Generates one
     // instruction per slot (<= 12 instructions total).
-    for (uint32_t offset = 0; offset < count; ++offset) {
-      Sd(zero_reg,
-         liftoff::GetStackSlot(GetStackOffsetFromIndex(index + offset)));
+    uint32_t remainder = size;
+    for (; remainder >= kStackSlotSize; remainder -= kStackSlotSize) {
+      Sd(zero_reg, liftoff::GetStackSlot(start + remainder));
+    }
+    DCHECK(remainder == 4 || remainder == 0);
+    if (remainder) {
+      Sw(zero_reg, liftoff::GetStackSlot(start + remainder));
     }
   } else {
     // General case for bigger counts (12 instructions).
     // Use a0 for start address (inclusive), a1 for end address (exclusive).
     Push(a1, a0);
-    Daddu(a0, fp,
-          Operand(-liftoff::GetStackSlotOffset(
-              GetStackOffsetFromIndex(last_stack_slot))));
-    Daddu(a1, fp,
-          Operand(-liftoff::GetStackSlotOffset(GetStackOffsetFromIndex(index)) +
-                  kStackSlotSize));
+    Daddu(a0, fp, Operand(-start - size));
+    Daddu(a1, fp, Operand(-start));
 
     Label loop;
     bind(&loop);
@@ -777,7 +846,7 @@ I64_SHIFTOP_I(shr, dsrl)
 #undef I64_SHIFTOP
 #undef I64_SHIFTOP_I
 
-void LiftoffAssembler::emit_i32_to_intptr(Register dst, Register src) {
+void LiftoffAssembler::emit_u32_to_intptr(Register dst, Register src) {
   addu(dst, src, zero_reg);
 }
 
@@ -1255,6 +1324,330 @@ void LiftoffAssembler::emit_f64_set_cond(Condition cond, Register dst,
   bind(&cont);
 }
 
+void LiftoffAssembler::emit_f64x2_splat(LiftoffRegister dst,
+                                        LiftoffRegister src) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f64x2_splat");
+}
+
+void LiftoffAssembler::emit_f64x2_extract_lane(LiftoffRegister dst,
+                                               LiftoffRegister lhs,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f64x2_exract_lane");
+}
+
+void LiftoffAssembler::emit_f64x2_replace_lane(LiftoffRegister dst,
+                                               LiftoffRegister src1,
+                                               LiftoffRegister src2,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f64x2_replace_lane");
+}
+
+void LiftoffAssembler::emit_f64x2_add(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f64x2_add");
+}
+
+void LiftoffAssembler::emit_f64x2_sub(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f64x2_sub");
+}
+
+void LiftoffAssembler::emit_f64x2_mul(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f64x2_mul");
+}
+
+void LiftoffAssembler::emit_f32x4_splat(LiftoffRegister dst,
+                                        LiftoffRegister src) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f32x4_splat");
+}
+
+void LiftoffAssembler::emit_f32x4_extract_lane(LiftoffRegister dst,
+                                               LiftoffRegister lhs,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f32x4_exract_lane");
+}
+
+void LiftoffAssembler::emit_f32x4_replace_lane(LiftoffRegister dst,
+                                               LiftoffRegister src1,
+                                               LiftoffRegister src2,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f32x4_replace_lane");
+}
+
+void LiftoffAssembler::emit_f32x4_add(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f32x4_add");
+}
+
+void LiftoffAssembler::emit_f32x4_sub(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f32x4_sub");
+}
+
+void LiftoffAssembler::emit_f32x4_mul(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_f32x4_mul");
+}
+
+void LiftoffAssembler::emit_i64x2_splat(LiftoffRegister dst,
+                                        LiftoffRegister src) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i64x2_splat");
+}
+
+void LiftoffAssembler::emit_i64x2_extract_lane(LiftoffRegister dst,
+                                               LiftoffRegister lhs,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i64x2_exract_lane");
+}
+
+void LiftoffAssembler::emit_i64x2_replace_lane(LiftoffRegister dst,
+                                               LiftoffRegister src1,
+                                               LiftoffRegister src2,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i64x2_replace_lane");
+}
+
+void LiftoffAssembler::emit_i64x2_add(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i64x2_add");
+}
+
+void LiftoffAssembler::emit_i64x2_sub(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i64x2_sub");
+}
+
+void LiftoffAssembler::emit_i64x2_mul(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i64x2_mul");
+}
+
+void LiftoffAssembler::emit_i32x4_splat(LiftoffRegister dst,
+                                        LiftoffRegister src) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i32x4_splat");
+}
+
+void LiftoffAssembler::emit_i32x4_extract_lane(LiftoffRegister dst,
+                                               LiftoffRegister lhs,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i32x4_exract_lane");
+}
+
+void LiftoffAssembler::emit_i32x4_replace_lane(LiftoffRegister dst,
+                                               LiftoffRegister src1,
+                                               LiftoffRegister src2,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i32x4_replace_lane");
+}
+
+void LiftoffAssembler::emit_i32x4_add(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i32x4_add");
+}
+
+void LiftoffAssembler::emit_i32x4_sub(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i32x4_sub");
+}
+
+void LiftoffAssembler::emit_i32x4_mul(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i32x4_mul");
+}
+
+void LiftoffAssembler::emit_i16x8_splat(LiftoffRegister dst,
+                                        LiftoffRegister src) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i16x8_splat");
+}
+
+void LiftoffAssembler::emit_i16x8_extract_lane_u(LiftoffRegister dst,
+                                                 LiftoffRegister lhs,
+                                                 uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i16x8_exract_lane_u");
+}
+
+void LiftoffAssembler::emit_i16x8_extract_lane_s(LiftoffRegister dst,
+                                                 LiftoffRegister lhs,
+                                                 uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i16x8_exract_lane_s");
+}
+
+void LiftoffAssembler::emit_i16x8_replace_lane(LiftoffRegister dst,
+                                               LiftoffRegister src1,
+                                               LiftoffRegister src2,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i16x8_replace_lane");
+}
+
+void LiftoffAssembler::emit_i16x8_add(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i16x8_add");
+}
+
+void LiftoffAssembler::emit_i16x8_sub(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i16x8_sub");
+}
+
+void LiftoffAssembler::emit_i16x8_mul(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i16x8_mul");
+}
+
+void LiftoffAssembler::emit_i8x16_splat(LiftoffRegister dst,
+                                        LiftoffRegister src) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i8x16_splat");
+}
+
+void LiftoffAssembler::emit_i8x16_extract_lane_u(LiftoffRegister dst,
+                                                 LiftoffRegister lhs,
+                                                 uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i8x16_exract_lane_u");
+}
+
+void LiftoffAssembler::emit_i8x16_extract_lane_s(LiftoffRegister dst,
+                                                 LiftoffRegister lhs,
+                                                 uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i8x16_exract_lane_s");
+}
+
+void LiftoffAssembler::emit_i8x16_replace_lane(LiftoffRegister dst,
+                                               LiftoffRegister src1,
+                                               LiftoffRegister src2,
+                                               uint8_t imm_lane_idx) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i8x16_replace_lane");
+}
+
+void LiftoffAssembler::emit_i8x16_add(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i8x16_add");
+}
+
+void LiftoffAssembler::emit_i8x16_sub(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i8x16_sub");
+}
+
+void LiftoffAssembler::emit_i8x16_mul(LiftoffRegister dst, LiftoffRegister lhs,
+                                      LiftoffRegister rhs) {
+  // TODO(mips): Support this on loongson 3a4000. Currently, the main MIPS
+  // CPU, Loongson 3a3000 does not support MSA(simd128), but the upcoming
+  // 3a4000 support MSA.
+  bailout(kSimd, "emit_i8x16_mul");
+}
+
 void LiftoffAssembler::StackCheck(Label* ool_code, Register limit_address) {
   TurboAssembler::Uld(limit_address, MemOperand(limit_address));
   TurboAssembler::Branch(ool_code, ule, sp, Operand(limit_address));
@@ -1325,7 +1718,7 @@ void LiftoffAssembler::DropStackSlotsAndRet(uint32_t num_stack_slots) {
   TurboAssembler::DropAndRet(static_cast<int>(num_stack_slots));
 }
 
-void LiftoffAssembler::CallC(wasm::FunctionSig* sig,
+void LiftoffAssembler::CallC(const wasm::FunctionSig* sig,
                              const LiftoffRegister* args,
                              const LiftoffRegister* rets,
                              ValueType out_argument_type, int stack_bytes,
@@ -1335,7 +1728,7 @@ void LiftoffAssembler::CallC(wasm::FunctionSig* sig,
   int arg_bytes = 0;
   for (ValueType param_type : sig->parameters()) {
     liftoff::Store(this, sp, arg_bytes, *args++, param_type);
-    arg_bytes += ValueTypes::MemSize(param_type);
+    arg_bytes += param_type.element_size_bytes();
   }
   DCHECK_LE(arg_bytes, stack_bytes);
 
@@ -1372,7 +1765,7 @@ void LiftoffAssembler::CallNativeWasmCode(Address addr) {
   Call(addr, RelocInfo::WASM_CALL);
 }
 
-void LiftoffAssembler::CallIndirect(wasm::FunctionSig* sig,
+void LiftoffAssembler::CallIndirect(const wasm::FunctionSig* sig,
                                     compiler::CallDescriptor* call_descriptor,
                                     Register target) {
   if (target == no_reg) {
