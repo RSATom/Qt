@@ -1,5 +1,0 @@
-#include "testcpp.h"
-
-#ifdef test_template
-#   include "testtemplate.h"
-#endif
