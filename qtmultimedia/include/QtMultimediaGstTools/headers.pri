@@ -1,6 +1,0 @@
-SYNCQT.HEADER_FILES = 
-SYNCQT.GENERATED_HEADER_FILES = qtmultimediagsttoolsversion.h QtMultimediaGstToolsVersion QtMultimediaGstTools 
-SYNCQT.PRIVATE_HEADER_FILES = gstvideoconnector_p.h qgstappsrc_p.h qgstbufferpoolinterface_p.h qgstcodecsinfo_p.h qgstreameraudioinputselector_p.h qgstreameraudioprobecontrol_p.h qgstreamerbufferprobe_p.h qgstreamerbushelper_p.h qgstreamermessage_p.h qgstreamerplayercontrol_p.h qgstreamerplayersession_p.h qgstreamervideoinputdevicecontrol_p.h qgstreamervideooverlay_p.h qgstreamervideoprobecontrol_p.h qgstreamervideorenderer_p.h qgstreamervideorendererinterface_p.h qgstreamervideowidget_p.h qgstreamervideowindow_p.h qgsttools_global_p.h qgstutils_p.h qgstvideobuffer_p.h qgstvideorendererplugin_p.h qgstvideorenderersink_p.h qvideosurfacegstsink_p.h 
-SYNCQT.QPA_HEADER_FILES = 
-SYNCQT.CLEAN_HEADER_FILES = 
-SYNCQT.INJECTIONS = 
