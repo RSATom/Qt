@@ -1,6 +1,0 @@
-SYNCQT.HEADER_FILES = qcompressedhelpinfo.h qhelp_global.h qhelpcontentwidget.h qhelpengine.h qhelpenginecore.h qhelpfilterdata.h qhelpfilterengine.h qhelpfiltersettingswidget.h qhelpindexwidget.h qhelplink.h qhelpsearchengine.h qhelpsearchquerywidget.h qhelpsearchresultwidget.h 
-SYNCQT.GENERATED_HEADER_FILES = QCompressedHelpInfo QHelpGlobal QHelpContentItem QHelpContentModel QHelpContentWidget QHelpEngine QHelpEngineCore QHelpFilterData QHelpFilterEngine QHelpFilterSettingsWidget QHelpIndexModel QHelpIndexWidget QHelpLink QHelpSearchQuery QHelpSearchResult QHelpSearchEngine QHelpSearchQueryWidget QHelpSearchResultWidget qthelpversion.h QtHelpVersion QtHelp 
-SYNCQT.PRIVATE_HEADER_FILES = qfilternamedialog_p.h qhelpcollectionhandler_p.h qhelpdbreader_p.h qhelpengine_p.h qhelpfiltersettings_p.h qhelpsearchindexreader_default_p.h qhelpsearchindexreader_p.h qhelpsearchindexwriter_default_p.h qoptionswidget_p.h 
-SYNCQT.QPA_HEADER_FILES = 
-SYNCQT.CLEAN_HEADER_FILES = qcompressedhelpinfo.h qhelp_global.h qhelpcontentwidget.h qhelpengine.h qhelpenginecore.h qhelpfilterdata.h qhelpfilterengine.h qhelpfiltersettingswidget.h qhelpindexwidget.h qhelplink.h qhelpsearchengine.h qhelpsearchquerywidget.h qhelpsearchresultwidget.h 
-SYNCQT.INJECTIONS = 

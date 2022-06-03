@@ -1,4 +1,0 @@
-include(crossmodule.qdocconf)
-
-HTML.nosubdirs          = true
-HTML.outputsubdir       = crossmodule

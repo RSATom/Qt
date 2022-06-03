@@ -1,2 +1,0 @@
-include(testqml.qdocconf)
-include(docbook.qdocconf)
