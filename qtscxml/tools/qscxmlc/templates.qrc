@@ -1,7 +1,0 @@
-<RCC>
-    <qresource prefix="/">
-        <file compression-algorithm="none">data.t</file>
-        <file compression-algorithm="none">decl.t</file>
-        <file compression-algorithm="none">cppdatamodel.t</file>
-    </qresource>
-</RCC>
