@@ -1,4 +1,0 @@
-include_rules = [
-  "+components/crash/android",
-  "+ui/base/resource",
-]

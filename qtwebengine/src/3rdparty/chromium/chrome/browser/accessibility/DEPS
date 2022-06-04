@@ -1,3 +1,0 @@
-include_rules = [
-  "+services/image_annotation",
-]

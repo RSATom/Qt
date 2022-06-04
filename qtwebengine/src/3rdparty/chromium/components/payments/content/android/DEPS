@@ -1,4 +1,0 @@
-include_rules = [
-  "+components/payments/content/android/jni_headers",
-  "+services/network/public/cpp",
-]

@@ -1,4 +1,0 @@
-include_rules = [
-  "+gin",
-  "+third_party/widevine",
-]

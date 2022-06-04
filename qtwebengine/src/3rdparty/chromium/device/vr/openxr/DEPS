@@ -1,4 +1,0 @@
-include_rules = [
-  "+third_party/openxr/src/include/openxr",
-  "+components/version_info",
-]

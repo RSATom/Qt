@@ -1,5 +1,0 @@
-include_rules = [
-  "+components/update_client",
-  "+courgette",
-  "+mojo/public",
-]

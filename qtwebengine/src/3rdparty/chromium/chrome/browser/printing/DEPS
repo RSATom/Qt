@@ -1,3 +1,0 @@
-include_rules = [
-  "+pdf/pdf.h",  # Test only.
-]

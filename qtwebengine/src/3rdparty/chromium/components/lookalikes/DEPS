@@ -1,5 +1,0 @@
-include_rules = [
-  "+components/security_state",
-  "+components/url_formatter",
-  "+net/base",
-]

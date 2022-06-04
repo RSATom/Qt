@@ -1,4 +1,0 @@
-include_rules = [
-  "+components/openscreen_platform",
-  "+third_party/openscreen/src",
-]

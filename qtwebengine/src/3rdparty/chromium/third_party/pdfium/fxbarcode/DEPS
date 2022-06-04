@@ -1,5 +1,0 @@
-include_rules = [
-  '+core/fxcrt',
-  '+core/fxge',
-  '+third_party/bigint',
-]

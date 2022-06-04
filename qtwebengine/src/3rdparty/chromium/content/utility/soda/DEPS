@@ -1,5 +1,0 @@
-include_rules = [
-  "+components/soda",
-  "+sandbox",
-  "+services/service_manager/sandbox",
-]

@@ -1,4 +1,0 @@
-include_rules = [
-  "+components/minidump_uploader/minidump_uploader_jni_headers",
-  "+third_party/crashpad",
-]

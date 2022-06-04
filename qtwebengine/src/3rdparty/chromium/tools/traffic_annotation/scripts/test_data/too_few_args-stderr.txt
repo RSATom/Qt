@@ -1,3 +1,0 @@
-CppParsingError: Expected comma in annotation definition at too_few_args.cc:8.
-near ');
-'

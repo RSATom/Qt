@@ -1,5 +1,0 @@
-include_rules = [
-  "+components/services/filesystem",
-  "+mojo/public",
-  "+third_party/zlib/google",
-]

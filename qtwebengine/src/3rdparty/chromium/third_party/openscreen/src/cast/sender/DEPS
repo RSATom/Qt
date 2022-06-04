@@ -1,7 +1,0 @@
-# -*- Mode: Python; -*-
-
-include_rules = [
-  # libcast sender code must not depend on the receiver.
-  '+cast/common',
-  '+cast/sender',
-]

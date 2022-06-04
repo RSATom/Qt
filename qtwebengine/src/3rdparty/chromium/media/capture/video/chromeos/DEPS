@@ -1,5 +1,0 @@
-include_rules = [
-  "+chromeos/dbus",
-  "+components/chromeos_camera",
-  "+third_party/libsync",
-]

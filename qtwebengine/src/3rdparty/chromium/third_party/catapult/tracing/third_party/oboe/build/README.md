@@ -1,1 +1,0 @@
-Directory used for the building. Nothing to see here.

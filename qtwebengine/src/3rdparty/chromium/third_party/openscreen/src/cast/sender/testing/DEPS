@@ -1,4 +1,0 @@
-include_rules = [
-  # Sender tests can use receiver code for simulation/validation.
-  '+cast/receiver',
-]
